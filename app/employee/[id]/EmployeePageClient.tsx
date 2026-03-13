@@ -140,9 +140,9 @@ function EmployeeCalendar({
               className={cn(
                 "aspect-square flex items-center justify-center rounded text-xs font-medium tabular-nums",
                 d.inPeriod && "ring-2 ring-primary ring-inset bg-primary/5",
-                d.status === "holiday" && "bg-amber-100 dark:bg-amber-950/40 text-amber-800 dark:text-amber-200",
-                d.status === "present" && "bg-emerald-100 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-200",
-                d.status === "absent" && "bg-red-100 dark:bg-red-950/40 text-red-800 dark:text-red-200",
+                d.status === "holiday" && "bg-warning/20 text-warning-foreground",
+                d.status === "present" && "bg-success/20 text-foreground",
+                d.status === "absent" && "bg-destructive/20 text-destructive",
                 !d.status && "text-muted-foreground"
               )}
               aria-label={label(d)}
