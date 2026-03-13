@@ -32,6 +32,11 @@ import {
 } from "@/lib/auth";
 import { getItems, saveItem, deleteItem } from "@/lib/services/itemService";
 import { getShifts, saveShift, deleteShift } from "@/lib/services/shiftService";
+import {
+  getAllHolidays,
+  saveHoliday,
+  deleteHoliday,
+} from "@/lib/services/factoryHolidayService";
 import { deleteProductionsBefore } from "@/lib/services/productionService";
 import { deleteAdvancesBefore } from "@/lib/services/advanceService";
 import { isTauri } from "@/lib/db/adapter";
@@ -54,6 +59,10 @@ export default function SettingsPage() {
   const [ready, setReady] = useState(false);
   const [items, setItems] = useState<Record<string, unknown>[]>([]);
   const [shifts, setShifts] = useState<Record<string, unknown>[]>([]);
+  const [factoryHolidays, setFactoryHolidays] = useState<
+    Record<string, unknown>[]
+  >([]);
+  const [holidayDate, setHolidayDate] = useState("");
   const [historyBefore, setHistoryBefore] = useState("");
   const [deleteResult, setDeleteResult] = useState("");
   const [exportResult, setExportResult] = useState("");
@@ -66,9 +75,14 @@ export default function SettingsPage() {
   const importJsonInputRef = useRef<HTMLInputElement>(null);
 
   const load = async () => {
-    const [i, s] = await Promise.all([getItems(), getShifts()]);
+    const [i, s, h] = await Promise.all([
+      getItems(),
+      getShifts(),
+      getAllHolidays(),
+    ]);
     setItems(i);
     setShifts(s);
+    setFactoryHolidays(h);
   };
 
   useEffect(() => {
@@ -426,6 +440,80 @@ export default function SettingsPage() {
               <AlertDescription>{securityResult}</AlertDescription>
             </Alert>
           )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className={headingClass}>Factory holidays</CardTitle>
+            <p className="text-sm text-muted-foreground mt-1">
+              Days when the full factory is closed. Used for working-day and rate
+              calculations.
+            </p>
+          </CardHeader>
+          <CardContent>
+          <div className="overflow-x-auto mb-6">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Date</TableHead>
+                  <TableHead className="w-16" />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {[...factoryHolidays]
+                  .sort((a, b) =>
+                    (a.date as string).localeCompare(b.date as string)
+                  )
+                  .map((h) => (
+                    <TableRow key={h.id as string}>
+                      <TableCell className="tabular-nums">
+                        {h.date as string}
+                      </TableCell>
+                      <TableCell>
+                        <Button
+                          type="button"
+                          variant="destructive"
+                          size="icon"
+                          title="Delete holiday"
+                          aria-label={`Delete holiday ${h.date as string}`}
+                          onClick={async () => {
+                            await deleteHoliday(h.id as string);
+                            load();
+                          }}
+                        >
+                          <Trash2 data-icon="inline-start" aria-hidden />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+              </TableBody>
+            </Table>
+          </div>
+          <form
+            className="flex flex-wrap gap-4 items-end"
+            onSubmit={async (e) => {
+              e.preventDefault();
+              if (!holidayDate.trim()) return;
+              await saveHoliday({ date: holidayDate.trim() });
+              setHolidayDate("");
+              load();
+            }}
+          >
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="holiday-date">Add date</Label>
+              <DatePicker
+                id="holiday-date"
+                value={holidayDate}
+                onChange={setHolidayDate}
+                placeholder="Select date"
+                className="w-48 min-h-[44px]"
+              />
+            </div>
+            <Button type="submit" className={btnPrimaryClass}>
+              Add holiday
+            </Button>
+          </form>
           </CardContent>
         </Card>
 
