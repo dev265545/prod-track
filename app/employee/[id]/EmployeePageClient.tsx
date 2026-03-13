@@ -48,11 +48,19 @@ import {
   saveDeduction,
 } from "@/lib/services/advanceDeductionService";
 import { getItems } from "@/lib/services/itemService";
+import { getShifts } from "@/lib/services/shiftService";
+import { saveEmployee } from "@/lib/services/employeeService";
 import { getSalaryRecordsByEmployee } from "@/lib/services/salaryRecordService";
 import {
   calculateSalary,
   getPrintableSalaryHtml,
 } from "@/lib/services/salaryService";
+import { getHolidaysInRange } from "@/lib/services/factoryHolidayService";
+import {
+  getWorkingDaysInMonth,
+  getRatePerDay,
+  getRatePerHour,
+} from "@/lib/utils/salaryRates";
 import { getPeriodForDate, getPeriodsWithData, today } from "@/lib/utils/date";
 import { currency, dateDisplay, number } from "@/lib/utils/formatter";
 
@@ -88,6 +96,8 @@ export function EmployeePageClient() {
   const [storedSalaryRecords, setStoredSalaryRecords] = useState<
     Record<string, unknown>[]
   >([]);
+  const [shifts, setShifts] = useState<Record<string, unknown>[]>([]);
+  const [factoryHolidays, setFactoryHolidays] = useState<string[]>([]);
 
   const load = async () => {
     const emp = await getEmployee(id);
@@ -96,14 +106,17 @@ export function EmployeePageClient() {
       return;
     }
     setEmployee(emp);
-    const [allProds, allAdvs, itemsList, salaryRecs] = await Promise.all([
-      getProductionsByEmployee(id, "2000-01-01", "2100-12-31"),
-      getAdvancesByEmployee(id, "2000-01-01", "2100-12-31"),
-      getItems(),
-      getSalaryRecordsByEmployee(id),
-    ]);
+    const [allProds, allAdvs, itemsList, salaryRecs, shiftList] =
+      await Promise.all([
+        getProductionsByEmployee(id, "2000-01-01", "2100-12-31"),
+        getAdvancesByEmployee(id, "2000-01-01", "2100-12-31"),
+        getItems(),
+        getSalaryRecordsByEmployee(id),
+        getShifts(),
+      ]);
     setItems(itemsList);
     setStoredSalaryRecords(salaryRecs);
+    setShifts(shiftList);
     const periodsWithData = getPeriodsWithData([...allProds, ...allAdvs]);
     const period = getPeriodForDate(today());
     const periodList = periodsWithData.length > 0 ? periodsWithData : [period];
@@ -152,6 +165,17 @@ export function EmployeePageClient() {
     });
   }, [id, from, to]);
 
+  useEffect(() => {
+    if (!from) return;
+    const [y, m] = from.split("-").map(Number);
+    const monthStart = `${y}-${String(m).padStart(2, "0")}-01`;
+    const lastDay = new Date(y, m, 0).getDate();
+    const monthEnd = `${y}-${String(m).padStart(2, "0")}-${lastDay}`;
+    getHolidaysInRange(monthStart, monthEnd).then((holidays) => {
+      setFactoryHolidays(holidays.map((h) => h.date as string));
+    });
+  }, [from]);
+
   if (!ready) {
     return (
       <AppShell>
@@ -178,6 +202,27 @@ export function EmployeePageClient() {
     items.map((i) => [i.id as string, i]),
   ) as Record<string, Record<string, unknown>>;
 
+  const shiftMap = Object.fromEntries(
+    shifts.map((s) => [s.id as string, s])
+  ) as Record<string, Record<string, unknown>>;
+
+  const [year, month] = from
+    ? from.split("-").map(Number)
+    : [new Date().getFullYear(), new Date().getMonth() + 1];
+  const workingDays = getWorkingDaysInMonth(
+    year,
+    month - 1,
+    factoryHolidays
+  );
+  const monthlySalary = (employee.monthlySalary as number) ?? 0;
+  const shiftId = employee.shiftId as string | undefined;
+  const selectedShift = shiftId ? shiftMap[shiftId] : null;
+  const hoursPerDay = selectedShift
+    ? ((selectedShift.hoursPerDay as number) ?? 8)
+    : 8;
+  const ratePerDay = getRatePerDay(monthlySalary, workingDays);
+  const ratePerHour = getRatePerHour(monthlySalary, workingDays, hoursPerDay);
+
   return (
     <AppShell>
       <main id="main" className="flex flex-col gap-8 animate-fade-in">
@@ -192,6 +237,89 @@ export function EmployeePageClient() {
             {employee.name as string}
           </h1>
         </div>
+
+        <Card className="p-6 sm:p-8">
+          <CardHeader className="p-0 mb-5">
+            <CardTitle className="text-xl font-semibold font-heading">
+              Shift &amp; salary
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            <div className="flex flex-wrap items-end gap-4">
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="emp-shift">Shift</Label>
+                <Select
+                  value={(employee.shiftId as string) ?? "_none"}
+                  onValueChange={async (v) => {
+                    const shiftId = v === "_none" ? undefined : v;
+                    const updated = {
+                      ...employee,
+                      shiftId,
+                    };
+                    await saveEmployee(updated);
+                    setEmployee(updated);
+                  }}
+                >
+                  <SelectTrigger id="emp-shift" className="w-48 min-h-12">
+                    <SelectValue placeholder="Select shift" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="_none">No shift</SelectItem>
+                    {shifts.map((s) => (
+                      <SelectItem key={s.id as string} value={s.id as string}>
+                        {s.name as string}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="emp-monthly-salary">Monthly salary (₹)</Label>
+                <Input
+                  id="emp-monthly-salary"
+                  type="number"
+                  min={0}
+                  value={monthlySalary}
+                  onChange={(e) => {
+                    const v = parseFloat(e.target.value) || 0;
+                    setEmployee({ ...employee, monthlySalary: v });
+                  }}
+                  onBlur={async (e) => {
+                    const v = parseFloat((e.target as HTMLInputElement).value) || 0;
+                    const updated = { ...employee, monthlySalary: v };
+                    await saveEmployee(updated);
+                    setEmployee(updated);
+                  }}
+                  className="w-40 min-h-12"
+                />
+              </div>
+            </div>
+            {from && (
+              <div className="mt-6 flex flex-wrap gap-6 text-sm">
+                <div>
+                  <span className="text-muted-foreground">Working days: </span>
+                  <span className="font-medium tabular-nums">{workingDays}</span>
+                </div>
+                {monthlySalary > 0 && (
+                  <>
+                    <div>
+                      <span className="text-muted-foreground">Rate per day: </span>
+                      <span className="font-medium tabular-nums">
+                        {currency(ratePerDay)}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Rate per hour: </span>
+                      <span className="font-medium tabular-nums">
+                        {currency(ratePerHour)}
+                      </span>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
         <Card className="p-6 sm:p-8">
           <CardHeader className="p-0 mb-5">
