@@ -56,13 +56,106 @@ import {
   getPrintableSalaryHtml,
 } from "@/lib/services/salaryService";
 import { getHolidaysInRange } from "@/lib/services/factoryHolidayService";
+import { getAttendanceByEmployeeInRange } from "@/lib/services/attendanceService";
 import {
   getWorkingDaysInMonth,
   getRatePerDay,
   getRatePerHour,
 } from "@/lib/utils/salaryRates";
+import { cn } from "@/lib/utils";
 import { getPeriodForDate, getPeriodsWithData, today } from "@/lib/utils/date";
 import { currency, dateDisplay, number } from "@/lib/utils/formatter";
+
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+function EmployeeCalendar({
+  from,
+  to,
+  factoryHolidays,
+  productions,
+  attendance,
+}: {
+  from: string;
+  to: string;
+  factoryHolidays: string[];
+  productions: Record<string, unknown>[];
+  attendance: Record<string, unknown>[];
+}) {
+  const [y, m] = from.split("-").map(Number);
+  const padM = String(m).padStart(2, "0");
+  const monthStart = `${y}-${padM}-01`;
+  const firstDay = new Date(y, m - 1, 1);
+  const lastDay = new Date(y, m, 0).getDate();
+  const startOffset = firstDay.getDay();
+  const prodDates = new Set(productions.map((p) => p.date as string));
+  const attByDate = Object.fromEntries(
+    attendance.map((a) => [(a.date as string), a.status as string])
+  );
+  const holidaySet = new Set(factoryHolidays);
+
+  function getDayStatus(dateStr: string): "holiday" | "present" | "absent" | null {
+    if (holidaySet.has(dateStr)) return "holiday";
+    const att = attByDate[dateStr];
+    if (att === "absent") return "absent";
+    if (att === "present" || prodDates.has(dateStr)) return "present";
+    return null;
+  }
+
+  function isInPeriod(dateStr: string): boolean {
+    return dateStr >= from && dateStr <= to;
+  }
+
+  const days: { date: string; day: number; status: "holiday" | "present" | "absent" | null; inPeriod: boolean }[] = [];
+  for (let d = 1; d <= lastDay; d++) {
+    const dateStr = `${y}-${padM}-${String(d).padStart(2, "0")}`;
+    days.push({
+      date: dateStr,
+      day: d,
+      status: getDayStatus(dateStr),
+      inPeriod: isInPeriod(dateStr),
+    });
+  }
+
+  const label = (d: (typeof days)[0]) => {
+    if (!d.status) return `${d.day}`;
+    const s = d.status === "holiday" ? "Holiday" : d.status === "present" ? "Present" : "Absent";
+    return `${d.day}, ${s}`;
+  };
+
+  return (
+    <div className="overflow-x-auto">
+      <div className="inline-block min-w-[280px]">
+        <div className="grid grid-cols-7 gap-px text-center text-sm">
+          {WEEKDAYS.map((w) => (
+            <div key={w} className="py-1 font-medium text-muted-foreground">
+              {w}
+            </div>
+          ))}
+          {Array.from({ length: startOffset }, (_, i) => (
+            <div key={`pad-${i}`} className="aspect-square" />
+          ))}
+          {days.map((d) => (
+            <div
+              key={d.date}
+              className={cn(
+                "aspect-square flex items-center justify-center rounded text-xs font-medium tabular-nums",
+                d.inPeriod && "ring-2 ring-primary ring-inset bg-primary/5",
+                d.status === "holiday" && "bg-amber-100 dark:bg-amber-950/40 text-amber-800 dark:text-amber-200",
+                d.status === "present" && "bg-emerald-100 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-200",
+                d.status === "absent" && "bg-red-100 dark:bg-red-950/40 text-red-800 dark:text-red-200",
+                !d.status && "text-muted-foreground"
+              )}
+              aria-label={label(d)}
+              title={label(d)}
+            >
+              {d.day}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export function EmployeePageClient() {
   const params = useParams();
@@ -98,6 +191,12 @@ export function EmployeePageClient() {
   >([]);
   const [shifts, setShifts] = useState<Record<string, unknown>[]>([]);
   const [factoryHolidays, setFactoryHolidays] = useState<string[]>([]);
+  const [calendarProductions, setCalendarProductions] = useState<
+    Record<string, unknown>[]
+  >([]);
+  const [calendarAttendance, setCalendarAttendance] = useState<
+    Record<string, unknown>[]
+  >([]);
 
   const load = async () => {
     const emp = await getEmployee(id);
@@ -166,15 +265,22 @@ export function EmployeePageClient() {
   }, [id, from, to]);
 
   useEffect(() => {
-    if (!from) return;
+    if (!from || !id) return;
     const [y, m] = from.split("-").map(Number);
-    const monthStart = `${y}-${String(m).padStart(2, "0")}-01`;
+    const padM = String(m).padStart(2, "0");
+    const monthStart = `${y}-${padM}-01`;
     const lastDay = new Date(y, m, 0).getDate();
-    const monthEnd = `${y}-${String(m).padStart(2, "0")}-${lastDay}`;
-    getHolidaysInRange(monthStart, monthEnd).then((holidays) => {
+    const monthEnd = `${y}-${padM}-${lastDay}`;
+    Promise.all([
+      getHolidaysInRange(monthStart, monthEnd),
+      getProductionsByEmployee(id, monthStart, monthEnd),
+      getAttendanceByEmployeeInRange(id, monthStart, monthEnd),
+    ]).then(([holidays, prods, att]) => {
       setFactoryHolidays(holidays.map((h) => h.date as string));
+      setCalendarProductions(prods);
+      setCalendarAttendance(att);
     });
-  }, [from]);
+  }, [from, id]);
 
   if (!ready) {
     return (
@@ -320,6 +426,29 @@ export function EmployeePageClient() {
             )}
           </CardContent>
         </Card>
+
+        {from && to && (
+          <Card className="p-6 sm:p-8">
+            <CardHeader className="p-0 mb-5">
+              <CardTitle className="text-xl font-semibold font-heading">
+                Calendar
+              </CardTitle>
+              <p className="text-sm text-muted-foreground mt-1">
+                {dateDisplay(from)} – {dateDisplay(to)} (selected period
+                highlighted)
+              </p>
+            </CardHeader>
+            <CardContent className="p-0">
+              <EmployeeCalendar
+                from={from}
+                to={to}
+                factoryHolidays={factoryHolidays}
+                productions={calendarProductions}
+                attendance={calendarAttendance}
+              />
+            </CardContent>
+          </Card>
+        )}
 
         <Card className="p-6 sm:p-8">
           <CardHeader className="p-0 mb-5">
