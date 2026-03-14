@@ -238,7 +238,7 @@ export default function SettingsPage() {
                     else setExportResult("Export failed: " + result.error);
                   } else {
                     const bytes = await exportDatabaseToSqlite();
-                    const blob = new Blob([bytes], {
+                    const blob = new Blob([new Uint8Array(bytes)], {
                       type: "application/x-sqlite3",
                     });
                     const a = document.createElement("a");
