@@ -43,12 +43,10 @@ jobs:
           node-version: "lts/*"
           cache: "pnpm"
 
-      - name: Install pnpm
-        run: npm install -g pnpm
-
-      - name: Add pnpm to PATH
-        run: echo "$(npm bin -g)" >> $GITHUB_PATH
-        shell: bash
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -61,10 +59,7 @@ jobs:
           workspaces: "src-tauri -> target"
 
       - name: Install frontend dependencies
-        run: |
-          export PATH="$(npm bin -g):$PATH"
-          pnpm install
-        shell: bash
+        run: pnpm install
 
       - name: Build and release (Tauri)
         uses: tauri-apps/tauri-action@v0
