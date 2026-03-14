@@ -195,11 +195,10 @@ export default function SalarySheetPage() {
             <div className="flex flex-col gap-2">
               <Label htmlFor="salary-month">Month</Label>
               <Select
-                id="salary-month"
                 value={monthValue}
                 onValueChange={handleMonthChange}
               >
-                <SelectTrigger className="min-w-[200px] min-h-12">
+                <SelectTrigger id="salary-month" className="min-w-[200px] min-h-12">
                   <SelectValue placeholder="Select month" />
                 </SelectTrigger>
                 <SelectContent>
