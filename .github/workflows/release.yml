@@ -46,6 +46,10 @@ jobs:
       - name: Install pnpm
         run: npm install -g pnpm
 
+      - name: Add pnpm to PATH
+        run: echo "$(npm bin -g)" >> $GITHUB_PATH
+        shell: bash
+
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
