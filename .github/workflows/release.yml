@@ -61,7 +61,10 @@ jobs:
           workspaces: "src-tauri -> target"
 
       - name: Install frontend dependencies
-        run: pnpm install
+        run: |
+          export PATH="$(npm bin -g):$PATH"
+          pnpm install
+        shell: bash
 
       - name: Build and release (Tauri)
         uses: tauri-apps/tauri-action@v0
