@@ -162,8 +162,10 @@ export default function SalarySheetPage() {
   };
 
   const handlePrint = () => {
+    console.log("[print] Print button clicked (salary sheet)");
     const monthLabel = formatMonthYear(`${year}-${String(month + 1).padStart(2, "0")}-01`);
     const html = buildPrintableHtml(rows, monthLabel, from, to);
+    console.log("[print] Got HTML, length:", html?.length ?? 0);
     printHtml(html);
   };
 

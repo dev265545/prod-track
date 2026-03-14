@@ -1,4 +1,5 @@
 //! SQLite backend for ProdTrack (id + JSON data per store).
+//! Tables must match lib/db/schema.ts STORES (same names).
 
 use rusqlite::Connection;
 use std::path::PathBuf;
@@ -14,6 +15,8 @@ const TABLES: &[&str] = &[
     "advance_deductions",
     "shifts",
     "salary_records",
+    "factory_holidays",
+    "attendance",
 ];
 
 pub struct DbState {
@@ -79,11 +82,15 @@ pub fn db_get_all(state: State<DbState>, store: String) -> Result<Vec<serde_json
         return Err(format!("Unknown store: {}", store));
     }
     state.with_conn(|conn| {
-        let mut stmt = conn.prepare(&format!("SELECT data FROM {} ORDER BY id", store)).map_err(|e| e.to_string())?;
-        let rows = stmt.query_map([], |row| {
-            let data: String = row.get(0)?;
-            Ok(data)
-        }).map_err(|e| e.to_string())?;
+        let mut stmt = conn
+            .prepare(&format!("SELECT data FROM {} ORDER BY id", store))
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([], |row| {
+                let data: String = row.get(0)?;
+                Ok(data)
+            })
+            .map_err(|e| e.to_string())?;
         let mut out = Vec::new();
         for row in rows {
             let data: String = row.map_err(|e| e.to_string())?;
@@ -104,8 +111,12 @@ pub fn db_get(
         return Err(format!("Unknown store: {}", store));
     }
     state.with_conn(|conn| {
-        let mut stmt = conn.prepare(&format!("SELECT data FROM {} WHERE id = ?1", store)).map_err(|e| e.to_string())?;
-        let mut rows = stmt.query(rusqlite::params![id]).map_err(|e| e.to_string())?;
+        let mut stmt = conn
+            .prepare(&format!("SELECT data FROM {} WHERE id = ?1", store))
+            .map_err(|e| e.to_string())?;
+        let mut rows = stmt
+            .query(rusqlite::params![id])
+            .map_err(|e| e.to_string())?;
         if let Some(row) = rows.next().map_err(|e| e.to_string())? {
             let data: String = row.get(0).map_err(|e| e.to_string())?;
             let v: serde_json::Value = serde_json::from_str(&data).map_err(|e| e.to_string())?;
@@ -132,9 +143,13 @@ pub fn db_put(
     let data = serde_json::to_string(&record).map_err(|e| e.to_string())?;
     state.with_conn(|conn| {
         conn.execute(
-            &format!("INSERT OR REPLACE INTO {} (id, data) VALUES (?1, ?2)", store),
+            &format!(
+                "INSERT OR REPLACE INTO {} (id, data) VALUES (?1, ?2)",
+                store
+            ),
             rusqlite::params![id, data],
-        ).map_err(|e| e.to_string())?;
+        )
+        .map_err(|e| e.to_string())?;
         Ok(())
     })
 }
@@ -145,7 +160,11 @@ pub fn db_remove(state: State<DbState>, store: String, id: String) -> Result<(),
         return Err(format!("Unknown store: {}", store));
     }
     state.with_conn(|conn| {
-        conn.execute(&format!("DELETE FROM {} WHERE id = ?1", store), rusqlite::params![id]).map_err(|e| e.to_string())?;
+        conn.execute(
+            &format!("DELETE FROM {} WHERE id = ?1", store),
+            rusqlite::params![id],
+        )
+        .map_err(|e| e.to_string())?;
         Ok(())
     })
 }
@@ -156,7 +175,8 @@ pub fn db_clear(state: State<DbState>, store: String) -> Result<(), String> {
         return Err(format!("Unknown store: {}", store));
     }
     state.with_conn(|conn| {
-        conn.execute(&format!("DELETE FROM {}", store), []).map_err(|e| e.to_string())?;
+        conn.execute(&format!("DELETE FROM {}", store), [])
+            .map_err(|e| e.to_string())?;
         Ok(())
     })
 }
@@ -192,6 +212,18 @@ pub fn db_export_with_dialog(app: AppHandle, state: State<DbState>) -> Result<()
         .ok_or("Save cancelled or invalid path")?;
     std::fs::copy(&state.path, &target).map_err(|e| e.to_string())?;
     Ok(())
+}
+
+/// Write HTML to a temp file for printing. Returns the file path.
+#[tauri::command]
+pub fn write_temp_html(html: String) -> Result<String, String> {
+    let mut temp_dir = std::env::temp_dir();
+    temp_dir.push(format!("prodtrack-print-{}.html", std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()));
+    std::fs::write(&temp_dir, html).map_err(|e| e.to_string())?;
+    Ok(temp_dir.to_string_lossy().into_owned())
 }
 
 /// Show open dialog and import DB from selected file. No frontend dialog package needed.

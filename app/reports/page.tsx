@@ -229,6 +229,7 @@ export default function ReportsPage() {
     const printStyles =
       "body{margin:0;font-family:system-ui,sans-serif;font-size:12px;color:#0a0a0a;background:#fff;padding:16px}.mb-4{margin-bottom:12px}.mb-6{margin-bottom:20px}.text-2xl{font-size:1.5rem;font-weight:700}.text-sm{font-size:0.75rem}.text-lg{font-size:1.125rem}.text-gray-600{color:#52525b}.border{border:1px solid #e4e4e7}.w-full{width:100%}.table{width:100%;font-size:11px;border-collapse:collapse}.table th,.table td{padding:4px 6px;text-align:left;border:1px solid #e4e4e7}.table th{background:#f4f4f5;font-weight:600}.text-right{text-align:right}";
     const html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Production report – ${periodLabel}</title><style>${printStyles}</style></head><body><div style="max-width:100%;margin:0 auto"><div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px"><div><h1 class="text-2xl">ProdTrack Lite</h1><p class="text-sm text-gray-600">Production report${filterLabel}</p></div><div class="text-sm text-right"><p><strong>Period:</strong> ${periodLabel}</p></div></div><h2 class="text-lg" style="font-weight:600;margin-bottom:6px">Cumulative by packaging item group</h2><p class="text-sm text-gray-600 mb-4">${cumulativeDesc}</p><table class="table w-full mb-6"><thead>${cumulativeTableHeader}</thead><tbody>${cumulativeRowsHtml}</tbody></table></div></body></html>`;
+    console.log("[print] Print button clicked (reports), HTML length:", html?.length ?? 0);
     printHtml(html);
   };
 

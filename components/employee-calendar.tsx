@@ -85,8 +85,8 @@ export function EmployeeCalendar({
   const pad = (n: number) => String(n).padStart(2, "0");
 
   return (
-    <div className="w-full h-full min-w-[350px] max-w-[400px]  rounded-xl border border-border bg-card p-4 sm:p-6 flex flex-col">
-      <div className="flex items-center justify-between mb-4">
+    <div className="w-full h-full min-w-[320px] max-w-[380px] rounded-xl border border-border bg-card p-3 sm:p-4 flex flex-col">
+      <div className="flex items-center justify-between mb-3">
         <Button
           type="button"
           variant="outline"
@@ -100,7 +100,7 @@ export function EmployeeCalendar({
         >
           <ChevronLeft data-icon="inline-start" />
         </Button>
-        <h3 className="font-heading font-bold text-lg text-foreground">
+        <h3 className="font-heading font-bold text-base text-foreground">
           {MONTH_NAMES[month]} {year}
         </h3>
         <Button
@@ -204,7 +204,7 @@ export function EmployeeCalendar({
         })}
       </div>
 
-      <div className="flex flex-wrap gap-4 mt-auto pt-4 text-xs text-muted-foreground">
+      <div className="flex flex-wrap gap-3 mt-auto pt-3 text-[10px] text-muted-foreground">
         <div className="flex items-center gap-1.5">
           <span className="size-2 rounded-full bg-[hsl(var(--success))]" />{" "}
           Production

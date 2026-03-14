@@ -42,3 +42,13 @@ export function getRatePerHour(
   if (workingDays <= 0 || hoursPerDay <= 0) return 0;
   return monthlySalary / (workingDays * hoursPerDay);
 }
+
+/**
+ * Earned Sundays based on attendance count.
+ * Thresholds: 10 days → 1 Sunday, 12 → 2, 18 → 3, 24 → 4, 30 → 5, 36 → 6, etc.
+ */
+const SUNDAY_THRESHOLDS = [10, 12, 18, 24, 30, 36, 42, 48];
+
+export function getEarnedSundays(daysCountForSunday: number): number {
+  return SUNDAY_THRESHOLDS.filter((t) => daysCountForSunday >= t).length;
+}

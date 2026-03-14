@@ -8,6 +8,17 @@
   "permissions": [
     "core:default",
     "dialog:allow-open",
-    "dialog:allow-save"
+    "dialog:allow-save",
+    "opener:default",
+    "printer:allow-get-printers",
+    "printer:allow-print-html",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [{ "url": "data:*" }]
+    },
+    {
+      "identifier": "opener:allow-open-path",
+      "allow": [{ "path": "$TEMP/**" }]
+    }
   ]
 }

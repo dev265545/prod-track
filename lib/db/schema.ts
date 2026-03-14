@@ -1,5 +1,6 @@
 /**
- * ProdTrack Lite - DB schema (shared by IndexedDB and SQLite)
+ * ProdTrack Lite - DB schema (shared by IndexedDB and SQLite).
+ * Store names must match src-tauri/src/db.rs TABLES.
  */
 
 export const DB_NAME = "prodtrack-db";

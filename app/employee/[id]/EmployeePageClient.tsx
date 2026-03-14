@@ -63,9 +63,14 @@ import {
   getRatePerHour,
 } from "@/lib/utils/salaryRates";
 import {
+  computeAttendanceStats,
+  computeHoursInRange,
+} from "@/lib/utils/attendanceStats";
+import {
   getPeriodForDate,
   getPeriodsWithData,
   today,
+  isSunday,
   isRestrictedForEntry,
 } from "@/lib/utils/date";
 import { getHolidayByDate } from "@/lib/services/factoryHolidayService";
@@ -138,10 +143,15 @@ export function EmployeePageClient() {
   const [calendarAttendance, setCalendarAttendance] = useState<
     Record<string, unknown>[]
   >([]);
+  const [periodAttendance, setPeriodAttendance] = useState<
+    Record<string, unknown>[]
+  >([]);
   const now = new Date();
   const [calYear, setCalYear] = useState(now.getFullYear());
   const [calMonth, setCalMonth] = useState(now.getMonth());
   const [selectedDate, setSelectedDate] = useState<string | null>(today());
+  const [hoursReducedInput, setHoursReducedInput] = useState("");
+  const [hoursExtraInput, setHoursExtraInput] = useState("");
 
   const load = async () => {
     const emp = await getEmployee(id);
@@ -195,7 +205,8 @@ export function EmployeePageClient() {
       getDeductionForPeriod(id, from, to),
       getProductionsByEmployee(id, from, to),
       getAdvancesByEmployee(id, from, to),
-    ]).then(([s, ded, prods, advs]) => {
+      getAttendanceByEmployeeInRange(id, from, to),
+    ]).then(([s, ded, prods, advs, periodAtt]) => {
       const advanceToCut = (ded?.amount as number) ?? 0;
       setAdvanceToCutInput(advanceToCut);
       setSalary({
@@ -206,6 +217,7 @@ export function EmployeePageClient() {
       });
       setProductions(prods);
       setAdvances(advs);
+      setPeriodAttendance(periodAtt);
     });
   }, [id, from, to]);
 
@@ -225,6 +237,21 @@ export function EmployeePageClient() {
       setCalendarAttendance(att);
     });
   }, [id, calYear, calMonth]);
+
+  useEffect(() => {
+    const rec = calendarAttendance.find(
+      (a) => (a.date as string) === selectedDate,
+    );
+    if (rec?.status === "present") {
+      setHoursReducedInput(
+        rec.hoursReduced != null ? String(rec.hoursReduced) : "",
+      );
+      setHoursExtraInput(rec.hoursExtra != null ? String(rec.hoursExtra) : "");
+    } else {
+      setHoursReducedInput("");
+      setHoursExtraInput("");
+    }
+  }, [selectedDate, calendarAttendance]);
 
   if (!ready) {
     return (
@@ -289,17 +316,69 @@ export function EmployeePageClient() {
     return sum + ((p.quantity as number) || 0) * rate;
   }, 0);
 
-  // Monthly attendance summary for calendar month
-  const monthAttendance = calendarAttendance;
-  const daysPresent = monthAttendance.filter(
-    (a) => a.status === "present",
-  ).length;
-  const daysAbsent = monthAttendance.filter(
-    (a) => a.status === "absent",
-  ).length;
-  const earnedSundays = Math.floor(daysPresent / 6);
-  const totalPaidDays = daysPresent + earnedSundays;
+  // Monthly attendance summary (no entry = absent; holiday present = Sunday count only)
+  const productionDates = new Set(
+    calendarProductions.map((p) => p.date as string),
+  );
+  const attendanceStats = computeAttendanceStats({
+    year: calYear,
+    month: calMonth,
+    holidayDates: factoryHolidays,
+    attendance: calendarAttendance.map((a) => ({
+      date: a.date as string,
+      status: a.status as string,
+      hoursWorked: a.hoursWorked as number | undefined,
+      hoursReduced: a.hoursReduced as number | undefined,
+      hoursExtra: a.hoursExtra as number | undefined,
+    })),
+    productionDates,
+    hoursPerDay,
+  });
+  const {
+    presentDays: daysPresent,
+    absentDays: daysAbsent,
+    earnedSundays,
+    totalPaidDays,
+    totalHoursWorked: monthHours,
+  } = attendanceStats;
   const calculatedSalary = totalPaidDays * ratePerDay;
+
+  const periodProdQty = productions.reduce(
+    (sum, p) => sum + ((p.quantity as number) || 0),
+    0,
+  );
+  const periodProdValue = productions.reduce((sum, p) => {
+    const item = itemMap[p.itemId as string];
+    const rate = (item?.rate as number) || 0;
+    return sum + ((p.quantity as number) || 0) * rate;
+  }, 0);
+  const periodHours =
+    from && to
+      ? computeHoursInRange(
+          periodAttendance.map((a) => ({
+            date: a.date as string,
+            status: a.status as string,
+            hoursWorked: a.hoursWorked as number | undefined,
+            hoursReduced: a.hoursReduced as number | undefined,
+            hoursExtra: a.hoursExtra as number | undefined,
+          })),
+          from,
+          to,
+          hoursPerDay,
+        )
+      : 0;
+  const dayHours = selectedDate
+    ? (() => {
+        const rec = calendarAttendance.find(
+          (a) => (a.date as string) === selectedDate,
+        );
+        if (!rec || (rec.status as string) !== "present") return 0;
+        const extra =
+          ((rec.hoursExtra as number) ?? 0) -
+          ((rec.hoursReduced as number) ?? 0);
+        return (rec.hoursWorked as number) ?? hoursPerDay + extra;
+      })()
+    : 0;
 
   return (
     <AppShell>
@@ -418,8 +497,8 @@ export function EmployeePageClient() {
           </Card>
         </div>
 
-        <div className="flex flex-col xl:flex-row gap-6 xl:items-stretch">
-          <div className="xl:shrink-0 xl:min-w-[380px] xl:w-[380px]">
+        <div className="flex flex-col xl:flex-row gap-4 xl:items-stretch">
+          <div className="xl:shrink-0 xl:min-w-[350px] xl:w-[350px]">
             <EmployeeCalendar
               year={calYear}
               month={calMonth}
@@ -441,77 +520,145 @@ export function EmployeePageClient() {
               periodTo={to || ""}
             />
           </div>
-          <div className="grid grid-cols-2 gap-4 flex-1 min-w-0 xl:min-w-[280px]">
-            <Card className="p-5 sm:p-6 flex flex-col min-h-0">
-              <CardHeader className="p-0 pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-                  <UserCheck className="size-4 text-primary shrink-0" />
+          <div className="grid grid-cols-2 gap-2 flex-1 min-w-0 xl:min-w-[280px]">
+            <Card className="p-3 flex flex-col min-h-0">
+              <CardHeader className="p-0 pb-1">
+                <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                  <UserCheck className="size-3.5 text-primary shrink-0" />
                   Attendance — {MONTH_NAMES[calMonth]}
                 </CardTitle>
               </CardHeader>
-              <CardContent className="p-0 pt-2">
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="rounded-lg border bg-muted/40 px-3 py-2 text-sm">
-                    <p className="text-muted-foreground text-xs">Present</p>
-                    <p className="font-semibold tabular-nums text-foreground">
+              <CardContent className="p-0 pt-1.5">
+                <div className="grid grid-cols-2 gap-1.5">
+                  <div className="rounded-lg border bg-muted/40 px-2 py-1.5 text-xs">
+                    <p className="text-muted-foreground text-[10px] font-medium">
+                      Present
+                    </p>
+                    <p className="font-bold tabular-nums text-foreground text-sm">
                       {daysPresent}
                     </p>
                   </div>
-                  <div className="rounded-lg border bg-muted/40 px-3 py-2 text-sm">
-                    <p className="text-muted-foreground text-xs">Absent</p>
-                    <p className="font-semibold tabular-nums text-foreground">
+                  <div className="rounded-lg border bg-muted/40 px-2 py-1.5 text-xs">
+                    <p className="text-muted-foreground text-[10px] font-medium">
+                      Absent
+                    </p>
+                    <p className="font-bold tabular-nums text-foreground text-sm">
                       {daysAbsent}
                     </p>
                   </div>
-                  <div className="rounded-lg border bg-muted/40 px-3 py-2 text-sm">
-                    <p className="text-muted-foreground text-xs">Sundays</p>
-                    <p className="font-semibold tabular-nums text-foreground">
+                  <div className="rounded-lg border bg-muted/40 px-2 py-1.5 text-xs">
+                    <p className="text-muted-foreground text-[10px] font-medium">
+                      Sundays
+                    </p>
+                    <p className="font-bold tabular-nums text-foreground text-sm">
                       {earnedSundays}
                     </p>
                   </div>
-                  <div className="rounded-lg border bg-muted/40 px-3 py-2 text-sm">
-                    <p className="text-muted-foreground text-xs">Paid days</p>
-                    <p className="font-bold tabular-nums text-foreground">
+                  <div className="rounded-lg border bg-muted/40 px-2 py-1.5 text-xs">
+                    <p className="text-muted-foreground text-[10px] font-medium">
+                      Paid days
+                    </p>
+                    <p className="font-bold tabular-nums text-foreground text-sm">
                       {totalPaidDays}
                     </p>
                   </div>
-                  <div className="col-span-2 rounded-lg border-2 border-primary/30 bg-primary/10 px-4 py-3">
-                    <p className="text-muted-foreground text-xs font-medium">
+                  <div className="col-span-2 rounded-lg border-2 border-primary/30 bg-primary/10 px-2 py-2">
+                    <p className="text-muted-foreground text-[10px] font-medium">
                       Salary
                     </p>
-                    <p className="text-xl font-bold tabular-nums text-foreground">
+                    <p className="text-base font-bold tabular-nums text-foreground">
                       {currency(calculatedSalary)}
                     </p>
                   </div>
                 </div>
               </CardContent>
             </Card>
-
-            <Card className="p-5 sm:p-6 ">
-              <CardHeader className="p-0 pb-2 shrink-0">
-                <div className="flex items-center gap-2">
-                  <Package className="size-5 text-primary shrink-0" />
-                  <CardTitle className="text-sm font-medium text-muted-foreground truncate">
-                    Day production
+            <div className="grid grid-cols-2 gap-2">
+              <Card className="p-3">
+                <CardHeader className="p-0 pb-1 shrink-0">
+                  <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                    <Clock className="size-3.5 text-primary shrink-0" />
+                    Period hours
                   </CardTitle>
-                </div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  {selectedDate ? dateDisplay(selectedDate) : "Select a date"}
-                </p>
-              </CardHeader>
-              <CardContent className="p-0 mt-auto pt-2">
-                <p className="text-3xl font-bold font-heading text-foreground tabular-nums leading-tight">
-                  {number(dayProdQty)}
-                </p>
-                <p className="text-sm text-muted-foreground mt-1">
-                  {currency(dayProdValue)}
-                </p>
-              </CardContent>
-            </Card>
-            <Card className="p-5 sm:p-6 flex flex-col min-h-0">
-              <CardHeader className="p-0 pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-                  <CalendarDays className="size-4 text-primary shrink-0" />
+                  <p className="text-[10px] text-muted-foreground truncate">
+                    {from && to
+                      ? `${dateDisplay(from)} – ${dateDisplay(to)}`
+                      : "Select period"}
+                  </p>
+                </CardHeader>
+                <CardContent className="p-0 pt-1">
+                  <p className="text-xl font-bold tabular-nums leading-tight">
+                    {number(periodHours)}h
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {currency(periodHours * ratePerHour)}
+                  </p>
+                </CardContent>
+              </Card>
+              <Card className="p-3">
+                <CardHeader className="p-0 pb-1 shrink-0">
+                  <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                    <Package className="size-3.5 text-primary shrink-0" />
+                    Period production
+                  </CardTitle>
+                  <p className="text-[10px] text-muted-foreground truncate">
+                    {from && to
+                      ? `${dateDisplay(from)} – ${dateDisplay(to)}`
+                      : "Select period"}
+                  </p>
+                </CardHeader>
+                <CardContent className="p-0 pt-1">
+                  <p className="text-xl font-bold tabular-nums leading-tight">
+                    {number(periodProdQty)}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {currency(periodProdValue)}
+                  </p>
+                </CardContent>
+              </Card>
+              <Card className="p-3">
+                <CardHeader className="p-0 pb-1 shrink-0">
+                  <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                    <Clock className="size-3.5 text-primary shrink-0" />
+                    Monthly hours
+                  </CardTitle>
+                  <p className="text-[10px] text-muted-foreground">
+                    {MONTH_NAMES[calMonth]} {calYear}
+                  </p>
+                </CardHeader>
+                <CardContent className="p-0 pt-1">
+                  <p className="text-xl font-bold tabular-nums leading-tight">
+                    {number(monthHours)}h
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {currency(monthHours * ratePerHour)}
+                  </p>
+                </CardContent>
+              </Card>
+              <Card className="p-3">
+                <CardHeader className="p-0 pb-1 shrink-0">
+                  <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                    <LayoutGrid className="size-3.5 text-primary shrink-0" />
+                    Monthly production
+                  </CardTitle>
+                  <p className="text-[10px] text-muted-foreground">
+                    {MONTH_NAMES[calMonth]} {calYear}
+                  </p>
+                </CardHeader>
+                <CardContent className="p-0 pt-1">
+                  <p className="text-xl font-bold tabular-nums leading-tight">
+                    {number(monthProdQty)}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {currency(monthProdValue)}
+                  </p>
+                </CardContent>
+              </Card>
+            </div>
+            <Card className="p-3 flex flex-col min-h-0">
+              <CardHeader className="p-0 pb-1">
+                <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                  <CalendarDays className="size-3.5 text-primary shrink-0" />
                   {selectedDate
                     ? `${dateDisplay(selectedDate)} — Attendance`
                     : "Select a date"}
@@ -519,152 +666,329 @@ export function EmployeePageClient() {
               </CardHeader>
               <CardContent className="p-0 mt-2">
                 {!selectedDate ? (
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-sm text-muted-foreground">
                     Click a date on the calendar to mark attendance.
                   </p>
-                ) : isRestrictedForEntry(selectedDate, factoryHolidays) ? (
-                  <p className="text-xs text-muted-foreground">
-                    Cannot mark on Sundays or holidays.
+                ) : isSunday(selectedDate) ? (
+                  <p className="text-sm text-muted-foreground">
+                    Cannot mark on Sundays.
                   </p>
                 ) : (
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      type="button"
-                      variant={
-                        calendarAttendance.find(
-                          (a) => (a.date as string) === selectedDate,
-                        )?.status === "present"
-                          ? "default"
-                          : "secondary"
-                      }
-                      size="sm"
-                      className={
-                        calendarAttendance.find(
-                          (a) => (a.date as string) === selectedDate,
-                        )?.status === "present"
-                          ? "bg-[hsl(var(--success))] hover:bg-[hsl(var(--success))]/90 text-[hsl(var(--success-foreground))]"
-                          : ""
-                      }
-                      onClick={async () => {
-                        const existing = calendarAttendance.find(
-                          (a) => (a.date as string) === selectedDate,
-                        );
-                        await saveAttendance({
-                          ...(existing?.id
-                            ? { id: existing.id as string }
-                            : {}),
-                          employeeId: id,
-                          date: selectedDate,
-                          status: "present",
-                        });
-                        const padM = String(calMonth + 1).padStart(2, "0");
-                        const monthStart = `${calYear}-${padM}-01`;
-                        const lastDay = new Date(
-                          calYear,
-                          calMonth + 1,
-                          0,
-                        ).getDate();
-                        const monthEnd = `${calYear}-${padM}-${lastDay}`;
-                        const att = await getAttendanceByEmployeeInRange(
-                          id,
-                          monthStart,
-                          monthEnd,
-                        );
-                        setCalendarAttendance(att);
-                      }}
-                    >
-                      <Check data-icon="inline-start" />
-                      Present
-                    </Button>
-                    <Button
-                      type="button"
-                      variant={
-                        calendarAttendance.find(
-                          (a) => (a.date as string) === selectedDate,
-                        )?.status === "absent"
-                          ? "destructive"
-                          : "secondary"
-                      }
-                      size="sm"
-                      onClick={async () => {
-                        const existing = calendarAttendance.find(
-                          (a) => (a.date as string) === selectedDate,
-                        );
-                        await saveAttendance({
-                          ...(existing?.id
-                            ? { id: existing.id as string }
-                            : {}),
-                          employeeId: id,
-                          date: selectedDate,
-                          status: "absent",
-                        });
-                        const padM = String(calMonth + 1).padStart(2, "0");
-                        const monthStart = `${calYear}-${padM}-01`;
-                        const lastDay = new Date(
-                          calYear,
-                          calMonth + 1,
-                          0,
-                        ).getDate();
-                        const monthEnd = `${calYear}-${padM}-${lastDay}`;
-                        const att = await getAttendanceByEmployeeInRange(
-                          id,
-                          monthStart,
-                          monthEnd,
-                        );
-                        setCalendarAttendance(att);
-                      }}
-                    >
-                      <X data-icon="inline-start" />
-                      Absent
-                    </Button>
-                    {calendarAttendance.some(
-                      (a) => (a.date as string) === selectedDate,
-                    ) && (
+                  <div className="space-y-3">
+                    <div className="flex flex-wrap gap-2">
                       <Button
                         type="button"
-                        variant="ghost"
+                        variant={
+                          calendarAttendance.find(
+                            (a) => (a.date as string) === selectedDate,
+                          )?.status === "present"
+                            ? "default"
+                            : "secondary"
+                        }
                         size="sm"
-                        className="text-xs h-7"
+                        className={
+                          calendarAttendance.find(
+                            (a) => (a.date as string) === selectedDate,
+                          )?.status === "present"
+                            ? "bg-[hsl(var(--success))] hover:bg-[hsl(var(--success))]/90 text-[hsl(var(--success-foreground))] h-8 px-3 text-xs"
+                            : "h-8 px-3 text-xs"
+                        }
                         onClick={async () => {
+                          const existing = calendarAttendance.find(
+                            (a) => (a.date as string) === selectedDate,
+                          );
+                          const reduced = hoursReducedInput
+                            ? parseFloat(hoursReducedInput)
+                            : undefined;
+                          const extra = hoursExtraInput
+                            ? parseFloat(hoursExtraInput)
+                            : undefined;
+                          await saveAttendance({
+                            ...(existing?.id
+                              ? { id: existing.id as string }
+                              : {}),
+                            employeeId: id,
+                            date: selectedDate,
+                            status: "present",
+                            ...(reduced != null &&
+                            !Number.isNaN(reduced) &&
+                            reduced >= 0
+                              ? { hoursReduced: reduced }
+                              : {}),
+                            ...(extra != null &&
+                            !Number.isNaN(extra) &&
+                            extra >= 0
+                              ? { hoursExtra: extra }
+                              : {}),
+                          });
+                          const padM = String(calMonth + 1).padStart(2, "0");
+                          const monthStart = `${calYear}-${padM}-01`;
+                          const lastDay = new Date(
+                            calYear,
+                            calMonth + 1,
+                            0,
+                          ).getDate();
+                          const monthEnd = `${calYear}-${padM}-${lastDay}`;
+                          const [att, periodAtt] = await Promise.all([
+                            getAttendanceByEmployeeInRange(
+                              id,
+                              monthStart,
+                              monthEnd,
+                            ),
+                            from && to
+                              ? getAttendanceByEmployeeInRange(id, from, to)
+                              : Promise.resolve([]),
+                          ]);
+                          setCalendarAttendance(att);
+                          if (from && to) setPeriodAttendance(periodAtt);
+                        }}
+                      >
+                        <Check data-icon="inline-start" />
+                        Present
+                      </Button>
+                      <Button
+                        type="button"
+                        variant={
+                          calendarAttendance.find(
+                            (a) => (a.date as string) === selectedDate,
+                          )?.status === "absent"
+                            ? "destructive"
+                            : "secondary"
+                        }
+                        size="sm"
+                        className="h-8 px-3 text-xs"
+                        onClick={async () => {
+                          const existing = calendarAttendance.find(
+                            (a) => (a.date as string) === selectedDate,
+                          );
+                          await saveAttendance({
+                            ...(existing?.id
+                              ? { id: existing.id as string }
+                              : {}),
+                            employeeId: id,
+                            date: selectedDate,
+                            status: "absent",
+                          });
+                          const padM = String(calMonth + 1).padStart(2, "0");
+                          const monthStart = `${calYear}-${padM}-01`;
+                          const lastDay = new Date(
+                            calYear,
+                            calMonth + 1,
+                            0,
+                          ).getDate();
+                          const monthEnd = `${calYear}-${padM}-${lastDay}`;
+                          const [att, periodAtt] = await Promise.all([
+                            getAttendanceByEmployeeInRange(
+                              id,
+                              monthStart,
+                              monthEnd,
+                            ),
+                            from && to
+                              ? getAttendanceByEmployeeInRange(id, from, to)
+                              : Promise.resolve([]),
+                          ]);
+                          setCalendarAttendance(att);
+                          if (from && to) setPeriodAttendance(periodAtt);
+                        }}
+                      >
+                        <X data-icon="inline-start" />
+                        Absent
+                      </Button>
+                      {calendarAttendance.some(
+                        (a) => (a.date as string) === selectedDate,
+                      ) && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="text-xs h-8 px-3"
+                          onClick={async () => {
+                            const rec = calendarAttendance.find(
+                              (a) => (a.date as string) === selectedDate,
+                            );
+                            if (rec?.id)
+                              await deleteAttendance(rec.id as string);
+                            setCalendarAttendance((prev) =>
+                              prev.filter(
+                                (a) => (a.date as string) !== selectedDate,
+                              ),
+                            );
+                          }}
+                        >
+                          Clear
+                        </Button>
+                      )}
+                    </div>
+                    {calendarAttendance.find(
+                      (a) => (a.date as string) === selectedDate,
+                    )?.status === "present" && (
+                      <div className="flex flex-wrap items-center gap-2 pt-2 border-t">
+                        <div className="flex items-center gap-1">
+                          <Label
+                            htmlFor="hours-reduced"
+                            className="text-[10px] text-muted-foreground shrink-0"
+                          >
+                            −h
+                          </Label>
+                          <Input
+                            id="hours-reduced"
+                            type="number"
+                            min={0}
+                            max={24}
+                            step={0.5}
+                            placeholder="0"
+                            className="h-7 w-14 text-xs"
+                            value={hoursReducedInput}
+                            onChange={(e) =>
+                              setHoursReducedInput(e.target.value)
+                            }
+                          />
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <Label
+                            htmlFor="hours-extra"
+                            className="text-[10px] text-muted-foreground shrink-0"
+                          >
+                            +h
+                          </Label>
+                          <Input
+                            id="hours-extra"
+                            type="number"
+                            min={0}
+                            max={24}
+                            step={0.5}
+                            placeholder="0"
+                            className="h-7 w-14 text-xs"
+                            value={hoursExtraInput}
+                            onChange={(e) => setHoursExtraInput(e.target.value)}
+                          />
+                        </div>
+                        <span className="text-[10px] text-muted-foreground shrink-0">
+                          × {currency(ratePerHour)}/h
+                        </span>
+                        {(() => {
                           const rec = calendarAttendance.find(
                             (a) => (a.date as string) === selectedDate,
                           );
-                          if (rec?.id) await deleteAttendance(rec.id as string);
-                          setCalendarAttendance((prev) =>
-                            prev.filter(
-                              (a) => (a.date as string) !== selectedDate,
-                            ),
-                          );
-                        }}
-                      >
-                        Clear
-                      </Button>
+                          const storedReduced = rec?.hoursReduced as
+                            | number
+                            | undefined;
+                          const storedExtra = rec?.hoursExtra as
+                            | number
+                            | undefined;
+                          const hasChanged =
+                            (hoursReducedInput !== "" &&
+                              parseFloat(hoursReducedInput) !==
+                                (storedReduced ?? 0)) ||
+                            (hoursExtraInput !== "" &&
+                              parseFloat(hoursExtraInput) !==
+                                (storedExtra ?? 0));
+                          return hasChanged ? (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-7 text-[10px] px-2"
+                              onClick={async () => {
+                                const existing = calendarAttendance.find(
+                                  (a) => (a.date as string) === selectedDate,
+                                );
+                                if (!existing) return;
+                                const reduced = hoursReducedInput
+                                  ? parseFloat(hoursReducedInput)
+                                  : 0;
+                                const extra = hoursExtraInput
+                                  ? parseFloat(hoursExtraInput)
+                                  : 0;
+                                await saveAttendance({
+                                  ...existing,
+                                  hoursReduced: Number.isNaN(reduced)
+                                    ? undefined
+                                    : reduced,
+                                  hoursExtra: Number.isNaN(extra)
+                                    ? undefined
+                                    : extra,
+                                });
+                                const padM = String(calMonth + 1).padStart(
+                                  2,
+                                  "0",
+                                );
+                                const monthStart = `${calYear}-${padM}-01`;
+                                const lastDay = new Date(
+                                  calYear,
+                                  calMonth + 1,
+                                  0,
+                                ).getDate();
+                                const monthEnd = `${calYear}-${padM}-${lastDay}`;
+                                const [att, periodAtt] = await Promise.all([
+                                  getAttendanceByEmployeeInRange(
+                                    id,
+                                    monthStart,
+                                    monthEnd,
+                                  ),
+                                  from && to
+                                    ? getAttendanceByEmployeeInRange(
+                                        id,
+                                        from,
+                                        to,
+                                      )
+                                    : Promise.resolve([]),
+                                ]);
+                                setCalendarAttendance(att);
+                                if (from && to) setPeriodAttendance(periodAtt);
+                              }}
+                            >
+                              Update
+                            </Button>
+                          ) : null;
+                        })()}
+                      </div>
                     )}
                   </div>
                 )}
               </CardContent>
             </Card>
-            <Card className="p-5 sm:p-6 flex flex-col min-h-0">
-              <CardHeader className="p-0 pb-2 shrink-0">
-                <div className="flex items-center gap-2">
-                  <LayoutGrid className="size-5 text-primary shrink-0" />
-                  <CardTitle className="text-sm font-medium text-muted-foreground truncate">
-                    Monthly production
+
+            <div className="grid grid-cols-2 gap-2">
+              <Card className="p-3">
+                <CardHeader className="p-0 pb-1 shrink-0">
+                  <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                    <Clock className="size-3.5 text-primary shrink-0" />
+                    Day hours
                   </CardTitle>
-                </div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  {MONTH_NAMES[calMonth]} {calYear}
-                </p>
-              </CardHeader>
-              <CardContent className="p-0 mt-auto pt-2">
-                <p className="text-3xl font-bold font-heading text-foreground tabular-nums leading-tight">
-                  {number(monthProdQty)}
-                </p>
-                <p className="text-sm text-muted-foreground mt-1">
-                  {currency(monthProdValue)}
-                </p>
-              </CardContent>
-            </Card>
+                  <p className="text-[10px] text-muted-foreground truncate">
+                    {selectedDate ? dateDisplay(selectedDate) : "Select date"}
+                  </p>
+                </CardHeader>
+                <CardContent className="p-0 pt-1">
+                  <p className="text-xl font-bold tabular-nums leading-tight">
+                    {number(dayHours)}h
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {currency(dayHours * ratePerHour)}
+                  </p>
+                </CardContent>
+              </Card>
+              <Card className="p-3">
+                <CardHeader className="p-0 pb-1 shrink-0">
+                  <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                    <Package className="size-3.5 text-primary shrink-0" />
+                    Day production
+                  </CardTitle>
+                  <p className="text-[10px] text-muted-foreground truncate">
+                    {selectedDate ? dateDisplay(selectedDate) : "Select date"}
+                  </p>
+                </CardHeader>
+                <CardContent className="p-0 pt-1">
+                  <p className="text-xl font-bold tabular-nums leading-tight">
+                    {number(dayProdQty)}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {currency(dayProdValue)}
+                  </p>
+                </CardContent>
+              </Card>
+            </div>
           </div>
         </div>
 
@@ -708,8 +1032,11 @@ export function EmployeePageClient() {
                 type="button"
                 className="min-h-12 px-6"
                 onClick={async () => {
+                  console.log("[print] Print salary sheet button clicked");
                   const { html } = await getPrintableSalaryHtml(id, from, to);
-                  printHtml(html);
+                  console.log("[print] Got HTML, length:", html?.length ?? 0);
+                  await printHtml(html);
+                  console.log("[print] printHtml returned");
                 }}
               >
                 Print salary sheet

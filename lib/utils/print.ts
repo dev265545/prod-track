@@ -1,6 +1,8 @@
 /**
- * Print HTML content. Works in both web (opens new window) and Tauri
- * (injects into current window, since window.open is blocked).
+ * Print HTML content.
+ * - Tauri with printer: native printer plugin (OS print dialog).
+ * - Tauri without printer: opens HTML in system browser for preview + print (e.g. Save as PDF).
+ * - Web: new window + window.print() with short delay.
  */
 
 function isTauri(): boolean {
@@ -8,15 +10,18 @@ function isTauri(): boolean {
   return !!(window as Window & { __TAURI__?: unknown }).__TAURI__;
 }
 
-export function printHtml(html: string): void {
-  if (isTauri()) {
-    printInCurrentWindow(html);
-  } else {
-    printInNewWindow(html);
+/** Injects a script that triggers the print dialog when the page loads (e.g. in browser). */
+function injectPrintScript(html: string): string {
+  const script =
+    '<script>window.onload=function(){setTimeout(function(){window.print()},200)}</script>';
+  if (html.includes("</body>")) {
+    return html.replace("</body>", `${script}</body>`);
   }
+  return html + script;
 }
 
 function printInNewWindow(html: string): void {
+  console.log("[print] Opening new window for print...");
   const w = window.open("", "_blank");
   if (w) {
     w.document.write(html);
@@ -24,55 +29,66 @@ function printInNewWindow(html: string): void {
     w.focus();
     setTimeout(() => {
       w.print();
-    }, 300);
+    }, 200);
+    console.log("[print] New window opened, print dialog will show.");
+  } else {
+    console.warn("[print] window.open returned null – popup may be blocked.");
   }
 }
 
-function printInCurrentWindow(html: string): void {
-  const parser = new DOMParser();
-  const doc = parser.parseFromString(html, "text/html");
-  const styleEl = doc.querySelector("style");
-  const styleHtml = styleEl ? styleEl.outerHTML : "";
-  const bodyContent = doc.body.innerHTML;
+/** Opens HTML in system default browser for preview and print (Save as PDF). Used in Tauri when no printer. */
+async function openHtmlInBrowser(html: string): Promise<void> {
+  console.log("[print] Opening HTML in system browser (no printer / fallback)...");
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    const { openPath } = await import("@tauri-apps/plugin-opener");
+    const htmlWithPrint = injectPrintScript(html);
+    console.log("[print] Writing temp file...");
+    const path = await invoke<string>("write_temp_html", { html: htmlWithPrint });
+    console.log("[print] Temp file path:", path);
+    await openPath(path);
+    console.log("[print] openPath done – browser should have opened.");
+  } catch (e) {
+    console.error("[print] openHtmlInBrowser failed:", e);
+    throw e;
+  }
+}
 
-  const container = document.createElement("div");
-  container.id = "prodtrack-print-container";
-  container.style.cssText =
-    "position:fixed;inset:0;z-index:999999;background:#fff;overflow:auto;padding:16px;";
+export async function printHtml(html: string): Promise<void> {
+  console.log("[print] printHtml called, html length:", html?.length ?? 0);
+  const tauri = isTauri();
+  console.log("[print] Environment:", tauri ? "Tauri" : "Web");
 
-  container.innerHTML = styleHtml + bodyContent;
-
-  const hideRest = document.createElement("style");
-  hideRest.textContent = `
-    @media print {
-      body * { visibility: hidden !important; }
-      #prodtrack-print-container,
-      #prodtrack-print-container * { visibility: visible !important; }
-      #prodtrack-print-container {
-        position: absolute !important;
-        left: 0 !important;
-        top: 0 !important;
-        width: 100% !important;
-        padding: 16px !important;
-        background: #fff !important;
+  if (tauri) {
+    try {
+      console.log("[print] Tauri: fetching printers...");
+      const { getPrinters, printHtml: pluginPrintHtml } = await import(
+        "tauri-plugin-printer-v2"
+      );
+      const printersJson = await getPrinters();
+      const printers = JSON.parse(printersJson) as {
+        name: string;
+        is_default?: boolean;
+      }[];
+      console.log("[print] Printers found:", printers?.length ?? 0, printers);
+      const printer =
+        printers.find((p) => p.is_default)?.name ?? printers[0]?.name ?? "";
+      if (printer) {
+        console.log("[print] Using printer:", printer);
+        await pluginPrintHtml({
+          id: "prodtrack-print",
+          html,
+          printer,
+        });
+        console.log("[print] Plugin print done.");
+        return;
       }
+      console.log("[print] No printer selected, falling back to browser.");
+    } catch (e) {
+      console.warn("[print] Printer plugin error (no printer?):", e);
     }
-  `;
-
-  document.head.appendChild(hideRest);
-  document.body.appendChild(container);
-
-  const cleanup = () => {
-    container.remove();
-    hideRest.remove();
-  };
-
-  window.onafterprint = cleanup;
-  window.onfocus = () => {
-    setTimeout(cleanup, 100);
-    window.onafterprint = null;
-    window.onfocus = null;
-  };
-
-  setTimeout(() => window.print(), 100);
+    await openHtmlInBrowser(html);
+  } else {
+    printInNewWindow(html);
+  }
 }

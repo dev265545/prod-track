@@ -8,7 +8,10 @@ use tauri::Manager;
 pub fn run() {
   tauri::Builder::default()
     .plugin(tauri_plugin_dialog::init())
+    .plugin(tauri_plugin_opener::init())
+    .plugin(tauri_plugin_printer_v2::init())
     .setup(|app| {
+      // Store DB in Tauri app data dir (e.g. Windows: %APPDATA%/com.tauri.dev/prodtrack.db)
       let app_data = app
         .path()
         .app_data_dir()
@@ -38,6 +41,7 @@ pub fn run() {
       db::db_export_with_dialog,
       db::db_import_with_dialog,
       db::db_path,
+      db::write_temp_html,
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");

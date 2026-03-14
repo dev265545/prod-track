@@ -134,6 +134,24 @@ export function getMonthRange(
   };
 }
 
+/** Get all working day dates in a month (excludes Sundays and factory holidays). */
+export function getWorkingDayDates(
+  year: number,
+  month: number,
+  factoryHolidayDates: string[] = []
+): string[] {
+  const holidaySet = new Set(factoryHolidayDates);
+  const dates: string[] = [];
+  const lastDay = new Date(year, month + 1, 0).getDate();
+  for (let d = 1; d <= lastDay; d++) {
+    const dateStr = `${year}-${pad(month + 1)}-${pad(d)}`;
+    if (holidaySet.has(dateStr)) continue;
+    if (new Date(year, month, d).getDay() === 0) continue; // Sunday
+    dates.push(dateStr);
+  }
+  return dates;
+}
+
 export function getPeriodsWithData(
   records: { date?: string }[],
   maxPeriods = 24
