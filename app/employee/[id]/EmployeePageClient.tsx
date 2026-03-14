@@ -5,12 +5,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -55,107 +50,53 @@ import {
   calculateSalary,
   getPrintableSalaryHtml,
 } from "@/lib/services/salaryService";
+import { printHtml } from "@/lib/utils/print";
 import { getHolidaysInRange } from "@/lib/services/factoryHolidayService";
-import { getAttendanceByEmployeeInRange } from "@/lib/services/attendanceService";
+import {
+  getAttendanceByEmployeeInRange,
+  saveAttendance,
+  deleteAttendance,
+} from "@/lib/services/attendanceService";
 import {
   getWorkingDaysInMonth,
   getRatePerDay,
   getRatePerHour,
 } from "@/lib/utils/salaryRates";
-import { cn } from "@/lib/utils";
-import { getPeriodForDate, getPeriodsWithData, today } from "@/lib/utils/date";
+import {
+  getPeriodForDate,
+  getPeriodsWithData,
+  today,
+  isRestrictedForEntry,
+} from "@/lib/utils/date";
+import { getHolidayByDate } from "@/lib/services/factoryHolidayService";
+import { toast } from "sonner";
 import { currency, dateDisplay, number } from "@/lib/utils/formatter";
+import { EmployeeCalendar } from "@/components/employee-calendar";
+import {
+  Check,
+  X,
+  Clock,
+  IndianRupee,
+  UserCheck,
+  CalendarDays,
+  Package,
+  LayoutGrid,
+} from "lucide-react";
 
-const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-
-function EmployeeCalendar({
-  from,
-  to,
-  factoryHolidays,
-  productions,
-  attendance,
-}: {
-  from: string;
-  to: string;
-  factoryHolidays: string[];
-  productions: Record<string, unknown>[];
-  attendance: Record<string, unknown>[];
-}) {
-  const [y, m] = from.split("-").map(Number);
-  const padM = String(m).padStart(2, "0");
-  const monthStart = `${y}-${padM}-01`;
-  const firstDay = new Date(y, m - 1, 1);
-  const lastDay = new Date(y, m, 0).getDate();
-  const startOffset = firstDay.getDay();
-  const prodDates = new Set(productions.map((p) => p.date as string));
-  const attByDate = Object.fromEntries(
-    attendance.map((a) => [(a.date as string), a.status as string])
-  );
-  const holidaySet = new Set(factoryHolidays);
-
-  function getDayStatus(dateStr: string): "holiday" | "present" | "absent" | null {
-    if (holidaySet.has(dateStr)) return "holiday";
-    const att = attByDate[dateStr];
-    if (att === "absent") return "absent";
-    if (att === "present" || prodDates.has(dateStr)) return "present";
-    return null;
-  }
-
-  function isInPeriod(dateStr: string): boolean {
-    return dateStr >= from && dateStr <= to;
-  }
-
-  const days: { date: string; day: number; status: "holiday" | "present" | "absent" | null; inPeriod: boolean }[] = [];
-  for (let d = 1; d <= lastDay; d++) {
-    const dateStr = `${y}-${padM}-${String(d).padStart(2, "0")}`;
-    days.push({
-      date: dateStr,
-      day: d,
-      status: getDayStatus(dateStr),
-      inPeriod: isInPeriod(dateStr),
-    });
-  }
-
-  const label = (d: (typeof days)[0]) => {
-    if (!d.status) return `${d.day}`;
-    const s = d.status === "holiday" ? "Holiday" : d.status === "present" ? "Present" : "Absent";
-    return `${d.day}, ${s}`;
-  };
-
-  return (
-    <div className="overflow-x-auto">
-      <div className="inline-block min-w-[280px]">
-        <div className="grid grid-cols-7 gap-px text-center text-sm">
-          {WEEKDAYS.map((w) => (
-            <div key={w} className="py-1 font-medium text-muted-foreground">
-              {w}
-            </div>
-          ))}
-          {Array.from({ length: startOffset }, (_, i) => (
-            <div key={`pad-${i}`} className="aspect-square" />
-          ))}
-          {days.map((d) => (
-            <div
-              key={d.date}
-              className={cn(
-                "aspect-square flex items-center justify-center rounded text-xs font-medium tabular-nums",
-                d.inPeriod && "ring-2 ring-primary ring-inset bg-primary/5",
-                d.status === "holiday" && "bg-warning/20 text-warning-foreground",
-                d.status === "present" && "bg-success/20 text-foreground",
-                d.status === "absent" && "bg-destructive/20 text-destructive",
-                !d.status && "text-muted-foreground"
-              )}
-              aria-label={label(d)}
-              title={label(d)}
-            >
-              {d.day}
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
+const MONTH_NAMES = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+];
 
 export function EmployeePageClient() {
   const params = useParams();
@@ -197,6 +138,10 @@ export function EmployeePageClient() {
   const [calendarAttendance, setCalendarAttendance] = useState<
     Record<string, unknown>[]
   >([]);
+  const now = new Date();
+  const [calYear, setCalYear] = useState(now.getFullYear());
+  const [calMonth, setCalMonth] = useState(now.getMonth());
+  const [selectedDate, setSelectedDate] = useState<string | null>(today());
 
   const load = async () => {
     const emp = await getEmployee(id);
@@ -265,12 +210,11 @@ export function EmployeePageClient() {
   }, [id, from, to]);
 
   useEffect(() => {
-    if (!from || !id) return;
-    const [y, m] = from.split("-").map(Number);
-    const padM = String(m).padStart(2, "0");
-    const monthStart = `${y}-${padM}-01`;
-    const lastDay = new Date(y, m, 0).getDate();
-    const monthEnd = `${y}-${padM}-${lastDay}`;
+    if (!id) return;
+    const padM = String(calMonth + 1).padStart(2, "0");
+    const monthStart = `${calYear}-${padM}-01`;
+    const lastDay = new Date(calYear, calMonth + 1, 0).getDate();
+    const monthEnd = `${calYear}-${padM}-${lastDay}`;
     Promise.all([
       getHolidaysInRange(monthStart, monthEnd),
       getProductionsByEmployee(id, monthStart, monthEnd),
@@ -280,7 +224,7 @@ export function EmployeePageClient() {
       setCalendarProductions(prods);
       setCalendarAttendance(att);
     });
-  }, [from, id]);
+  }, [id, calYear, calMonth]);
 
   if (!ready) {
     return (
@@ -309,17 +253,10 @@ export function EmployeePageClient() {
   ) as Record<string, Record<string, unknown>>;
 
   const shiftMap = Object.fromEntries(
-    shifts.map((s) => [s.id as string, s])
+    shifts.map((s) => [s.id as string, s]),
   ) as Record<string, Record<string, unknown>>;
 
-  const [year, month] = from
-    ? from.split("-").map(Number)
-    : [new Date().getFullYear(), new Date().getMonth() + 1];
-  const workingDays = getWorkingDaysInMonth(
-    year,
-    month - 1,
-    factoryHolidays
-  );
+  const workingDays = getWorkingDaysInMonth(calYear, calMonth, factoryHolidays);
   const monthlySalary = (employee.monthlySalary as number) ?? 0;
   const shiftId = employee.shiftId as string | undefined;
   const selectedShift = shiftId ? shiftMap[shiftId] : null;
@@ -329,126 +266,407 @@ export function EmployeePageClient() {
   const ratePerDay = getRatePerDay(monthlySalary, workingDays);
   const ratePerHour = getRatePerHour(monthlySalary, workingDays, hoursPerDay);
 
+  // Production for selected day and full month
+  const dayProductions = selectedDate
+    ? calendarProductions.filter((p) => (p.date as string) === selectedDate)
+    : [];
+  const dayProdQty = dayProductions.reduce(
+    (sum, p) => sum + ((p.quantity as number) || 0),
+    0,
+  );
+  const dayProdValue = dayProductions.reduce((sum, p) => {
+    const item = itemMap[p.itemId as string];
+    const rate = (item?.rate as number) || 0;
+    return sum + ((p.quantity as number) || 0) * rate;
+  }, 0);
+  const monthProdQty = calendarProductions.reduce(
+    (sum, p) => sum + ((p.quantity as number) || 0),
+    0,
+  );
+  const monthProdValue = calendarProductions.reduce((sum, p) => {
+    const item = itemMap[p.itemId as string];
+    const rate = (item?.rate as number) || 0;
+    return sum + ((p.quantity as number) || 0) * rate;
+  }, 0);
+
+  // Monthly attendance summary for calendar month
+  const monthAttendance = calendarAttendance;
+  const daysPresent = monthAttendance.filter(
+    (a) => a.status === "present",
+  ).length;
+  const daysAbsent = monthAttendance.filter(
+    (a) => a.status === "absent",
+  ).length;
+  const earnedSundays = Math.floor(daysPresent / 6);
+  const totalPaidDays = daysPresent + earnedSundays;
+  const calculatedSalary = totalPaidDays * ratePerDay;
+
   return (
     <AppShell>
       <main id="main" className="flex flex-col gap-8 animate-fade-in">
         <div>
           <Link
-            href="/employees"
-            className="text-sm text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded"
+            href="/"
+            className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded"
           >
-            ← Employees
+            ← Dashboard
           </Link>
           <h1 className="mt-2 text-3xl font-bold text-foreground font-heading">
             {employee.name as string}
           </h1>
         </div>
-
-        <Card className="p-6 sm:p-8">
-          <CardHeader className="p-0 mb-5">
-            <CardTitle className="text-xl font-semibold font-heading">
-              Shift &amp; salary
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="p-0">
-            <div className="flex flex-wrap items-end gap-4">
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="emp-shift">Shift</Label>
-                <Select
-                  value={(employee.shiftId as string) ?? "_none"}
-                  onValueChange={async (v) => {
-                    const shiftId = v === "_none" ? undefined : v;
-                    const updated = {
-                      ...employee,
-                      shiftId,
-                    };
-                    await saveEmployee(updated);
-                    setEmployee(updated);
-                  }}
-                >
-                  <SelectTrigger id="emp-shift" className="w-48 min-h-12">
-                    <SelectValue placeholder="Select shift" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="_none">No shift</SelectItem>
-                    {shifts.map((s) => (
-                      <SelectItem key={s.id as string} value={s.id as string}>
-                        {s.name as string}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+        <div className="grid grid-cols-4 gap-4 xl:flex-1 xl:min-w-0">
+          <Card className="p-5 sm:p-6">
+            <CardHeader className="p-0 pb-2">
+              <div className="flex items-center gap-2">
+                <Clock className="size-4 text-primary" />
+                <CardTitle className="text-sm font-medium text-muted-foreground">
+                  Shift
+                </CardTitle>
               </div>
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="emp-monthly-salary">Monthly salary (₹)</Label>
-                <Input
-                  id="emp-monthly-salary"
-                  type="number"
-                  min={0}
-                  value={monthlySalary}
-                  onChange={(e) => {
-                    const v = parseFloat(e.target.value) || 0;
-                    setEmployee({ ...employee, monthlySalary: v });
-                  }}
-                  onBlur={async (e) => {
-                    const v = parseFloat((e.target as HTMLInputElement).value) || 0;
-                    const updated = { ...employee, monthlySalary: v };
-                    await saveEmployee(updated);
-                    setEmployee(updated);
-                  }}
-                  className="w-40 min-h-12"
-                />
-              </div>
-            </div>
-            {from && (
-              <div className="mt-6 flex flex-wrap gap-6 text-sm">
-                <div>
-                  <span className="text-muted-foreground">Working days: </span>
-                  <span className="font-medium tabular-nums">{workingDays}</span>
-                </div>
-                {monthlySalary > 0 && (
-                  <>
-                    <div>
-                      <span className="text-muted-foreground">Rate per day: </span>
-                      <span className="font-medium tabular-nums">
-                        {currency(ratePerDay)}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">Rate per hour: </span>
-                      <span className="font-medium tabular-nums">
-                        {currency(ratePerHour)}
-                      </span>
-                    </div>
-                  </>
-                )}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {from && to && (
-          <Card className="p-6 sm:p-8">
-            <CardHeader className="p-0 mb-5">
-              <CardTitle className="text-xl font-semibold font-heading">
-                Calendar
-              </CardTitle>
-              <p className="text-sm text-muted-foreground mt-1">
-                {dateDisplay(from)} – {dateDisplay(to)} (selected period
-                highlighted)
-              </p>
             </CardHeader>
             <CardContent className="p-0">
-              <EmployeeCalendar
-                from={from}
-                to={to}
-                factoryHolidays={factoryHolidays}
-                productions={calendarProductions}
-                attendance={calendarAttendance}
+              <Select
+                value={(employee.shiftId as string) ?? "_none"}
+                onValueChange={async (v) => {
+                  const shiftId = v === "_none" ? undefined : v;
+                  const updated = { ...employee, shiftId };
+                  await saveEmployee(updated);
+                  setEmployee(updated);
+                }}
+              >
+                <SelectTrigger id="emp-shift" className="w-full min-h-10">
+                  <SelectValue placeholder="Select shift" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="_none">No shift</SelectItem>
+                  {shifts.map((s) => (
+                    <SelectItem key={s.id as string} value={s.id as string}>
+                      {s.name as string}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </CardContent>
+          </Card>
+          <Card className="p-5 sm:p-6">
+            <CardHeader className="p-0 pb-2">
+              <div className="flex items-center gap-2">
+                <IndianRupee className="size-4 text-primary" />
+                <CardTitle className="text-sm font-medium text-muted-foreground">
+                  Monthly salary
+                </CardTitle>
+              </div>
+            </CardHeader>
+            <CardContent className="p-0">
+              <Input
+                id="emp-monthly-salary"
+                type="number"
+                min={0}
+                value={monthlySalary}
+                onChange={(e) => {
+                  const v = parseFloat(e.target.value) || 0;
+                  setEmployee({ ...employee, monthlySalary: v });
+                }}
+                onBlur={async (e) => {
+                  const v =
+                    parseFloat((e.target as HTMLInputElement).value) || 0;
+                  const updated = { ...employee, monthlySalary: v };
+                  await saveEmployee(updated);
+                  setEmployee(updated);
+                }}
+                className="w-full min-h-10"
+                placeholder="0"
               />
             </CardContent>
           </Card>
-        )}
+          <Card className="p-5 sm:p-6">
+            <CardHeader className="p-0 pb-2">
+              <div className="flex items-center gap-2">
+                <IndianRupee className="size-4 text-primary" />
+                <CardTitle className="text-sm font-medium text-muted-foreground">
+                  Daily rate
+                </CardTitle>
+              </div>
+            </CardHeader>
+            <CardContent className="p-0">
+              <p className="text-xl font-bold font-heading text-foreground">
+                {currency(ratePerDay)}
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">
+                {workingDays} working days in {MONTH_NAMES[calMonth]}
+              </p>
+            </CardContent>
+          </Card>
+          <Card className="p-5 sm:p-6">
+            <CardHeader className="p-0 pb-2">
+              <div className="flex items-center gap-2">
+                <Clock className="size-4 text-primary" />
+                <CardTitle className="text-sm font-medium text-muted-foreground">
+                  Hourly rate
+                </CardTitle>
+              </div>
+            </CardHeader>
+            <CardContent className="p-0">
+              <p className="text-xl font-bold font-heading text-foreground">
+                {currency(ratePerHour)}
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">
+                {hoursPerDay}h shift
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="flex flex-col xl:flex-row gap-6 xl:items-stretch">
+          <div className="xl:shrink-0 xl:min-w-[380px] xl:w-[380px]">
+            <EmployeeCalendar
+              year={calYear}
+              month={calMonth}
+              onMonthChange={(y, m) => {
+                setCalYear(y);
+                setCalMonth(m);
+              }}
+              productions={calendarProductions}
+              attendance={calendarAttendance}
+              factoryHolidays={factoryHolidays}
+              selectedDate={selectedDate}
+              onDateClick={(date) => {
+                setSelectedDate(date);
+                const p = getPeriodForDate(date);
+                setFrom(p.from);
+                setTo(p.to);
+              }}
+              periodFrom={from || ""}
+              periodTo={to || ""}
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-4 flex-1 min-w-0 xl:min-w-[280px]">
+            <Card className="p-5 sm:p-6 flex flex-col min-h-0">
+              <CardHeader className="p-0 pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                  <UserCheck className="size-4 text-primary shrink-0" />
+                  Attendance — {MONTH_NAMES[calMonth]}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="p-0 pt-2">
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="rounded-lg border bg-muted/40 px-3 py-2 text-sm">
+                    <p className="text-muted-foreground text-xs">Present</p>
+                    <p className="font-semibold tabular-nums text-foreground">
+                      {daysPresent}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border bg-muted/40 px-3 py-2 text-sm">
+                    <p className="text-muted-foreground text-xs">Absent</p>
+                    <p className="font-semibold tabular-nums text-foreground">
+                      {daysAbsent}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border bg-muted/40 px-3 py-2 text-sm">
+                    <p className="text-muted-foreground text-xs">Sundays</p>
+                    <p className="font-semibold tabular-nums text-foreground">
+                      {earnedSundays}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border bg-muted/40 px-3 py-2 text-sm">
+                    <p className="text-muted-foreground text-xs">Paid days</p>
+                    <p className="font-bold tabular-nums text-foreground">
+                      {totalPaidDays}
+                    </p>
+                  </div>
+                  <div className="col-span-2 rounded-lg border-2 border-primary/30 bg-primary/10 px-4 py-3">
+                    <p className="text-muted-foreground text-xs font-medium">
+                      Salary
+                    </p>
+                    <p className="text-xl font-bold tabular-nums text-foreground">
+                      {currency(calculatedSalary)}
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="p-5 sm:p-6 ">
+              <CardHeader className="p-0 pb-2 shrink-0">
+                <div className="flex items-center gap-2">
+                  <Package className="size-5 text-primary shrink-0" />
+                  <CardTitle className="text-sm font-medium text-muted-foreground truncate">
+                    Day production
+                  </CardTitle>
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {selectedDate ? dateDisplay(selectedDate) : "Select a date"}
+                </p>
+              </CardHeader>
+              <CardContent className="p-0 mt-auto pt-2">
+                <p className="text-3xl font-bold font-heading text-foreground tabular-nums leading-tight">
+                  {number(dayProdQty)}
+                </p>
+                <p className="text-sm text-muted-foreground mt-1">
+                  {currency(dayProdValue)}
+                </p>
+              </CardContent>
+            </Card>
+            <Card className="p-5 sm:p-6 flex flex-col min-h-0">
+              <CardHeader className="p-0 pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                  <CalendarDays className="size-4 text-primary shrink-0" />
+                  {selectedDate
+                    ? `${dateDisplay(selectedDate)} — Attendance`
+                    : "Select a date"}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="p-0 mt-2">
+                {!selectedDate ? (
+                  <p className="text-xs text-muted-foreground">
+                    Click a date on the calendar to mark attendance.
+                  </p>
+                ) : isRestrictedForEntry(selectedDate, factoryHolidays) ? (
+                  <p className="text-xs text-muted-foreground">
+                    Cannot mark on Sundays or holidays.
+                  </p>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      variant={
+                        calendarAttendance.find(
+                          (a) => (a.date as string) === selectedDate,
+                        )?.status === "present"
+                          ? "default"
+                          : "secondary"
+                      }
+                      size="sm"
+                      className={
+                        calendarAttendance.find(
+                          (a) => (a.date as string) === selectedDate,
+                        )?.status === "present"
+                          ? "bg-[hsl(var(--success))] hover:bg-[hsl(var(--success))]/90 text-[hsl(var(--success-foreground))]"
+                          : ""
+                      }
+                      onClick={async () => {
+                        const existing = calendarAttendance.find(
+                          (a) => (a.date as string) === selectedDate,
+                        );
+                        await saveAttendance({
+                          ...(existing?.id
+                            ? { id: existing.id as string }
+                            : {}),
+                          employeeId: id,
+                          date: selectedDate,
+                          status: "present",
+                        });
+                        const padM = String(calMonth + 1).padStart(2, "0");
+                        const monthStart = `${calYear}-${padM}-01`;
+                        const lastDay = new Date(
+                          calYear,
+                          calMonth + 1,
+                          0,
+                        ).getDate();
+                        const monthEnd = `${calYear}-${padM}-${lastDay}`;
+                        const att = await getAttendanceByEmployeeInRange(
+                          id,
+                          monthStart,
+                          monthEnd,
+                        );
+                        setCalendarAttendance(att);
+                      }}
+                    >
+                      <Check data-icon="inline-start" />
+                      Present
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={
+                        calendarAttendance.find(
+                          (a) => (a.date as string) === selectedDate,
+                        )?.status === "absent"
+                          ? "destructive"
+                          : "secondary"
+                      }
+                      size="sm"
+                      onClick={async () => {
+                        const existing = calendarAttendance.find(
+                          (a) => (a.date as string) === selectedDate,
+                        );
+                        await saveAttendance({
+                          ...(existing?.id
+                            ? { id: existing.id as string }
+                            : {}),
+                          employeeId: id,
+                          date: selectedDate,
+                          status: "absent",
+                        });
+                        const padM = String(calMonth + 1).padStart(2, "0");
+                        const monthStart = `${calYear}-${padM}-01`;
+                        const lastDay = new Date(
+                          calYear,
+                          calMonth + 1,
+                          0,
+                        ).getDate();
+                        const monthEnd = `${calYear}-${padM}-${lastDay}`;
+                        const att = await getAttendanceByEmployeeInRange(
+                          id,
+                          monthStart,
+                          monthEnd,
+                        );
+                        setCalendarAttendance(att);
+                      }}
+                    >
+                      <X data-icon="inline-start" />
+                      Absent
+                    </Button>
+                    {calendarAttendance.some(
+                      (a) => (a.date as string) === selectedDate,
+                    ) && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="text-xs h-7"
+                        onClick={async () => {
+                          const rec = calendarAttendance.find(
+                            (a) => (a.date as string) === selectedDate,
+                          );
+                          if (rec?.id) await deleteAttendance(rec.id as string);
+                          setCalendarAttendance((prev) =>
+                            prev.filter(
+                              (a) => (a.date as string) !== selectedDate,
+                            ),
+                          );
+                        }}
+                      >
+                        Clear
+                      </Button>
+                    )}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+            <Card className="p-5 sm:p-6 flex flex-col min-h-0">
+              <CardHeader className="p-0 pb-2 shrink-0">
+                <div className="flex items-center gap-2">
+                  <LayoutGrid className="size-5 text-primary shrink-0" />
+                  <CardTitle className="text-sm font-medium text-muted-foreground truncate">
+                    Monthly production
+                  </CardTitle>
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {MONTH_NAMES[calMonth]} {calYear}
+                </p>
+              </CardHeader>
+              <CardContent className="p-0 mt-auto pt-2">
+                <p className="text-3xl font-bold font-heading text-foreground tabular-nums leading-tight">
+                  {number(monthProdQty)}
+                </p>
+                <p className="text-sm text-muted-foreground mt-1">
+                  {currency(monthProdValue)}
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
 
         <Card className="p-6 sm:p-8">
           <CardHeader className="p-0 mb-5">
@@ -468,12 +686,18 @@ export function EmployeePageClient() {
                     setTo(t);
                   }}
                 >
-                  <SelectTrigger id="salary-period" className="min-w-[200px] w-56 min-h-12">
+                  <SelectTrigger
+                    id="salary-period"
+                    className="min-w-[200px] w-56 min-h-12"
+                  >
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     {periods.map((p) => (
-                      <SelectItem key={p.from + p.to} value={`${p.from}|${p.to}`}>
+                      <SelectItem
+                        key={p.from + p.to}
+                        value={`${p.from}|${p.to}`}
+                      >
                         {p.label}
                       </SelectItem>
                     ))}
@@ -485,12 +709,7 @@ export function EmployeePageClient() {
                 className="min-h-12 px-6"
                 onClick={async () => {
                   const { html } = await getPrintableSalaryHtml(id, from, to);
-                  const w = window.open("", "_blank");
-                  if (w) {
-                    w.document.write(html);
-                    w.document.close();
-                    w.print();
-                  }
+                  printHtml(html);
                 }}
               >
                 Print salary sheet
@@ -603,6 +822,14 @@ export function EmployeePageClient() {
               onSubmit={async (e) => {
                 e.preventDefault();
                 if (!prodItem) return;
+                const holiday = await getHolidayByDate(prodDate);
+                const holidayDates = holiday ? [prodDate] : [];
+                if (isRestrictedForEntry(prodDate, holidayDates)) {
+                  toast.error(
+                    "Cannot add production on Sundays or factory holidays.",
+                  );
+                  return;
+                }
                 await saveProduction({
                   employeeId: id,
                   itemId: prodItem,
@@ -649,7 +876,10 @@ export function EmployeePageClient() {
                   value={prodShift}
                   onValueChange={(v) => setProdShift(v as "day" | "night")}
                 >
-                  <SelectTrigger id="prod-shift" className="min-w-[100px] min-h-12">
+                  <SelectTrigger
+                    id="prod-shift"
+                    className="min-w-[100px] min-h-12"
+                  >
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -665,7 +895,9 @@ export function EmployeePageClient() {
                   type="number"
                   min={1}
                   value={prodQty}
-                  onChange={(e) => setProdQty(parseInt(e.target.value, 10) || 1)}
+                  onChange={(e) =>
+                    setProdQty(parseInt(e.target.value, 10) || 1)
+                  }
                   className="w-24 min-h-12"
                 />
               </div>
@@ -726,7 +958,9 @@ export function EmployeePageClient() {
                   type="number"
                   min={0}
                   value={advAmount}
-                  onChange={(e) => setAdvAmount(parseFloat(e.target.value) || 0)}
+                  onChange={(e) =>
+                    setAdvAmount(parseFloat(e.target.value) || 0)
+                  }
                   className="w-36 min-w-[120px] min-h-12"
                 />
               </div>
@@ -865,7 +1099,11 @@ export function EmployeePageClient() {
                               getProductionsByEmployee(id, from, to),
                               getAdvancesByEmployee(id, from, to),
                             ]);
-                            const ded = await getDeductionForPeriod(id, from, to);
+                            const ded = await getDeductionForPeriod(
+                              id,
+                              from,
+                              to,
+                            );
                             const s = await calculateSalary(id, from, to);
                             setSalary({
                               gross: s.gross,

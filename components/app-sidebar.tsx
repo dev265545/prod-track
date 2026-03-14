@@ -8,6 +8,7 @@ import {
   Package2,
   LayoutGrid,
   FileBarChart,
+  FileSpreadsheet,
   UsersRound,
   SlidersHorizontal,
   LogOut,
@@ -29,6 +30,7 @@ import {
 const navLinks = [
   { href: "/", icon: LayoutGrid, label: "Dashboard" },
   { href: "/reports", icon: FileBarChart, label: "Production report" },
+  { href: "/salary-sheet", icon: FileSpreadsheet, label: "Salary sheet" },
   { href: "/employees", icon: UsersRound, label: "Employees" },
   { href: "/settings", icon: SlidersHorizontal, label: "Settings & data" },
 ] as const;

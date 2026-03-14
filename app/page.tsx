@@ -29,7 +29,7 @@ export default function Home() {
   if (!ready) {
     return (
       <div className="flex min-h-svh items-center justify-center">
-        <div className="flex items-center gap-2 text-muted-foreground">
+        <div className="flex items-center justify-center gap-2 text-muted-foreground">
           <Spinner className="size-5" />
           <span>Loading…</span>
         </div>

@@ -21,7 +21,14 @@ import {
 } from "@/components/ui/table";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { DatePicker } from "@/components/ui/date-picker";
-import { Trash2 } from "lucide-react";
+import {
+  Trash2,
+  Download,
+  ShieldAlert,
+  Calendar,
+  Package,
+  Clock,
+} from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { openDB } from "@/lib/db/adapter";
 import {
@@ -131,7 +138,10 @@ export default function SettingsPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle className={headingClassFirst}>Delete historical data</CardTitle>
+            <CardTitle className={headingClassFirst + " flex items-center gap-2"}>
+              <Trash2 className="size-5 text-destructive" />
+              Delete historical data
+            </CardTitle>
           </CardHeader>
           <CardContent>
           <p className={paraClass}>
@@ -143,12 +153,12 @@ export default function SettingsPage() {
               <Label htmlFor="historyBefore">
                 Delete data before (exclusive)
               </Label>
-              <DatePicker
+              <input
                 id="historyBefore"
+                type="date"
                 value={historyBefore}
-                onChange={setHistoryBefore}
-                placeholder="Select date"
-                className="w-full max-w-xs min-h-[44px]"
+                onChange={(e) => setHistoryBefore(e.target.value)}
+                className="flex h-11 w-full max-w-xs rounded-lg border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
               />
             </div>
             <Button
@@ -191,7 +201,10 @@ export default function SettingsPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle className={headingClass}>Export / Import</CardTitle>
+            <CardTitle className={headingClass + " flex items-center gap-2"}>
+              <Download className="size-5 text-primary" />
+              Export / Import
+            </CardTitle>
           </CardHeader>
           <CardContent>
           {isTauri() && dbPath && (
@@ -366,7 +379,10 @@ export default function SettingsPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle className={headingClass}>Security &amp; master actions</CardTitle>
+            <CardTitle className={headingClass + " flex items-center gap-2"}>
+              <ShieldAlert className="size-5 text-primary" />
+              Security &amp; master actions
+            </CardTitle>
           </CardHeader>
           <CardContent>
           <p className={paraClassMuted}>
@@ -445,7 +461,10 @@ export default function SettingsPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle className={headingClass}>Factory holidays</CardTitle>
+            <CardTitle className={headingClass + " flex items-center gap-2"}>
+              <Calendar className="size-5 text-primary" />
+              Factory holidays
+            </CardTitle>
             <p className="text-sm text-muted-foreground mt-1">
               Days when the full factory is closed. Used for working-day and rate
               calculations.
@@ -519,7 +538,8 @@ export default function SettingsPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-xl font-semibold text-foreground font-heading">
+            <CardTitle className="text-xl font-semibold text-foreground font-heading flex items-center gap-2">
+              <Package className="size-5 text-primary" />
               Packaging item groups
             </CardTitle>
           </CardHeader>
@@ -611,7 +631,10 @@ export default function SettingsPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle className={headingClass}>Shifts</CardTitle>
+            <CardTitle className={headingClass + " flex items-center gap-2"}>
+              <Clock className="size-5 text-primary" />
+              Shifts
+            </CardTitle>
           </CardHeader>
           <CardContent>
           <p className="text-base text-muted-foreground mb-5">

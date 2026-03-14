@@ -36,6 +36,17 @@ export async function getAllAttendanceByDate(
   return all.filter((a) => (a.date as string) === date);
 }
 
+export async function getAttendanceInRange(
+  fromDate: string,
+  toDate: string
+): Promise<Record<string, unknown>[]> {
+  const all = await getAll(STORE);
+  return all.filter(
+    (a) =>
+      (a.date as string) >= fromDate && (a.date as string) <= toDate
+  );
+}
+
 export async function saveAttendance(
   record: Record<string, unknown>
 ): Promise<Record<string, unknown>> {

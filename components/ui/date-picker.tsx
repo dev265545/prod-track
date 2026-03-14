@@ -6,11 +6,6 @@ import { CalendarIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
 
 const DATE_FORMAT = "yyyy-MM-dd";
 
@@ -44,6 +39,7 @@ export interface DatePickerProps {
   max?: string;
 }
 
+/** Calendar popup on click - no portal, works in Tauri and web */
 export function DatePicker({
   value,
   onChange,
@@ -55,44 +51,61 @@ export function DatePicker({
   max,
 }: DatePickerProps) {
   const [open, setOpen] = React.useState(false);
+  const containerRef = React.useRef<HTMLDivElement>(null);
   const selected = toDate(value);
   const minDate = min ? toDate(min) : undefined;
   const maxDate = max ? toDate(max) : undefined;
 
+  React.useEffect(() => {
+    if (!open) return;
+    function handleClickOutside(e: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [open]);
+
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button
-          id={id}
-          variant="outline"
-          disabled={disabled}
-          className={cn(
-            "min-h-10 w-full justify-start text-left font-normal",
-            !value && "text-muted-foreground",
-            className
-          )}
+    <div ref={containerRef} className="relative">
+      <Button
+        id={id}
+        type="button"
+        variant="outline"
+        disabled={disabled}
+        onClick={() => setOpen(!open)}
+        className={cn(
+          "min-h-10 w-full justify-start text-left font-normal",
+          !value && "text-muted-foreground",
+          className
+        )}
+      >
+        <CalendarIcon data-icon="inline-start" className="shrink-0" />
+        {value ? formatDateForDisplay(value) : placeholder}
+      </Button>
+      {open && (
+        <div
+          className="absolute left-0 top-full z-50 mt-1 rounded-xl border border-border bg-popover p-0 shadow-xl"
+          style={{ minWidth: "min(100%, 280px)" }}
         >
-          <CalendarIcon data-icon="inline-start" className="shrink-0" />
-          {value ? formatDateForDisplay(value) : placeholder}
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent className="w-auto p-0" align="start">
-        <Calendar
-          mode="single"
-          selected={selected}
-          onSelect={(date) => {
-            if (date) {
-              onChange(toDateString(date));
-              setOpen(false);
-            }
-          }}
-          disabled={(d) => {
-            if (minDate && d < minDate) return true;
-            if (maxDate && d > maxDate) return true;
-            return false;
-          }}
-        />
-      </PopoverContent>
-    </Popover>
+          <Calendar
+            mode="single"
+            selected={selected}
+            onSelect={(date) => {
+              if (date) {
+                onChange(toDateString(date));
+                setOpen(false);
+              }
+            }}
+            disabled={(d) => {
+              if (minDate && d < minDate) return true;
+              if (maxDate && d > maxDate) return true;
+              return false;
+            }}
+          />
+        </div>
+      )}
+    </div>
   );
 }

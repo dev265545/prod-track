@@ -39,16 +39,51 @@ import {
 import {
   getDailyAggregated,
   saveProduction,
+  getProductionsInRange,
 } from "@/lib/services/productionService";
 import { getItems } from "@/lib/services/itemService";
 import { getEmployees } from "@/lib/services/employeeService";
 import { calculateSalaryForPeriod } from "@/lib/services/salaryService";
 import { getDeductionForPeriod } from "@/lib/services/advanceDeductionService";
-import { today, getPeriodForDate } from "@/lib/utils/date";
+import {
+  getHolidaysInRange,
+  getHolidayByDate,
+  saveHoliday,
+  deleteHoliday,
+} from "@/lib/services/factoryHolidayService";
+import { isRestrictedForEntry } from "@/lib/utils/date";
+import { toast } from "sonner";
+import {
+  today,
+  getPeriodForDate,
+  getMonthRange,
+  formatDisplayDate,
+  formatMonthYear,
+} from "@/lib/utils/date";
 import { currency, number } from "@/lib/utils/formatter";
+import { DashboardCalendar } from "@/components/dashboard-calendar";
+import {
+  Package,
+  IndianRupee,
+  Users,
+  CalendarDays,
+  LayoutGrid,
+  Receipt,
+} from "lucide-react";
+
+function getYearMonth(dateStr: string): { year: number; month: number } {
+  const [y, m] = dateStr.split("-").map(Number);
+  return { year: y, month: m - 1 };
+}
 
 export function Dashboard() {
   const [date, setDate] = useState(today());
+  const [calYear, setCalYear] = useState(() => getYearMonth(today()).year);
+  const [calMonth, setCalMonth] = useState(() => getYearMonth(today()).month);
+  const [calendarProductions, setCalendarProductions] = useState<
+    Record<string, unknown>[]
+  >([]);
+  const [calendarHolidays, setCalendarHolidays] = useState<string[]>([]);
   const [aggregated, setAggregated] = useState<{
     totals: Record<string, number>;
     day: Record<string, number>;
@@ -70,6 +105,14 @@ export function Dashboard() {
       final: number;
     }[]
   >([]);
+  const [periodProduction, setPeriodProduction] = useState<{
+    totalQty: number;
+    totalValue: number;
+  }>({ totalQty: 0, totalValue: 0 });
+  const [monthProduction, setMonthProduction] = useState<{
+    totalQty: number;
+    totalValue: number;
+  }>({ totalQty: 0, totalValue: 0 });
   const [quickEmp, setQuickEmp] = useState("");
   const [quickItem, setQuickItem] = useState("");
   const [quickShift, setQuickShift] = useState<"day" | "night">("day");
@@ -78,13 +121,13 @@ export function Dashboard() {
   const [saving, setSaving] = useState(false);
 
   const load = useCallback(async () => {
-    const [agg, itemsList, employeesList, periodData] = await Promise.all([
+    const [dailyAgg, itemsList, employeesList, periodData] = await Promise.all([
       getDailyAggregated(date),
       getItems(),
       getEmployees(true),
       getPeriodForDate(date),
     ]);
-    setAggregated(agg);
+    setAggregated(dailyAgg);
     setItems(itemsList);
     setEmployees(employeesList);
     setPeriod(periodData);
@@ -109,15 +152,97 @@ export function Dashboard() {
       }),
     );
     setSalaryRows(salaryData);
+
+    const { from: periodFrom, to: periodTo } = periodData;
+    const { from: monthFrom, to: monthTo } = getMonthRange(
+      new Date(date + "T12:00:00").getFullYear(),
+      new Date(date + "T12:00:00").getMonth()
+    );
+    const [periodProds, monthProds] = await Promise.all([
+      getProductionsInRange(periodFrom, periodTo),
+      getProductionsInRange(monthFrom, monthTo),
+    ]);
+    const itemsMap = Object.fromEntries(
+      itemsList.map((i) => [i.id as string, i])
+    ) as Record<string, Record<string, unknown>>;
+    const aggregateProds = (prods: Record<string, unknown>[]) => {
+      let qty = 0;
+      let val = 0;
+      prods.forEach((p) => {
+        qty += (p.quantity as number) || 0;
+        const item = itemsMap[p.itemId as string];
+        const rate = (item?.rate as number) || 0;
+        val += ((p.quantity as number) || 0) * rate;
+      });
+      return { totalQty: qty, totalValue: val };
+    };
+    setPeriodProduction(aggregateProds(periodProds));
+    setMonthProduction(aggregateProds(monthProds));
   }, [date]);
+
+  const loadCalendar = useCallback(async () => {
+    const { from, to } = getMonthRange(calYear, calMonth);
+    const [prods, hols] = await Promise.all([
+      getProductionsInRange(from, to),
+      getHolidaysInRange(from, to),
+    ]);
+    setCalendarProductions(prods);
+    setCalendarHolidays(hols.map((h) => h.date as string));
+  }, [calYear, calMonth]);
 
   useEffect(() => {
     load();
   }, [load]);
 
+  useEffect(() => {
+    loadCalendar();
+  }, [loadCalendar]);
+
+  useEffect(() => {
+    const { year, month } = getYearMonth(date);
+    setCalYear(year);
+    setCalMonth(month);
+  }, [date]);
+
+  // Keep quick-add date in sync with selected dashboard date (calendar or date picker)
+  useEffect(() => {
+    setQuickDate(date);
+  }, [date]);
+
+  const handleCalendarDateClick = useCallback((dateStr: string) => {
+    setDate(dateStr);
+    const { year, month } = getYearMonth(dateStr);
+    setCalYear(year);
+    setCalMonth(month);
+  }, []);
+
+  const handleCalendarMonthChange = useCallback((year: number, month: number) => {
+    setCalYear(year);
+    setCalMonth(month);
+  }, []);
+
+  const handleToggleHoliday = useCallback(
+    async (dateStr: string) => {
+      const existing = await getHolidayByDate(dateStr);
+      if (existing?.id) {
+        await deleteHoliday(existing.id as string);
+      } else {
+        await saveHoliday({ date: dateStr });
+      }
+      await loadCalendar();
+    },
+    [loadCalendar]
+  );
+
   const handleQuickAdd = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!quickEmp || !quickItem) return;
+    const holiday = await getHolidayByDate(quickDate);
+    const holidayDates = holiday ? [quickDate] : [];
+    if (isRestrictedForEntry(quickDate, holidayDates)) {
+      toast.error("Cannot add production on Sundays or factory holidays.");
+      return;
+    }
     setSaving(true);
     try {
       await saveProduction({
@@ -203,50 +328,146 @@ export function Dashboard() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-          <Card className="p-6 sm:p-8">
-            <CardHeader className="p-0 pb-2">
-              <CardTitle className="text-base font-medium text-muted-foreground">
-                Production today
-              </CardTitle>
+        <div className="flex flex-wrap items-center gap-6 text-sm text-muted-foreground border-b border-border pb-4">
+          <span>
+            <strong className="text-foreground font-medium">Viewing date:</strong>{" "}
+            {formatDisplayDate(date)}
+          </span>
+          <span>
+            <strong className="text-foreground font-medium">Month:</strong>{" "}
+            {formatMonthYear(date)}
+          </span>
+          {period && (
+            <span>
+              <strong className="text-foreground font-medium">Salary period:</strong>{" "}
+              {period.label}
+            </span>
+          )}
+        </div>
+
+        <div className="flex flex-col lg:flex-row gap-4 lg:items-stretch lg:min-h-[340px]">
+          <div className="lg:shrink-0 lg:self-stretch">
+            <DashboardCalendar
+              year={calYear}
+              month={calMonth}
+              onMonthChange={handleCalendarMonthChange}
+              productions={calendarProductions}
+              factoryHolidays={calendarHolidays}
+              employees={employees}
+              selectedDate={date}
+              onDateClick={handleCalendarDateClick}
+              onToggleHoliday={handleToggleHoliday}
+            />
+          </div>
+          <div className="grid grid-cols-2 grid-rows-[1fr_1fr_auto] gap-3 h-full min-h-0 flex-1 min-w-[280px] max-w-[400px] lg:self-stretch">
+          <Card className="p-3 sm:p-4 flex flex-col min-h-0">
+            <CardHeader className="p-0 pb-1">
+              <div className="flex items-center gap-1.5">
+                <Package className="size-4 text-primary shrink-0" />
+                <CardTitle className="text-xs font-medium text-muted-foreground truncate">
+                  Daily production
+                </CardTitle>
+              </div>
+              <p className="text-[10px] text-muted-foreground mt-0.5">
+                {formatDisplayDate(date)}
+              </p>
             </CardHeader>
-            <CardContent className="p-0">
-              <p className="text-3xl font-bold text-foreground font-heading">
+            <CardContent className="p-0 mt-auto">
+              <p className="text-xl font-bold text-foreground font-heading tabular-nums">
                 {number(totalQty)}
               </p>
             </CardContent>
           </Card>
-          <Card className="p-6 sm:p-8">
-            <CardHeader className="p-0 pb-2">
-              <CardTitle className="text-base font-medium text-muted-foreground">
-                Value today
-              </CardTitle>
+          <Card className="p-3 sm:p-4 flex flex-col min-h-0">
+            <CardHeader className="p-0 pb-1">
+              <div className="flex items-center gap-1.5">
+                <IndianRupee className="size-4 text-primary shrink-0" />
+                <CardTitle className="text-xs font-medium text-muted-foreground truncate">
+                  Daily value
+                </CardTitle>
+              </div>
+              <p className="text-[10px] text-muted-foreground mt-0.5">
+                {formatDisplayDate(date)}
+              </p>
             </CardHeader>
-            <CardContent className="p-0">
-              <p className="text-3xl font-bold text-foreground font-heading">
+            <CardContent className="p-0 mt-auto">
+              <p className="text-xl font-bold text-foreground font-heading tabular-nums">
                 {currency(totalValue)}
               </p>
             </CardContent>
           </Card>
-          <Card className="p-6 sm:p-8">
-            <CardHeader className="p-0 pb-2">
-              <CardTitle className="text-base font-medium text-muted-foreground">
-                Active employees
-              </CardTitle>
+          <Card className="p-3 sm:p-4 flex flex-col min-h-0">
+            <CardHeader className="p-0 pb-1">
+              <div className="flex items-center gap-1.5">
+                <CalendarDays className="size-4 text-primary shrink-0" />
+                <CardTitle className="text-xs font-medium text-muted-foreground truncate">
+                  Period production
+                </CardTitle>
+              </div>
+              <p className="text-[10px] text-muted-foreground mt-0.5">
+                {period?.label ?? "—"}
+              </p>
             </CardHeader>
-            <CardContent className="p-0">
-              <p className="text-3xl font-bold text-foreground font-heading">
+            <CardContent className="p-0 mt-auto">
+              <p className="text-xl font-bold text-foreground font-heading tabular-nums">
+                {number(periodProduction.totalQty)}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {currency(periodProduction.totalValue)}
+              </p>
+            </CardContent>
+          </Card>
+          <Card className="p-3 sm:p-4 flex flex-col min-h-0">
+            <CardHeader className="p-0 pb-1">
+              <div className="flex items-center gap-1.5">
+                <LayoutGrid className="size-4 text-primary shrink-0" />
+                <CardTitle className="text-xs font-medium text-muted-foreground truncate">
+                  Monthly production
+                </CardTitle>
+              </div>
+              <p className="text-[10px] text-muted-foreground mt-0.5">
+                {formatMonthYear(date)}
+              </p>
+            </CardHeader>
+            <CardContent className="p-0 mt-auto">
+              <p className="text-xl font-bold text-foreground font-heading tabular-nums">
+                {number(monthProduction.totalQty)}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {currency(monthProduction.totalValue)}
+              </p>
+            </CardContent>
+          </Card>
+          <Card className="p-3 sm:p-4 flex flex-col min-h-0 col-span-2">
+            <CardHeader className="p-0 pb-1">
+              <div className="flex items-center gap-1.5">
+                <Users className="size-4 text-primary shrink-0" />
+                <CardTitle className="text-xs font-medium text-muted-foreground">
+                  Active employees
+                </CardTitle>
+              </div>
+              <p className="text-[10px] text-muted-foreground mt-0.5">
+                As of {formatDisplayDate(date)}
+              </p>
+            </CardHeader>
+            <CardContent className="p-0 mt-auto">
+              <p className="text-xl font-bold text-foreground font-heading tabular-nums">
                 {employees.length}
               </p>
             </CardContent>
           </Card>
+          </div>
         </div>
 
         <Card className="p-6 sm:p-8">
           <CardHeader className="p-0 mb-5">
-            <CardTitle className="text-xl font-semibold">
+            <CardTitle className="text-xl font-semibold flex items-center gap-2">
+              <Package className="size-5 text-primary" />
               Daily production by item
             </CardTitle>
+            <p className="text-sm text-muted-foreground mt-1">
+              {formatDisplayDate(date)}
+            </p>
           </CardHeader>
           <CardContent className="p-0">
           {dailyRows.length === 0 ? (
@@ -287,9 +508,13 @@ export function Dashboard() {
 
         <Card className="p-6 sm:p-8">
           <CardHeader className="p-0 mb-5">
-            <CardTitle className="text-xl font-semibold">
+            <CardTitle className="text-xl font-semibold flex items-center gap-2">
+              <LayoutGrid className="size-5 text-primary" />
               Quick add production
             </CardTitle>
+            <p className="text-sm text-muted-foreground mt-1">
+              Adds to selected date: {formatDisplayDate(date)}
+            </p>
           </CardHeader>
           <CardContent className="p-0">
           <form
@@ -386,7 +611,8 @@ export function Dashboard() {
 
         <Card className="p-6 sm:p-8">
           <CardHeader className="p-0 mb-5">
-            <CardTitle className="text-xl font-semibold">
+            <CardTitle className="text-xl font-semibold flex items-center gap-2">
+              <Receipt className="size-5 text-primary" />
               Salary summary (current period)
             </CardTitle>
             <p className="text-base text-muted-foreground mt-1">{period.label}</p>

@@ -7,6 +7,26 @@ const monthNames = [
   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
 ];
 
+const monthNamesLong = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
+
+/** Format ISO date for display, e.g. "14 Mar 2026" */
+export function formatDisplayDate(dateStr: string): string {
+  const d = new Date(dateStr + "T12:00:00");
+  const day = d.getDate();
+  const month = monthNames[d.getMonth()];
+  const year = d.getFullYear();
+  return `${day} ${month} ${year}`;
+}
+
+/** Format for month + year, e.g. "March 2026" */
+export function formatMonthYear(dateStr: string): string {
+  const d = new Date(dateStr + "T12:00:00");
+  return `${monthNamesLong[d.getMonth()]} ${d.getFullYear()}`;
+}
+
 function pad(n: number): string {
   return String(n).padStart(2, "0");
 }
@@ -85,6 +105,33 @@ export function getPeriods(count = 24): { from: string; to: string; label: strin
 
 export function isDateInPeriod(date: string, from: string, to: string): boolean {
   return date >= from && date <= to;
+}
+
+/** Returns true if the date falls on Sunday */
+export function isSunday(dateStr: string): boolean {
+  const d = new Date(dateStr + "T12:00:00");
+  return d.getDay() === 0;
+}
+
+/** Returns true if entries (production, attendance) are not allowed on this date (Sunday or factory holiday) */
+export function isRestrictedForEntry(
+  dateStr: string,
+  factoryHolidayDates: string[] = []
+): boolean {
+  if (isSunday(dateStr)) return true;
+  return factoryHolidayDates.includes(dateStr);
+}
+
+/** Get first and last day of month as ISO strings */
+export function getMonthRange(
+  year: number,
+  month: number
+): { from: string; to: string } {
+  const lastDay = new Date(year, month + 1, 0).getDate();
+  return {
+    from: `${year}-${pad(month + 1)}-01`,
+    to: `${year}-${pad(month + 1)}-${pad(lastDay)}`,
+  };
 }
 
 export function getPeriodsWithData(
