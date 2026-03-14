@@ -1,0 +1,168 @@
+@import "tailwindcss";
+
+/* ProdTrack Lite – custom (shadcn-style). Build output = Tailwind (only used classes) + this. */
+:root {
+  --background: #fafafa;
+  --foreground: #0a0a0a;
+  --card: #ffffff;
+  --card-foreground: #0a0a0a;
+  --border: #e4e4e7;
+  --input: #e4e4e7;
+  --ring: #7c3aed;
+  --primary: #6d28d9;
+  --primary-foreground: #fafafa;
+  --secondary: #ede9fe;
+  --muted: #f4f4f5;
+  --muted-foreground: #71717a;
+  --accent: #ede9fe;
+  --radius: 0.5rem;
+  --radius-xl: 1rem;
+  --shadow: 0 1px 3px 0 rgb(0 0 0 / 0.08);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.07);
+}
+
+.dark {
+  --background: #000000;
+  --foreground: #fafafa;
+  --card: #0c0c0c;
+  --card-foreground: #fafafa;
+  --border: rgba(255, 255, 255, 0.1);
+  --input: rgba(255, 255, 255, 0.08);
+  --ring: #a78bfa;
+  --primary: #a78bfa;
+  --primary-foreground: #000000;
+  --secondary: #171717;
+  --muted: #171717;
+  --muted-foreground: #a1a1aa;
+  --accent: rgba(167, 139, 250, 0.12);
+  --card-shadow:
+    0 4px 24px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family:
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    Roboto,
+    sans-serif;
+  font-size: 16px;
+  line-height: 1.6;
+  color: var(--foreground);
+  background: var(--background);
+  -webkit-font-smoothing: antialiased;
+}
+
+.app-wrap {
+  width: 100%;
+  padding: 1.75rem clamp(1rem, 4vw, 2rem);
+}
+
+.nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 2rem;
+  padding: 0.5rem 0;
+}
+
+.nav-brand {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--foreground);
+  text-decoration: none;
+  margin-right: 0.75rem;
+}
+
+.nav-link {
+  font-size: 1rem;
+  color: var(--muted-foreground);
+  text-decoration: none;
+  padding: 0.5rem 1rem;
+  border-radius: var(--radius);
+  transition:
+    color 0.15s,
+    background 0.15s;
+}
+
+.nav-link:hover {
+  color: var(--primary);
+  background: var(--accent);
+}
+
+.dark .dark-card {
+  background: #0c0c0c !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+  box-shadow:
+    0 4px 24px rgba(0, 0, 0, 0.5),
+    0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+.dark input,
+.dark select,
+.dark textarea {
+  background: #0c0c0c !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+  color: #fafafa !important;
+}
+
+.btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  min-width: 2.25rem;
+  min-height: 2.25rem;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  transition:
+    color 0.15s,
+    background 0.15s;
+}
+.btn-icon:hover {
+  background: var(--accent);
+  color: var(--primary);
+}
+.btn-icon svg {
+  width: 1.25rem;
+  height: 1.25rem;
+}
+.btn-icon.btn-icon-delete:hover {
+  background: rgba(147, 51, 234, 0.15);
+  color: #6d28d9;
+}
+.dark .btn-icon.btn-icon-delete:hover {
+  background: rgba(167, 139, 250, 0.2);
+  color: #c4b5fd;
+}
+
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #printSection,
+  #printSection * {
+    visibility: visible;
+  }
+  #printSection {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+  }
+  .no-print {
+    display: none !important;
+  }
+}
