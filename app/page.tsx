@@ -28,10 +28,17 @@ export default function Home() {
 
   if (!ready) {
     return (
-      <div className="flex min-h-svh items-center justify-center">
-        <div className="flex items-center justify-center gap-2 text-muted-foreground">
-          <Spinner className="size-5" />
-          <span>Loading…</span>
+      <div
+        className="flex min-h-svh w-full items-center justify-center bg-background"
+        role="status"
+        aria-live="polite"
+        aria-label="Loading"
+      >
+        <div className="flex flex-col items-center justify-center gap-6 animate-loading-screen-in">
+          <Spinner className="size-16 text-primary stroke-[1.5]" />
+          <span className="animate-loading-screen-in-delay text-lg font-medium text-muted-foreground">
+            Loading…
+          </span>
         </div>
       </div>
     );

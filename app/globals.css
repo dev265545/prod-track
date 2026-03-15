@@ -275,6 +275,33 @@
   color: var(--destructive);
 }
 
+/* Loading screen entrance – fade + subtle scale */
+@keyframes loading-screen-in {
+  from {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+.animate-loading-screen-in {
+  animation: loading-screen-in 0.45s var(--ease-out-quart) forwards;
+}
+.animate-loading-screen-in-delay {
+  animation: loading-screen-in 0.35s var(--ease-out-quart) 0.1s forwards;
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-loading-screen-in,
+  .animate-loading-screen-in-delay {
+    animation: none;
+    opacity: 1;
+  }
+}
+
 /* Optional fade-in for main content */
 @keyframes fade-in-up {
   from {

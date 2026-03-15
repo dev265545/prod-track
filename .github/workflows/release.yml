@@ -1,4 +1,5 @@
 # Build Tauri app and create a GitHub Release on every push to main.
+# Auto-bumps version from latest release tag (or package.json) and publishes.
 # Windows only.
 
 name: Release
@@ -24,11 +25,20 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch tags
+        run: git fetch --tags
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "lts/*"
+
+      - name: Bump version
+        id: bump
+        run: node .github/scripts/bump-version.js
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -51,8 +61,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: v__VERSION__-${{ github.run_number }}
-          releaseName: "ProdTrack v__VERSION__ (#${{ github.run_number }})"
+          tagName: v${{ steps.bump.outputs.version }}
+          releaseName: "ProdTrack v${{ steps.bump.outputs.version }}"
           releaseBody: |
             Built from main @ ${{ github.sha }}
             See the assets below for installers.

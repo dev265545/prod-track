@@ -77,6 +77,22 @@ export function EmployeeCalendar({
     return map;
   }, [attendance]);
 
+  const hoursAdjustMap = useMemo(() => {
+    const map = new Map<
+      string,
+      { extra?: number; reduced?: number }
+    >();
+    attendance.forEach((a) => {
+      const date = a.date as string;
+      const extra = a.hoursExtra as number | undefined;
+      const reduced = a.hoursReduced as number | undefined;
+      if (extra != null && extra > 0) map.set(date, { ...map.get(date), extra });
+      if (reduced != null && reduced > 0)
+        map.set(date, { ...map.get(date), reduced });
+    });
+    return map;
+  }, [attendance]);
+
   const dayOffSet = useMemo(() => new Set(factoryHolidays), [factoryHolidays]);
 
   const today = toISODate(new Date());
@@ -143,6 +159,9 @@ export function EmployeeCalendar({
           const inPeriod = dateStr >= periodFrom && dateStr <= periodTo;
           const hasProd = productionDates.has(dateStr);
           const attStatus = attendanceMap.get(dateStr);
+          const hoursAdjust = hoursAdjustMap.get(dateStr);
+          const hasExtra = (hoursAdjust?.extra ?? 0) > 0;
+          const hasReduced = (hoursAdjust?.reduced ?? 0) > 0;
           const isDayOff = dayOffSet.has(dateStr);
 
           return (
@@ -165,7 +184,7 @@ export function EmployeeCalendar({
                   ? () => onDateDoubleClick(dateStr)
                   : undefined
               }
-              aria-label={`${day}${isDayOff ? ", Factory holiday" : ""}${attStatus ? `, ${attStatus}` : ""}${hasProd ? ", Has production" : ""}`}
+              aria-label={`${day}${isDayOff ? ", Factory holiday" : ""}${attStatus ? `, ${attStatus}` : ""}${hasProd ? ", Has production" : ""}${hasExtra ? ", Extra hours" : ""}${hasReduced ? ", Reduced hours" : ""}`}
               title={dateStr}
             >
               <span
@@ -199,6 +218,20 @@ export function EmployeeCalendar({
                     aria-hidden
                   />
                 )}
+                {hasExtra && (
+                  <span
+                    className="size-1.5 rounded-full bg-blue-500"
+                    title={`+${hoursAdjust?.extra}h extra`}
+                    aria-hidden
+                  />
+                )}
+                {hasReduced && (
+                  <span
+                    className="size-1.5 rounded-full bg-amber-500"
+                    title={`−${hoursAdjust?.reduced}h reduced`}
+                    aria-hidden
+                  />
+                )}
                 {isDayOff && !hasProd && !attStatus && (
                   <span
                     className="size-1.5 rounded-full bg-muted-foreground"
@@ -222,6 +255,12 @@ export function EmployeeCalendar({
         </div>
         <div className="flex items-center gap-1.5">
           <span className="size-2 rounded-full bg-destructive" /> Absent
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="size-2 rounded-full bg-blue-500" /> Extra h
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="size-2 rounded-full bg-amber-500" /> Less h
         </div>
         <div className="flex items-center gap-1.5">
           <span className="size-2 rounded-full bg-muted-foreground" /> Factory

@@ -848,50 +848,57 @@ export function EmployeePageClient() {
                     {calendarAttendance.find(
                       (a) => (a.date as string) === selectedDate,
                     )?.status === "present" && (
-                      <div className="flex flex-wrap items-center gap-2 pt-2 border-t">
-                        <div className="flex items-center gap-1">
-                          <Label
-                            htmlFor="hours-reduced"
-                            className="text-[10px] text-muted-foreground shrink-0"
-                          >
-                            −h
-                          </Label>
-                          <Input
-                            id="hours-reduced"
-                            type="number"
-                            min={0}
-                            max={24}
-                            step={0.5}
-                            placeholder="0"
-                            className="h-7 w-14 text-xs"
-                            value={hoursReducedInput}
-                            onChange={(e) =>
-                              setHoursReducedInput(e.target.value)
-                            }
-                          />
+                      <div className="space-y-3 pt-3 border-t">
+                        <p className="text-xs font-medium text-foreground">
+                          Adjust hours for this day
+                        </p>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="space-y-1.5">
+                            <Label
+                              htmlFor="hours-reduced"
+                              className="text-sm text-muted-foreground"
+                            >
+                              Hours less (−)
+                            </Label>
+                            <Input
+                              id="hours-reduced"
+                              type="number"
+                              min={0}
+                              max={24}
+                              step={0.5}
+                              placeholder="0"
+                              className="h-10 w-full text-base tabular-nums"
+                              value={hoursReducedInput}
+                              onChange={(e) =>
+                                setHoursReducedInput(e.target.value)
+                              }
+                            />
+                          </div>
+                          <div className="space-y-1.5">
+                            <Label
+                              htmlFor="hours-extra"
+                              className="text-sm text-muted-foreground"
+                            >
+                              Extra hours (+)
+                            </Label>
+                            <Input
+                              id="hours-extra"
+                              type="number"
+                              min={0}
+                              max={24}
+                              step={0.5}
+                              placeholder="0"
+                              className="h-10 w-full text-base tabular-nums"
+                              value={hoursExtraInput}
+                              onChange={(e) =>
+                                setHoursExtraInput(e.target.value)
+                              }
+                            />
+                          </div>
                         </div>
-                        <div className="flex items-center gap-1">
-                          <Label
-                            htmlFor="hours-extra"
-                            className="text-[10px] text-muted-foreground shrink-0"
-                          >
-                            +h
-                          </Label>
-                          <Input
-                            id="hours-extra"
-                            type="number"
-                            min={0}
-                            max={24}
-                            step={0.5}
-                            placeholder="0"
-                            className="h-7 w-14 text-xs"
-                            value={hoursExtraInput}
-                            onChange={(e) => setHoursExtraInput(e.target.value)}
-                          />
-                        </div>
-                        <span className="text-[10px] text-muted-foreground shrink-0">
-                          × {currency(ratePerHour)}/h
-                        </span>
+                        <p className="text-xs text-muted-foreground">
+                          Rate: {currency(ratePerHour)}/h
+                        </p>
                         {(() => {
                           const rec = calendarAttendance.find(
                             (a) => (a.date as string) === selectedDate,
@@ -912,9 +919,9 @@ export function EmployeePageClient() {
                           return hasChanged ? (
                             <Button
                               type="button"
-                              variant="outline"
+                              variant="default"
                               size="sm"
-                              className="h-7 text-[10px] px-2"
+                              className="mt-1 h-9 text-sm px-4"
                               onClick={async () => {
                                 const existing = calendarAttendance.find(
                                   (a) => (a.date as string) === selectedDate,
@@ -962,9 +969,10 @@ export function EmployeePageClient() {
                                 ]);
                                 setCalendarAttendance(att);
                                 if (from && to) setPeriodAttendance(periodAtt);
+                                toast.success("Hours updated");
                               }}
                             >
-                              Update
+                              Save hours
                             </Button>
                           ) : null;
                         })()}
