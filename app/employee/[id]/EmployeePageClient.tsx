@@ -516,6 +516,32 @@ export function EmployeePageClient() {
                 setFrom(p.from);
                 setTo(p.to);
               }}
+              onDateDoubleClick={async (date) => {
+                if (isSunday(date)) return;
+                const existing = calendarAttendance.find(
+                  (a) => (a.date as string) === date,
+                );
+                await saveAttendance({
+                  ...(existing?.id ? { id: existing.id as string } : {}),
+                  employeeId: id,
+                  date,
+                  status: "present",
+                });
+                const padM = String(calMonth + 1).padStart(2, "0");
+                const monthStart = `${calYear}-${padM}-01`;
+                const lastDay = new Date(calYear, calMonth + 1, 0).getDate();
+                const monthEnd = `${calYear}-${padM}-${String(lastDay).padStart(2, "0")}`;
+                const [att, periodAtt] = await Promise.all([
+                  getAttendanceByEmployeeInRange(id, monthStart, monthEnd),
+                  from && to
+                    ? getAttendanceByEmployeeInRange(id, from, to)
+                    : Promise.resolve([]),
+                ]);
+                setCalendarAttendance(att);
+                if (from && to) setPeriodAttendance(periodAtt);
+                setSelectedDate(date);
+                toast.success(`Marked present for ${dateDisplay(date)}`);
+              }}
               periodFrom={from || ""}
               periodTo={to || ""}
             />

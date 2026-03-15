@@ -357,6 +357,8 @@ export function Dashboard() {
               selectedDate={date}
               onDateClick={handleCalendarDateClick}
               onToggleHoliday={handleToggleHoliday}
+              periodFrom={period?.from}
+              periodTo={period?.to}
             />
           </div>
           <div className="grid grid-cols-2 grid-rows-[1fr_1fr_auto] gap-3 h-full min-h-0 flex-1 min-w-[280px] max-w-[400px] lg:self-stretch">

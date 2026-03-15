@@ -41,6 +41,8 @@ export interface EmployeeCalendarProps {
   factoryHolidays: string[];
   selectedDate: string | null;
   onDateClick: (date: string) => void;
+  /** Double-click on a date to mark employee present (e.g. from employee dashboard). */
+  onDateDoubleClick?: (date: string) => void;
   periodFrom: string;
   periodTo: string;
 }
@@ -54,6 +56,7 @@ export function EmployeeCalendar({
   factoryHolidays,
   selectedDate,
   onDateClick,
+  onDateDoubleClick,
   periodFrom,
   periodTo,
 }: EmployeeCalendarProps) {
@@ -157,6 +160,11 @@ export function EmployeeCalendar({
                 isDayOff && !isSelected && "bg-destructive/10",
               )}
               onClick={() => onDateClick(dateStr)}
+              onDoubleClick={
+                onDateDoubleClick
+                  ? () => onDateDoubleClick(dateStr)
+                  : undefined
+              }
               aria-label={`${day}${isDayOff ? ", Factory holiday" : ""}${attStatus ? `, ${attStatus}` : ""}${hasProd ? ", Has production" : ""}`}
               title={dateStr}
             >
@@ -223,6 +231,9 @@ export function EmployeeCalendar({
           <span className="size-4 rounded border border-chart-1/50 bg-chart-1/20" />{" "}
           Selected period
         </div>
+        {onDateDoubleClick && (
+          <p className="text-[10px] italic">Double-click a date to mark present</p>
+        )}
       </div>
     </div>
   );

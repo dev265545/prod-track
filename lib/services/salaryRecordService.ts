@@ -25,7 +25,7 @@ export async function getSalaryRecords(): Promise<Record<string, unknown>[]> {
 }
 
 export async function getSalaryRecordsByEmployee(
-  employeeId: string
+  employeeId: string,
 ): Promise<Record<string, unknown>[]> {
   const all = await getAll(STORE);
   return all.filter((r) => (r.employeeId as string) === employeeId);
@@ -33,17 +33,16 @@ export async function getSalaryRecordsByEmployee(
 
 export async function getSalaryRecordsByEmpNameAndMonth(
   empName: string,
-  month: string
+  month: string,
 ): Promise<Record<string, unknown>[]> {
   const all = await getAll(STORE);
   return all.filter(
-    (r) =>
-      (r.empName as string) === empName && (r.month as string) === month
+    (r) => (r.empName as string) === empName && (r.month as string) === month,
   );
 }
 
 export async function saveSalaryRecord(
-  record: Record<string, unknown>
+  record: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
   if (!record.id)
     record.id =
@@ -53,7 +52,7 @@ export async function saveSalaryRecord(
 }
 
 export async function saveSalaryRecords(
-  records: Record<string, unknown>[]
+  records: Record<string, unknown>[],
 ): Promise<void> {
   for (const record of records) {
     await saveSalaryRecord(record);

@@ -42,6 +42,9 @@ export interface DashboardCalendarProps {
   selectedDate: string | null;
   onDateClick: (date: string) => void;
   onToggleHoliday?: (date: string) => void;
+  /** 15-day salary period range to highlight (same as employee calendar). */
+  periodFrom?: string;
+  periodTo?: string;
 }
 
 export function DashboardCalendar({
@@ -54,6 +57,8 @@ export function DashboardCalendar({
   selectedDate,
   onDateClick,
   onToggleHoliday,
+  periodFrom = "",
+  periodTo = "",
 }: DashboardCalendarProps) {
   const daysInMonth = getLastDayOfMonth(year, month);
   const firstDayOfWeek = new Date(year, month, 1).getDay();
@@ -134,6 +139,11 @@ export function DashboardCalendar({
           const isSunday = new Date(year, month, day).getDay() === 0;
           const isToday = dateStr === today;
           const isSelected = dateStr === selectedDate;
+          const inPeriod =
+            periodFrom &&
+            periodTo &&
+            dateStr >= periodFrom &&
+            dateStr <= periodTo;
           const isDayOff = dayOffSet.has(dateStr);
           const enteredEmps = dateEntryStatus.get(dateStr)?.size ?? 0;
           const allEntered =
@@ -148,9 +158,10 @@ export function DashboardCalendar({
               className={cn(
                 "relative flex flex-col items-center justify-center rounded-lg p-2 min-h-[48px] h-auto text-sm transition-all",
                 isSelected && "ring-2 ring-chart-1 bg-chart-1/50",
+                inPeriod && !isSelected && "bg-chart-1/20",
+                !inPeriod && !isSelected && !isDayOff && "hover:bg-muted",
                 isSunday && !isSelected && "text-destructive/70",
                 isDayOff && !isSelected && "bg-destructive/10",
-                !isSelected && !isDayOff && "hover:bg-muted"
               )}
               onClick={() => onDateClick(dateStr)}
               onDoubleClick={
@@ -212,6 +223,12 @@ export function DashboardCalendar({
           <span className="size-2 rounded-full bg-destructive" /> Factory
           holiday
         </div>
+        {(periodFrom || periodTo) && (
+          <div className="flex items-center gap-1.5">
+            <span className="size-4 rounded border border-chart-1/50 bg-chart-1/20" />{" "}
+            Selected period
+          </div>
+        )}
         {onToggleHoliday && (
           <p className="text-xs italic">Double-click a date to toggle holiday</p>
         )}
