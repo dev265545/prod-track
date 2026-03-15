@@ -10,10 +10,13 @@ import { DB_VERSION } from "./schema";
 
 const EXPORT_VERSION = 1;
 
+/** sql.js exec() returns an array of { columns, values } per statement. */
+type SqlJsExecRow = { columns: string[]; values: unknown[][] };
+
 type SqlJsModule = {
   Database: new (data?: Uint8Array) => {
     run(sql: string, params?: Record<string, unknown>): void;
-    exec(sql: string): unknown;
+    exec(sql: string): SqlJsExecRow[];
     export(): Uint8Array;
     close(): void;
   };
@@ -68,13 +71,13 @@ export async function importDatabaseFromSqliteBuffer(
   for (const table of Object.values(STORES)) {
     stores[table] = [];
     try {
-      const result = db.exec(`SELECT id, data FROM "${table}"`);
+      const result: SqlJsExecRow[] = db.exec(`SELECT id, data FROM "${table}"`);
       if (result.length > 0 && result[0].values) {
-        const columns = result[0].columns as string[];
+        const columns = result[0].columns;
         const idIdx = columns.indexOf("id");
         const dataIdx = columns.indexOf("data");
         if (idIdx >= 0 && dataIdx >= 0) {
-          for (const row of result[0].values as unknown[][]) {
+          for (const row of result[0].values) {
             const id = row[idIdx];
             const dataStr = row[dataIdx];
             if (id != null && dataStr != null) {
