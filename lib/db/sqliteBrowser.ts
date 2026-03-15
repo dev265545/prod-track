@@ -100,7 +100,7 @@ export async function importDatabaseFromSqliteBuffer(
   }
 
   // ensure all known stores exist in result
-  for (const name of storeNames) {
+  for (const name of Array.from(storeNames)) {
     if (!stores[name]) stores[name] = [];
   }
 
