@@ -196,7 +196,10 @@ export function Dashboard() {
       getHolidaysInRange(periodFrom, periodTo),
     ]);
     const missing = await getMissingDataForAllEmployees(
-      employeesList,
+      employeesList.map((e) => ({
+        id: e.id as string,
+        createdAt: e.createdAt as string | undefined,
+      })),
       periodFrom,
       periodTo,
       holidaysForWarnings.map((h) => h.date as string)
