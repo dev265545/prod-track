@@ -20,9 +20,11 @@ export async function getEmployee(
 export async function saveEmployee(
   emp: Record<string, unknown>
 ): Promise<Record<string, unknown>> {
-  if (!emp.id)
+  if (!emp.id) {
     emp.id =
       "emp_" + Date.now() + "_" + Math.random().toString(36).slice(2, 9);
+    emp.createdAt = new Date().toISOString().slice(0, 10);
+  }
   if (emp.isActive === undefined) emp.isActive = true;
   await put(STORE, emp);
   return emp;

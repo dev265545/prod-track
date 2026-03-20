@@ -36,7 +36,19 @@ import {
   deleteEmployee,
 } from "@/lib/services/employeeService";
 import { getShifts } from "@/lib/services/shiftService";
+import { toast } from "sonner";
 import { Trash2 } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 
 const HEADING_CLASS =
   "text-lg sm:text-xl font-semibold text-foreground font-heading";
@@ -76,12 +88,18 @@ export default function EmployeesPage() {
     if (!employeeName.trim()) return;
     setSubmitting(true);
     try {
-      await saveEmployee({
-        name: employeeName.trim(),
-        isActive: true,
-      });
+      try {
+        await saveEmployee({
+          name: employeeName.trim(),
+          isActive: true,
+        });
+      } catch {
+        toast.error("Failed to add employee");
+        return;
+      }
       setEmployeeName("");
       await load();
+      toast.success("Employee added");
     } finally {
       setSubmitting(false);
     }
@@ -170,26 +188,47 @@ export default function EmployeesPage() {
                         onClick={(ev) => ev.stopPropagation()}
                         onKeyDown={(ev) => ev.stopPropagation()}
                       >
-                        <Button
-                          type="button"
-                          variant="destructive"
-                          size="icon"
-                          title="Delete employee"
-                          aria-label={`Delete ${e.name as string}`}
-                          onClick={async (ev) => {
-                            ev.stopPropagation();
-                            if (
-                              confirm(
-                                "Delete this employee? Their productions and advances will remain but show as unknown.",
-                              )
-                            ) {
-                              await deleteEmployee(e.id as string);
-                              load();
-                            }
-                          }}
-                        >
-                          <Trash2 data-icon="inline-start" aria-hidden />
-                        </Button>
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button
+                              type="button"
+                              variant="destructive"
+                              size="icon"
+                              title="Delete employee"
+                              aria-label={`Delete ${e.name as string}`}
+                            >
+                              <Trash2 data-icon="inline-start" aria-hidden />
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Delete employee?</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                Delete {e.name as string}? Their productions and advances will remain but show as unknown.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>
+                                Cancel
+                              </AlertDialogCancel>
+                              <AlertDialogAction
+                                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                onClick={async (ev) => {
+                                  ev.stopPropagation();
+                                  try {
+                                    await deleteEmployee(e.id as string);
+                                    await load();
+                                    toast.success("Employee deleted");
+                                  } catch {
+                                    toast.error("Failed to delete employee");
+                                  }
+                                }}
+                              >
+                                Delete
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
                       </TableCell>
                     </TableRow>
                   ))}

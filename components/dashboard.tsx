@@ -51,6 +51,10 @@ import {
   saveHoliday,
   deleteHoliday,
 } from "@/lib/services/factoryHolidayService";
+import {
+  getMissingDataForAllEmployees,
+  type MissingDay,
+} from "@/lib/utils/missingDataWarnings";
 import { isRestrictedForEntry } from "@/lib/utils/date";
 import { toast } from "sonner";
 import {
@@ -69,7 +73,15 @@ import {
   CalendarDays,
   LayoutGrid,
   Receipt,
+  AlertTriangle,
 } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 
 function getYearMonth(dateStr: string): { year: number; month: number } {
   const [y, m] = dateStr.split("-").map(Number);
@@ -119,6 +131,7 @@ export function Dashboard() {
   const [quickQty, setQuickQty] = useState(1);
   const [quickDate, setQuickDate] = useState(today());
   const [saving, setSaving] = useState(false);
+  const [missingData, setMissingData] = useState<Map<string, MissingDay[]>>(new Map());
 
   const load = useCallback(async () => {
     const [dailyAgg, itemsList, employeesList, periodData] = await Promise.all([
@@ -178,6 +191,17 @@ export function Dashboard() {
     };
     setPeriodProduction(aggregateProds(periodProds));
     setMonthProduction(aggregateProds(monthProds));
+
+    const [holidaysForWarnings] = await Promise.all([
+      getHolidaysInRange(periodFrom, periodTo),
+    ]);
+    const missing = await getMissingDataForAllEmployees(
+      employeesList,
+      periodFrom,
+      periodTo,
+      holidaysForWarnings.map((h) => h.date as string)
+    );
+    setMissingData(missing);
   }, [date]);
 
   const loadCalendar = useCallback(async () => {
@@ -226,8 +250,10 @@ export function Dashboard() {
       const existing = await getHolidayByDate(dateStr);
       if (existing?.id) {
         await deleteHoliday(existing.id as string);
+        toast.success("Holiday removed");
       } else {
         await saveHoliday({ date: dateStr });
+        toast.success("Holiday added");
       }
       await loadCalendar();
     },
@@ -254,6 +280,9 @@ export function Dashboard() {
       });
       setQuickQty(1);
       await load();
+      toast.success("Production added");
+    } catch {
+      toast.error("Failed to add production");
     } finally {
       setSaving(false);
     }
@@ -309,9 +338,59 @@ export function Dashboard() {
     <AppShell>
       <main className="flex flex-col gap-8 animate-fade-in">
         <div className="flex flex-wrap items-center justify-between gap-4">
-          <h1 className="text-3xl font-bold text-foreground font-heading">
-            Dashboard
-          </h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-3xl font-bold text-foreground font-heading">
+              Dashboard
+            </h1>
+            {(() => {
+              const entries = Array.from(missingData.entries()).filter(
+                ([_, days]) => days.length > 0
+              );
+              const totalMissing = entries.reduce((s, [, d]) => s + d.length, 0);
+              if (totalMissing === 0) return null;
+              const empNames = Object.fromEntries(
+                employees.map((e) => [e.id, e.name as string])
+              );
+              return (
+                <Dialog>
+                  <DialogTrigger asChild>
+                    <button
+                      type="button"
+                      className="relative flex items-center justify-center rounded-lg p-2 text-destructive hover:bg-destructive/10 focus:outline-none focus:ring-2 focus:ring-destructive/30 transition-colors"
+                      aria-label={`${totalMissing} days with missing data`}
+                    >
+                      <AlertTriangle className="size-5" />
+                      <span className="absolute -top-0.5 -right-0.5 flex size-4 items-center justify-center rounded-full bg-destructive text-[10px] font-bold text-destructive-foreground animate-pulse">
+                        {totalMissing > 9 ? "9+" : totalMissing}
+                      </span>
+                    </button>
+                  </DialogTrigger>
+                  <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                      <DialogTitle className="text-destructive">Missing data</DialogTitle>
+                      <p className="text-sm text-muted-foreground">
+                        {totalMissing} working day{totalMissing !== 1 ? "s" : ""} without production or attendance across{" "}
+                        {entries.length} employee{entries.length !== 1 ? "s" : ""}.
+                      </p>
+                    </DialogHeader>
+                    <ul className="flex flex-col gap-2 text-sm max-h-60 overflow-y-auto">
+                      {entries.map(([empId, days]) => (
+                        <li key={empId}>
+                          <span className="font-medium">{empNames[empId] ?? empId}</span>:{" "}
+                          {days.length} day{days.length !== 1 ? "s" : ""} —{" "}
+                          {days
+                            .slice(0, 5)
+                            .map((d) => formatDisplayDate(d.date))
+                            .join(", ")}
+                          {days.length > 5 && ` +${days.length - 5} more`}
+                        </li>
+                      ))}
+                    </ul>
+                  </DialogContent>
+                </Dialog>
+              );
+            })()}
+          </div>
           <div className="flex flex-col gap-2">
             <Label
               htmlFor="dashboardDate"

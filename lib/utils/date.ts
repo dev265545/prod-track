@@ -43,6 +43,13 @@ export function today(): string {
   return toISODate(new Date());
 }
 
+/** Yesterday's date as ISO string */
+export function yesterday(): string {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  return toISODate(d);
+}
+
 function getLastDayOfMonth(year: number, month: number): number {
   return new Date(year, month + 1, 0).getDate();
 }

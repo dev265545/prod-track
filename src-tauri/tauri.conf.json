@@ -13,7 +13,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "Inventory-Employee-APP",
+        "title": "Inventory Tracker and Employee App",
         "width": 800,
         "height": 600,
         "resizable": true,

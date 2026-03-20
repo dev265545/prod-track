@@ -40,6 +40,7 @@ import {
 } from "@/lib/services/advanceService";
 import {
   getDeductionForPeriod,
+  getDeductionsByEmployee,
   saveDeduction,
 } from "@/lib/services/advanceDeductionService";
 import { getItems } from "@/lib/services/itemService";
@@ -73,6 +74,7 @@ import {
   isSunday,
   isRestrictedForEntry,
 } from "@/lib/utils/date";
+import { getMissingDataDays } from "@/lib/utils/missingDataWarnings";
 import { getHolidayByDate } from "@/lib/services/factoryHolidayService";
 import { toast } from "sonner";
 import { currency, dateDisplay, number } from "@/lib/utils/formatter";
@@ -86,7 +88,33 @@ import {
   CalendarDays,
   Package,
   LayoutGrid,
+  Wallet,
+  AlertTriangle,
 } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { Separator } from "@/components/ui/separator";
 
 const MONTH_NAMES = [
   "Jan",
@@ -124,6 +152,12 @@ export function EmployeePageClient() {
   } | null>(null);
   const [productions, setProductions] = useState<Record<string, unknown>[]>([]);
   const [advances, setAdvances] = useState<Record<string, unknown>[]>([]);
+  const [allAdvances, setAllAdvances] = useState<Record<string, unknown>[]>([]);
+  const [deductions, setDeductions] = useState<Record<string, unknown>[]>([]);
+  const [advancesModalOpen, setAdvancesModalOpen] = useState(false);
+  const [advancesModalTab, setAdvancesModalTab] = useState<"advances" | "settlements">("advances");
+  const [productionsModalOpen, setProductionsModalOpen] = useState(false);
+  const [missingDataDays, setMissingDataDays] = useState<{ date: string }[]>([]);
   const [items, setItems] = useState<Record<string, unknown>[]>([]);
   const [advanceToCutInput, setAdvanceToCutInput] = useState(0);
   const [prodItem, setProdItem] = useState("");
@@ -160,17 +194,20 @@ export function EmployeePageClient() {
       return;
     }
     setEmployee(emp);
-    const [allProds, allAdvs, itemsList, salaryRecs, shiftList] =
+    const [allProds, allAdvs, itemsList, salaryRecs, shiftList, deductionsList] =
       await Promise.all([
         getProductionsByEmployee(id, "2000-01-01", "2100-12-31"),
         getAdvancesByEmployee(id, "2000-01-01", "2100-12-31"),
         getItems(),
         getSalaryRecordsByEmployee(id),
         getShifts(),
+        getDeductionsByEmployee(id),
       ]);
     setItems(itemsList);
     setStoredSalaryRecords(salaryRecs);
     setShifts(shiftList);
+    setAllAdvances(allAdvs);
+    setDeductions(deductionsList);
     const periodsWithData = getPeriodsWithData([...allProds, ...allAdvs]);
     const period = getPeriodForDate(today());
     const periodList = periodsWithData.length > 0 ? periodsWithData : [period];
@@ -238,6 +275,24 @@ export function EmployeePageClient() {
     });
   }, [id, calYear, calMonth]);
 
+  const refreshMissingData = () => {
+    if (!id || !employee || !from || !to) return;
+    const start = (employee.createdAt as string) || from;
+    getHolidaysInRange(from, to).then((holidays) =>
+      getMissingDataDays(
+        id,
+        start,
+        from,
+        to,
+        holidays.map((h) => h.date as string)
+      ).then(setMissingDataDays)
+    );
+  };
+
+  useEffect(() => {
+    refreshMissingData();
+  }, [id, employee, from, to]);
+
   useEffect(() => {
     const rec = calendarAttendance.find(
       (a) => (a.date as string) === selectedDate,
@@ -257,9 +312,25 @@ export function EmployeePageClient() {
     return (
       <AppShell>
         <main id="main" className="flex flex-col gap-8">
-          <Skeleton className="h-10 w-48" />
-          <Skeleton className="h-40 rounded-2xl" />
+          <div className="space-y-2">
+            <Skeleton className="h-4 w-24" />
+            <Skeleton className="h-9 w-64" />
+          </div>
+          <div className="grid grid-cols-4 gap-4">
+            {[1, 2, 3, 4].map((i) => (
+              <Skeleton key={i} className="h-28 rounded-xl" />
+            ))}
+          </div>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <Skeleton className="h-80 rounded-2xl lg:col-span-2" />
+            <div className="space-y-4">
+              <Skeleton className="h-24 rounded-xl" />
+              <Skeleton className="h-24 rounded-xl" />
+              <Skeleton className="h-32 rounded-xl" />
+            </div>
+          </div>
           <Skeleton className="h-64 rounded-2xl" />
+          <Skeleton className="h-48 rounded-2xl" />
         </main>
       </AppShell>
     );
@@ -382,19 +453,59 @@ export function EmployeePageClient() {
 
   return (
     <AppShell>
-      <main id="main" className="flex flex-col gap-8 animate-fade-in">
-        <div>
-          <Link
-            href="/"
-            className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded"
-          >
-            ← Dashboard
-          </Link>
-          <h1 className="mt-2 text-3xl font-bold text-foreground font-heading">
-            {employee.name as string}
-          </h1>
+      <main id="main" className="flex flex-col gap-8">
+        <div className="animate-fade-in flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <Link
+              href="/"
+              className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded"
+            >
+              ← Dashboard
+            </Link>
+            <h1 className="mt-2 text-3xl font-bold text-foreground font-heading">
+              {employee.name as string}
+            </h1>
+          </div>
+          {missingDataDays.length > 0 && (
+            <Popover>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  className="relative flex items-center justify-center rounded-lg p-2 text-destructive hover:bg-destructive/10 focus:outline-none focus:ring-2 focus:ring-destructive/30 transition-colors"
+                  aria-label={`${missingDataDays.length} day${missingDataDays.length !== 1 ? "s" : ""} with missing data`}
+                >
+                  <AlertTriangle className="size-5" />
+                  <span className="absolute -top-0.5 -right-0.5 flex size-4 items-center justify-center rounded-full bg-destructive text-[10px] font-bold text-destructive-foreground animate-pulse">
+                    {missingDataDays.length > 9 ? "9+" : missingDataDays.length}
+                  </span>
+                </button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-72">
+                <div className="space-y-2">
+                  <p className="font-medium text-destructive">
+                    Missing data
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    {missingDataDays.length} working day{missingDataDays.length !== 1 ? "s" : ""} without production or attendance:
+                  </p>
+                  <ul className="text-sm max-h-40 overflow-y-auto space-y-1">
+                    {missingDataDays
+                      .slice(0, 15)
+                      .map((d) => (
+                        <li key={d.date}>{dateDisplay(d.date)}</li>
+                      ))}
+                    {missingDataDays.length > 15 && (
+                      <li className="text-muted-foreground">
+                        +{missingDataDays.length - 15} more
+                      </li>
+                    )}
+                  </ul>
+                </div>
+              </PopoverContent>
+            </Popover>
+          )}
         </div>
-        <div className="grid grid-cols-4 gap-4 xl:flex-1 xl:min-w-0">
+        <div className="grid grid-cols-4 gap-4 xl:flex-1 xl:min-w-0 animate-fade-in animate-stagger-1">
           <Card className="p-5 sm:p-6">
             <CardHeader className="p-0 pb-2">
               <div className="flex items-center gap-2">
@@ -497,7 +608,7 @@ export function EmployeePageClient() {
           </Card>
         </div>
 
-        <div className="flex flex-col xl:flex-row gap-4 xl:items-stretch">
+        <div className="flex flex-col xl:flex-row gap-4 xl:items-stretch animate-fade-in animate-stagger-2">
           <div className="xl:shrink-0 xl:min-w-[350px] xl:w-[350px]">
             <EmployeeCalendar
               year={calYear}
@@ -512,6 +623,7 @@ export function EmployeePageClient() {
               selectedDate={selectedDate}
               onDateClick={(date) => {
                 setSelectedDate(date);
+                setProdDate(date);
                 const p = getPeriodForDate(date);
                 setFrom(p.from);
                 setTo(p.to);
@@ -540,6 +652,7 @@ export function EmployeePageClient() {
                 setCalendarAttendance(att);
                 if (from && to) setPeriodAttendance(periodAtt);
                 setSelectedDate(date);
+                refreshMissingData();
                 toast.success(`Marked present for ${dateDisplay(date)}`);
               }}
               periodFrom={from || ""}
@@ -767,6 +880,8 @@ export function EmployeePageClient() {
                           ]);
                           setCalendarAttendance(att);
                           if (from && to) setPeriodAttendance(periodAtt);
+                          refreshMissingData();
+                          toast.success(`Marked present for ${selectedDate ? dateDisplay(selectedDate) : "this date"}`);
                         }}
                       >
                         <Check data-icon="inline-start" />
@@ -815,6 +930,8 @@ export function EmployeePageClient() {
                           ]);
                           setCalendarAttendance(att);
                           if (from && to) setPeriodAttendance(periodAtt);
+                          refreshMissingData();
+                          toast.success(`Marked absent for ${selectedDate ? dateDisplay(selectedDate) : "this date"}`);
                         }}
                       >
                         <X data-icon="inline-start" />
@@ -823,26 +940,51 @@ export function EmployeePageClient() {
                       {calendarAttendance.some(
                         (a) => (a.date as string) === selectedDate,
                       ) && (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className="text-xs h-8 px-3"
-                          onClick={async () => {
-                            const rec = calendarAttendance.find(
-                              (a) => (a.date as string) === selectedDate,
-                            );
-                            if (rec?.id)
-                              await deleteAttendance(rec.id as string);
-                            setCalendarAttendance((prev) =>
-                              prev.filter(
-                                (a) => (a.date as string) !== selectedDate,
-                              ),
-                            );
-                          }}
-                        >
-                          Clear
-                        </Button>
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="text-xs h-8 px-3"
+                            >
+                              Clear
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Clear attendance?</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                Remove the attendance record for {selectedDate ? dateDisplay(selectedDate) : "this date"}. You can add it again later.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancel</AlertDialogCancel>
+                              <AlertDialogAction
+                                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                onClick={async () => {
+                                  try {
+                                    const rec = calendarAttendance.find(
+                                      (a) => (a.date as string) === selectedDate,
+                                    );
+                                    if (rec?.id) await deleteAttendance(rec.id as string);
+                                    setCalendarAttendance((prev) =>
+                                      prev.filter(
+                                        (a) => (a.date as string) !== selectedDate,
+                                      ),
+                                    );
+                                    refreshMissingData();
+                                    toast.success("Attendance cleared");
+                                  } catch {
+                                    toast.error("Failed to clear attendance");
+                                  }
+                                }}
+                              >
+                                Clear
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
                       )}
                     </div>
                     {calendarAttendance.find(
@@ -969,6 +1111,7 @@ export function EmployeePageClient() {
                                 ]);
                                 setCalendarAttendance(att);
                                 if (from && to) setPeriodAttendance(periodAtt);
+                                refreshMissingData();
                                 toast.success("Hours updated");
                               }}
                             >
@@ -1026,7 +1169,7 @@ export function EmployeePageClient() {
           </div>
         </div>
 
-        <Card className="p-6 sm:p-8">
+        <Card className="p-6 sm:p-8 transition-all duration-300 ease-out animate-fade-in animate-stagger-3">
           <CardHeader className="p-0 mb-5">
             <CardTitle className="text-xl font-semibold font-heading">
               Salary (15-day periods)
@@ -1066,11 +1209,8 @@ export function EmployeePageClient() {
                 type="button"
                 className="min-h-12 px-6"
                 onClick={async () => {
-                  console.log("[print] Print salary sheet button clicked");
                   const { html } = await getPrintableSalaryHtml(id, from, to);
-                  console.log("[print] Got HTML, length:", html?.length ?? 0);
                   await printHtml(html);
-                  console.log("[print] printHtml returned");
                 }}
               >
                 Print salary sheet
@@ -1085,17 +1225,10 @@ export function EmployeePageClient() {
                   </p>
                 </div>
                 <div className="flex flex-col gap-2">
-                  <Label htmlFor="advance-to-cut">Advance to cut</Label>
-                  <Input
-                    id="advance-to-cut"
-                    type="number"
-                    min={0}
-                    className="w-full min-w-[120px] max-w-[140px] min-h-12"
-                    value={advanceToCutInput}
-                    onChange={(e) =>
-                      setAdvanceToCutInput(parseFloat(e.target.value) || 0)
-                    }
-                  />
+                  <Label>Advance to cut</Label>
+                  <p className="text-base text-foreground font-medium">
+                    {currency(advanceToCutInput)}
+                  </p>
                 </div>
                 <div className="flex flex-col gap-2">
                   <Label>Net</Label>
@@ -1105,26 +1238,107 @@ export function EmployeePageClient() {
                 </div>
               </div>
             )}
-            <Button
-              type="button"
-              className="mt-6 min-h-12 px-6"
-              onClick={async () => {
-                await saveDeduction({
-                  employeeId: id,
-                  periodFrom: from,
-                  periodTo: to,
-                  amount: advanceToCutInput,
-                });
-                if (salary)
-                  setSalary({
-                    ...salary,
-                    advanceToCut: advanceToCutInput,
-                    final: Math.max(0, salary.gross - advanceToCutInput),
-                  });
-              }}
-            >
-              Save period settlement
-            </Button>
+          </CardContent>
+        </Card>
+
+        <Card className="p-6 sm:p-8 transition-all duration-300 ease-out animate-fade-in animate-stagger-4">
+          <CardHeader className="p-0 mb-4">
+            <CardTitle className="text-xl font-semibold font-heading">
+              Salary for this period
+            </CardTitle>
+            <p className="text-sm text-muted-foreground mt-1">
+              Set how much advance to cut this 15-day cycle. Net = Gross − Advance to cut. Submit to save.
+            </p>
+          </CardHeader>
+          <CardContent className="p-0">
+            {salary ? (
+              <div className="space-y-4 max-w-xl">
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                  <span className="text-muted-foreground">Total making (gross)</span>
+                  <span className="font-semibold tabular-nums">
+                    {currency(salary.gross)}
+                  </span>
+                </div>
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                  <span className="text-muted-foreground">Total advance paid (all time)</span>
+                  <span className="font-semibold tabular-nums">
+                    {currency(
+                      allAdvances.reduce(
+                        (sum, a) => sum + ((a.amount as number) || 0),
+                        0
+                      )
+                    )}
+                  </span>
+                </div>
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor="advance-to-cut">Advance to cut this period (₹)</Label>
+                  <Input
+                    id="advance-to-cut"
+                    type="number"
+                    min={0}
+                    step={1}
+                    className="w-full max-w-[200px] min-h-12"
+                    value={advanceToCutInput}
+                    onChange={(e) =>
+                      setAdvanceToCutInput(parseFloat(e.target.value) || 0)
+                    }
+                  />
+                </div>
+                <Separator className="my-4" />
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                  <span className="font-medium">Net this period</span>
+                  <span className="font-bold text-lg tabular-nums">
+                    {currency(Math.max(0, salary.gross - advanceToCutInput))}
+                  </span>
+                </div>
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                  <span className="text-muted-foreground">Advance left after this period</span>
+                  <span className="font-semibold tabular-nums">
+                    {currency(
+                      Math.max(
+                        0,
+                        allAdvances.reduce(
+                          (sum, a) => sum + ((a.amount as number) || 0),
+                          0
+                        ) - advanceToCutInput
+                      )
+                    )}
+                  </span>
+                </div>
+                <Button
+                  type="button"
+                  className="min-h-12 px-6"
+                  onClick={async () => {
+                    try {
+                      await saveDeduction({
+                        employeeId: id,
+                        periodFrom: from,
+                        periodTo: to,
+                        amount: advanceToCutInput,
+                      });
+                    } catch {
+                      toast.error("Failed to save period settlement");
+                      return;
+                    }
+                    const updatedDeductions = await getDeductionsByEmployee(id);
+                    setDeductions(updatedDeductions);
+                    setSalary({
+                      ...salary,
+                      advanceToCut: advanceToCutInput,
+                      final: Math.max(0, salary.gross - advanceToCutInput),
+                    });
+                    toast.success("Period settlement saved");
+                  }}
+                >
+                  Save period settlement
+                </Button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <Skeleton className="h-4 w-32" />
+                <Skeleton className="h-4 w-24" />
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -1191,13 +1405,18 @@ export function EmployeePageClient() {
                   );
                   return;
                 }
-                await saveProduction({
-                  employeeId: id,
-                  itemId: prodItem,
-                  date: prodDate,
-                  quantity: prodQty,
-                  shift: prodShift,
-                });
+                try {
+                  await saveProduction({
+                    employeeId: id,
+                    itemId: prodItem,
+                    date: prodDate,
+                    quantity: prodQty,
+                    shift: prodShift,
+                  });
+                } catch {
+                  toast.error("Failed to add production entry");
+                  return;
+                }
                 setProdQty(1);
                 const [s, , prods, advs] = await Promise.all([
                   calculateSalary(id, from, to),
@@ -1214,6 +1433,8 @@ export function EmployeePageClient() {
                 });
                 setProductions(prods);
                 setAdvances(advs);
+                refreshMissingData();
+                toast.success("Production entry added");
               }}
             >
               <div className="flex flex-col gap-2">
@@ -1289,19 +1510,25 @@ export function EmployeePageClient() {
               className="flex flex-wrap items-end gap-4"
               onSubmit={async (e) => {
                 e.preventDefault();
-                await saveAdvance({
-                  employeeId: id,
-                  amount: advAmount,
-                  date: advDate,
-                });
+                try {
+                  await saveAdvance({
+                    employeeId: id,
+                    amount: advAmount,
+                    date: advDate,
+                  });
+                } catch {
+                  toast.error("Failed to add advance");
+                  return;
+                }
                 setAdvAmount(0);
-                const [s, , prods, advs] = await Promise.all([
+                const [allAdvs, s, ded, prods, advs] = await Promise.all([
+                  getAdvancesByEmployee(id, "2000-01-01", "2100-12-31"),
                   calculateSalary(id, from, to),
                   getDeductionForPeriod(id, from, to),
                   getProductionsByEmployee(id, from, to),
                   getAdvancesByEmployee(id, from, to),
                 ]);
-                const ded = await getDeductionForPeriod(id, from, to);
+                setAllAdvances(allAdvs);
                 setSalary({
                   gross: s.gross,
                   advance: s.advance,
@@ -1310,6 +1537,7 @@ export function EmployeePageClient() {
                 });
                 setProductions(prods);
                 setAdvances(advs);
+                toast.success("Advance added");
               }}
             >
               <div className="flex flex-col gap-2">
@@ -1341,154 +1569,317 @@ export function EmployeePageClient() {
           </CardContent>
         </Card>
 
-        <Card className="p-6 sm:p-8">
-          <CardHeader className="p-0 mb-5">
-            <CardTitle className="text-xl font-semibold font-heading">
-              Production entries
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="p-0">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Packaging item group</TableHead>
-                  <TableHead>Shift</TableHead>
-                  <TableHead className="text-right">Qty</TableHead>
-                  <TableHead className="text-right">Value</TableHead>
-                  <TableHead className="w-20" />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {productions.map((p) => {
-                  const item = itemMap[p.itemId as string];
-                  const rate = (item?.rate as number) || 0;
-                  const qty = (p.quantity as number) || 0;
-                  return (
-                    <TableRow key={p.id as string}>
-                      <TableCell>{dateDisplay(p.date as string)}</TableCell>
-                      <TableCell>
-                        {(item?.name as string) || (p.itemId as string)}
-                      </TableCell>
-                      <TableCell>
-                        {p.shift === "night" ? "Night" : "Day"}
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums">
-                        {number(qty)}
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums">
-                        {currency(qty * rate)}
-                      </TableCell>
-                      <TableCell>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={async () => {
-                            if (confirm("Delete this entry?")) {
-                              await deleteProduction(p.id as string);
-                              const [, , prods, advs] = await Promise.all([
-                                calculateSalary(id, from, to),
-                                getDeductionForPeriod(id, from, to),
-                                getProductionsByEmployee(id, from, to),
-                                getAdvancesByEmployee(id, from, to),
-                              ]);
-                              const ded = await getDeductionForPeriod(
-                                id,
-                                from,
-                                to,
-                              );
-                              const s = await calculateSalary(id, from, to);
-                              setSalary({
-                                gross: s.gross,
-                                advance: s.advance,
-                                final: Math.max(
-                                  0,
-                                  s.gross - ((ded?.amount as number) ?? 0),
-                                ),
-                                advanceToCut: (ded?.amount as number) ?? 0,
-                              });
-                              setProductions(prods);
-                              setAdvances(advs);
-                            }
-                          }}
-                        >
-                          Delete
-                        </Button>
-                      </TableCell>
+        <Dialog open={productionsModalOpen} onOpenChange={setProductionsModalOpen}>
+          <DialogTrigger asChild>
+            <Card className="p-6 sm:p-8 cursor-pointer transition-all duration-200 ease-out hover:ring-2 hover:ring-primary/20 focus-within:ring-2 focus-within:ring-primary/20 focus:outline-none">
+              <CardContent className="p-0 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="rounded-lg bg-primary/10 p-3">
+                    <Package className="size-5 text-primary" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">
+                      Production entries
+                    </p>
+                    <p className="text-2xl font-bold tabular-nums">
+                      {productions.length} this period
+                    </p>
+                  </div>
+                </div>
+                <span className="text-sm text-muted-foreground">View details →</span>
+              </CardContent>
+            </Card>
+          </DialogTrigger>
+          <DialogContent className="sm:max-w-2xl max-h-[85vh] flex flex-col">
+            <DialogHeader>
+              <DialogTitle>Production entries</DialogTitle>
+            </DialogHeader>
+            <div className="flex-1 overflow-y-auto -mx-1 px-1">
+              {productions.length === 0 ? (
+                <p className="py-8 text-center text-sm text-muted-foreground">
+                  No production entries for this period.
+                </p>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Date</TableHead>
+                      <TableHead>Packaging item group</TableHead>
+                      <TableHead>Shift</TableHead>
+                      <TableHead className="text-right">Qty</TableHead>
+                      <TableHead className="text-right">Value</TableHead>
+                      <TableHead className="w-16" />
                     </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
+                  </TableHeader>
+                  <TableBody>
+                    {productions.map((p) => {
+                      const item = itemMap[p.itemId as string];
+                      const rate = (item?.rate as number) || 0;
+                      const qty = (p.quantity as number) || 0;
+                      return (
+                        <TableRow key={p.id as string}>
+                          <TableCell>{dateDisplay(p.date as string)}</TableCell>
+                          <TableCell>
+                            {(item?.name as string) || (p.itemId as string)}
+                          </TableCell>
+                          <TableCell>
+                            {p.shift === "night" ? "Night" : "Day"}
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums">
+                            {number(qty)}
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums">
+                            {currency(qty * rate)}
+                          </TableCell>
+                          <TableCell>
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-8 w-8 p-0 text-destructive hover:text-destructive"
+                                >
+                                  <X className="size-4" />
+                                </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>Delete production entry?</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    This will remove the entry for {dateDisplay(p.date as string)}. This cannot be undone.
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                  <AlertDialogAction
+                                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                    onClick={async () => {
+                                      try {
+                                        await deleteProduction(p.id as string);
+                                        const [s, ded, prods, advs] = await Promise.all([
+                                          calculateSalary(id, from, to),
+                                          getDeductionForPeriod(id, from, to),
+                                          getProductionsByEmployee(id, from, to),
+                                          getAdvancesByEmployee(id, from, to),
+                                        ]);
+                                        setAdvanceToCutInput((ded?.amount as number) ?? 0);
+                                        setSalary({
+                                          gross: s.gross,
+                                          advance: s.advance,
+                                          final: Math.max(0, s.gross - ((ded?.amount as number) ?? 0)),
+                                          advanceToCut: (ded?.amount as number) ?? 0,
+                                        });
+                                        setProductions(prods);
+                                        setAdvances(advs);
+                                        refreshMissingData();
+                                        toast.success("Production entry deleted");
+                                      } catch {
+                                        toast.error("Failed to delete production entry");
+                                      }
+                                    }}
+                                  >
+                                    Delete
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
 
-        <Card className="p-6 sm:p-8">
-          <CardHeader className="p-0 mb-5">
-            <CardTitle className="text-xl font-semibold font-heading">
-              Advances in period
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="p-0">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Date</TableHead>
-                  <TableHead className="text-right">Amount</TableHead>
-                  <TableHead className="w-20" />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {advances.map((a) => (
-                  <TableRow key={a.id as string}>
-                    <TableCell>{dateDisplay(a.date as string)}</TableCell>
-                    <TableCell className="text-right tabular-nums">
-                      {currency(a.amount)}
-                    </TableCell>
-                    <TableCell>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={async () => {
-                          if (confirm("Delete this advance?")) {
-                            await deleteAdvance(a.id as string);
-                            const [, , prods, advs] = await Promise.all([
-                              calculateSalary(id, from, to),
-                              getDeductionForPeriod(id, from, to),
-                              getProductionsByEmployee(id, from, to),
-                              getAdvancesByEmployee(id, from, to),
-                            ]);
-                            const ded = await getDeductionForPeriod(
-                              id,
-                              from,
-                              to,
-                            );
-                            const s = await calculateSalary(id, from, to);
-                            setSalary({
-                              gross: s.gross,
-                              advance: s.advance,
-                              final: Math.max(
-                                0,
-                                s.gross - ((ded?.amount as number) ?? 0),
-                              ),
-                              advanceToCut: (ded?.amount as number) ?? 0,
-                            });
-                            setProductions(prods);
-                            setAdvances(advs);
-                          }
-                        }}
-                      >
-                        Delete
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
+        <Dialog open={advancesModalOpen} onOpenChange={setAdvancesModalOpen}>
+          <DialogTrigger asChild>
+            <Card className="p-6 sm:p-8 cursor-pointer transition-all duration-200 ease-out hover:ring-2 hover:ring-primary/20 focus-within:ring-2 focus-within:ring-primary/20 focus:outline-none">
+              <CardContent className="p-0 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="rounded-lg bg-primary/10 p-3">
+                    <Wallet className="size-5 text-primary" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">
+                      Total advances paid
+                    </p>
+                    <p className="text-2xl font-bold tabular-nums">
+                      {currency(
+                        allAdvances.reduce(
+                          (sum, a) => sum + ((a.amount as number) || 0),
+                          0
+                        )
+                      )}
+                    </p>
+                  </div>
+                </div>
+                <span className="text-sm text-muted-foreground">View details →</span>
+              </CardContent>
+            </Card>
+          </DialogTrigger>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Advances & settlements</DialogTitle>
+            </DialogHeader>
+            <div className="flex gap-1 p-1 rounded-lg bg-muted/50">
+              <button
+                type="button"
+                className={`flex-1 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+                  advancesModalTab === "advances"
+                    ? "bg-background shadow-sm text-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+                onClick={() => setAdvancesModalTab("advances")}
+              >
+                Advances
+              </button>
+              <button
+                type="button"
+                className={`flex-1 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+                  advancesModalTab === "settlements"
+                    ? "bg-background shadow-sm text-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+                onClick={() => setAdvancesModalTab("settlements")}
+              >
+                Settlements
+              </button>
+            </div>
+            {advancesModalTab === "advances" ? (
+              <div className="max-h-[40vh] overflow-y-auto -mx-1 px-1">
+                {allAdvances.length === 0 ? (
+                  <p className="py-6 text-center text-sm text-muted-foreground">
+                    No advances recorded yet.
+                  </p>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Date</TableHead>
+                        <TableHead className="text-right">Amount</TableHead>
+                        <TableHead className="w-16" />
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {[...allAdvances]
+                        .sort(
+                          (a, b) =>
+                            (b.date as string).localeCompare(a.date as string)
+                        )
+                        .map((a) => (
+                          <TableRow key={a.id as string}>
+                            <TableCell>{dateDisplay(a.date as string)}</TableCell>
+                            <TableCell className="text-right tabular-nums">
+                              {currency((a.amount as number) ?? 0)}
+                            </TableCell>
+                            <TableCell>
+                              <AlertDialog>
+                                <AlertDialogTrigger asChild>
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-8 w-8 p-0 text-destructive hover:text-destructive"
+                                  >
+                                    <X className="size-4" />
+                                  </Button>
+                                </AlertDialogTrigger>
+                                <AlertDialogContent>
+                                  <AlertDialogHeader>
+                                    <AlertDialogTitle>Delete advance?</AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                      This will remove the advance of {currency((a.amount as number) ?? 0)} from {dateDisplay(a.date as string)}. This cannot be undone.
+                                    </AlertDialogDescription>
+                                  </AlertDialogHeader>
+                                  <AlertDialogFooter>
+                                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                    <AlertDialogAction
+                                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                      onClick={async () => {
+                                        try {
+                                          await deleteAdvance(a.id as string);
+                                          const [allAdvs, s, ded, prods, advs] =
+                                            await Promise.all([
+                                              getAdvancesByEmployee(id, "2000-01-01", "2100-12-31"),
+                                              calculateSalary(id, from, to),
+                                              getDeductionForPeriod(id, from, to),
+                                              getProductionsByEmployee(id, from, to),
+                                              getAdvancesByEmployee(id, from, to),
+                                            ]);
+                                          setAllAdvances(allAdvs);
+                                          setAdvanceToCutInput((ded?.amount as number) ?? 0);
+                                          setSalary({
+                                            gross: s.gross,
+                                            advance: s.advance,
+                                            final: Math.max(0, s.gross - ((ded?.amount as number) ?? 0)),
+                                            advanceToCut: (ded?.amount as number) ?? 0,
+                                          });
+                                          setProductions(prods);
+                                          setAdvances(advs);
+                                          toast.success("Advance deleted");
+                                        } catch {
+                                          toast.error("Failed to delete advance");
+                                        }
+                                      }}
+                                    >
+                                      Delete
+                                    </AlertDialogAction>
+                                  </AlertDialogFooter>
+                                </AlertDialogContent>
+                              </AlertDialog>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                    </TableBody>
+                  </Table>
+                )}
+              </div>
+            ) : (
+              <div className="max-h-[40vh] overflow-y-auto -mx-1 px-1">
+                {deductions.length === 0 ? (
+                  <p className="py-6 text-center text-sm text-muted-foreground">
+                    No settlements recorded yet.
+                  </p>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Period</TableHead>
+                        <TableHead className="text-right">
+                          Deducted
+                        </TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {[...deductions]
+                        .sort(
+                          (a, b) =>
+                            (b.periodFrom as string).localeCompare(
+                              a.periodFrom as string
+                            )
+                        )
+                        .map((d) => (
+                          <TableRow key={d.id as string}>
+                            <TableCell>
+                              {dateDisplay(d.periodFrom as string)} –{" "}
+                              {dateDisplay(d.periodTo as string)}
+                            </TableCell>
+                            <TableCell className="text-right tabular-nums font-medium">
+                              {currency((d.amount as number) ?? 0)}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                    </TableBody>
+                  </Table>
+                )}
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
       </main>
     </AppShell>
   );

@@ -317,6 +317,13 @@
   animation: fade-in-up 0.3s var(--ease-out-quart) forwards;
 }
 
+.animate-stagger-1 { animation-delay: 50ms; }
+.animate-stagger-2 { animation-delay: 100ms; }
+.animate-stagger-3 { animation-delay: 150ms; }
+.animate-stagger-4 { animation-delay: 200ms; }
+.animate-stagger-5 { animation-delay: 250ms; }
+.animate-stagger-6 { animation-delay: 300ms; }
+
 @media (prefers-reduced-motion: reduce) {
   .animate-fade-in {
     animation: none;
@@ -333,6 +340,7 @@
   *::before,
   *::after {
     animation-duration: 0.01ms !important;
+    animation-delay: 0ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }

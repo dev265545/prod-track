@@ -60,6 +60,18 @@ import {
   importDatabaseFromSqliteBuffer,
 } from "@/lib/db/sqliteBrowser";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 
 export default function SettingsPage() {
   const router = useRouter();
@@ -161,35 +173,51 @@ export default function SettingsPage() {
                 className="flex h-11 w-full max-w-xs rounded-lg border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
               />
             </div>
-            <Button
-              type="button"
-              onClick={async () => {
-                if (!historyBefore) {
-                  setDeleteResult("Please select a date.");
-                  return;
-                }
-                if (
-                  !confirm(
-                    `Delete all productions and advances before ${historyBefore}? This cannot be undone.`,
-                  )
-                )
-                  return;
-                try {
-                  const [prodCount, advCount] = await Promise.all([
-                    deleteProductionsBefore(historyBefore),
-                    deleteAdvancesBefore(historyBefore),
-                  ]);
-                  setDeleteResult(
-                    `Deleted ${prodCount} production(s) and ${advCount} advance(s).`,
-                  );
-                } catch (e) {
-                  setDeleteResult("Error: " + (e as Error).message);
-                }
-              }}
-              className={btnPrimaryClass}
-            >
-              Delete historical data
-            </Button>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button
+                  type="button"
+                  className={btnPrimaryClass}
+                  disabled={!historyBefore}
+                >
+                  Delete historical data
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Delete historical data?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Delete all productions and advances before {historyBefore}? This cannot be undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    onClick={async () => {
+                      if (!historyBefore) return;
+                      try {
+                        const [prodCount, advCount] = await Promise.all([
+                          deleteProductionsBefore(historyBefore),
+                          deleteAdvancesBefore(historyBefore),
+                        ]);
+                        setDeleteResult(
+                          `Deleted ${prodCount} production(s) and ${advCount} advance(s).`,
+                        );
+                        toast.success(
+                          `Deleted ${prodCount} production(s) and ${advCount} advance(s)`
+                        );
+                      } catch (e) {
+                        setDeleteResult("Error: " + (e as Error).message);
+                        toast.error("Failed to delete historical data");
+                      }
+                    }}
+                  >
+                    Delete
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           </div>
           {deleteResult && (
             <Alert className="mt-4" variant={deleteResult.startsWith("Error") ? "destructive" : "default"}>
@@ -415,41 +443,57 @@ export default function SettingsPage() {
             >
               Change login password
             </Button>
-            <Button
-              type="button"
-              variant="destructive"
-              onClick={async () => {
-                if (
-                  !confirm(
-                    "Permanently delete ALL data? This cannot be undone. Continue?",
-                  )
-                )
-                  return;
-                const master = prompt("Enter master password to confirm");
-                if (master === null) return;
-                if (!verifyMasterPassword(master)) {
-                  setSecurityResult("Incorrect master password.");
-                  return;
-                }
-                const confirmText = prompt(
-                  "Type DELETE (all caps) to confirm.",
-                );
-                if (confirmText !== "DELETE") {
-                  setSecurityResult("Confirmation did not match.");
-                  return;
-                }
-                try {
-                  await clearAllData();
-                  setSecurityResult("All data deleted.");
-                  load();
-                } catch (e) {
-                  setSecurityResult("Error: " + (e as Error).message);
-                }
-              }}
-              className="rounded-xl min-h-[44px] px-6 py-3"
-            >
-              Master delete all data
-            </Button>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  className="rounded-xl min-h-[44px] px-6 py-3"
+                >
+                  Master delete all data
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Permanently delete ALL data?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This cannot be undone. You will be asked for the master password and to type DELETE to confirm.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    onClick={async () => {
+                      const master = prompt("Enter master password to confirm");
+                      if (master === null) return;
+                      if (!verifyMasterPassword(master)) {
+                        setSecurityResult("Incorrect master password.");
+                        toast.error("Incorrect master password");
+                        return;
+                      }
+                      const confirmText = prompt("Type DELETE (all caps) to confirm.");
+                      if (confirmText !== "DELETE") {
+                        setSecurityResult("Confirmation did not match.");
+                        toast.error("Confirmation did not match");
+                        return;
+                      }
+                      try {
+                        await clearAllData();
+                        setSecurityResult("All data deleted.");
+                        toast.success("All data deleted");
+                        load();
+                      } catch (e) {
+                        setSecurityResult("Error: " + (e as Error).message);
+                        toast.error("Failed to delete data");
+                      }
+                    }}
+                  >
+                    Delete
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           </div>
           {securityResult && (
             <Alert className="mt-4" variant={securityResult.startsWith("Incorrect") || securityResult.startsWith("Error") || securityResult.startsWith("Confirmation") ? "destructive" : "default"}>
@@ -490,19 +534,44 @@ export default function SettingsPage() {
                         {h.date as string}
                       </TableCell>
                       <TableCell>
-                        <Button
-                          type="button"
-                          variant="destructive"
-                          size="icon"
-                          title="Delete holiday"
-                          aria-label={`Delete holiday ${h.date as string}`}
-                          onClick={async () => {
-                            await deleteHoliday(h.id as string);
-                            load();
-                          }}
-                        >
-                          <Trash2 data-icon="inline-start" aria-hidden />
-                        </Button>
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button
+                              type="button"
+                              variant="destructive"
+                              size="icon"
+                              title="Delete holiday"
+                              aria-label={`Delete holiday ${h.date as string}`}
+                            >
+                              <Trash2 data-icon="inline-start" aria-hidden />
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Delete holiday?</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                Remove {h.date as string} from factory holidays?
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancel</AlertDialogCancel>
+                              <AlertDialogAction
+                                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                onClick={async () => {
+                                  try {
+                                    await deleteHoliday(h.id as string);
+                                    await load();
+                                    toast.success("Holiday deleted");
+                                  } catch {
+                                    toast.error("Failed to delete holiday");
+                                  }
+                                }}
+                              >
+                                Delete
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -514,9 +583,14 @@ export default function SettingsPage() {
             onSubmit={async (e) => {
               e.preventDefault();
               if (!holidayDate.trim()) return;
-              await saveHoliday({ date: holidayDate.trim() });
-              setHolidayDate("");
-              load();
+              try {
+                await saveHoliday({ date: holidayDate.trim() });
+                setHolidayDate("");
+                await load();
+                toast.success("Holiday added");
+              } catch {
+                toast.error("Failed to add holiday");
+              }
             }}
           >
             <div className="flex flex-col gap-2">
@@ -559,25 +633,44 @@ export default function SettingsPage() {
                     <TableCell>{i.name as string}</TableCell>
                     <TableCell className="text-right tabular-nums">{i.rate as number}</TableCell>
                     <TableCell>
-                      <Button
-                        type="button"
-                        variant="destructive"
-                        size="icon"
-                        title="Delete packaging item group"
-                        aria-label="Delete packaging item group"
-                        onClick={async () => {
-                          if (
-                            confirm(
-                              "Delete this packaging item group? Productions using it will keep the id but show as unknown.",
-                            )
-                          ) {
-                            await deleteItem(i.id as string);
-                            load();
-                          }
-                        }}
-                      >
-                        <Trash2 data-icon="inline-start" aria-hidden />
-                      </Button>
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="destructive"
+                            size="icon"
+                            title="Delete packaging item group"
+                            aria-label="Delete packaging item group"
+                          >
+                            <Trash2 data-icon="inline-start" aria-hidden />
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Delete packaging item group?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              Delete {i.name as string}? Productions using it will keep the id but show as unknown.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction
+                              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                              onClick={async () => {
+                                try {
+                                  await deleteItem(i.id as string);
+                                  await load();
+                                  toast.success("Packaging item group deleted");
+                                } catch {
+                                  toast.error("Failed to delete packaging item group");
+                                }
+                              }}
+                            >
+                              Delete
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -589,13 +682,18 @@ export default function SettingsPage() {
             onSubmit={async (e) => {
               e.preventDefault();
               if (!itemName.trim()) return;
-              await saveItem({
-                name: itemName.trim(),
-                rate: itemRate,
-              });
-              setItemName("");
-              setItemRate(0);
-              load();
+              try {
+                await saveItem({
+                  name: itemName.trim(),
+                  rate: itemRate,
+                });
+                setItemName("");
+                setItemRate(0);
+                await load();
+                toast.success("Packaging item group added");
+              } catch {
+                toast.error("Failed to add packaging item group");
+              }
             }}
           >
             <div className="flex flex-col gap-2">
@@ -658,25 +756,44 @@ export default function SettingsPage() {
                       {s.hoursPerDay as number}
                     </TableCell>
                     <TableCell>
-                      <Button
-                        type="button"
-                        variant="destructive"
-                        size="icon"
-                        title="Delete shift"
-                        aria-label="Delete shift"
-                        onClick={async () => {
-                          if (
-                            confirm(
-                              "Delete this shift? Records referencing it will keep the name but lose the link.",
-                            )
-                          ) {
-                            await deleteShift(s.id as string);
-                            load();
-                          }
-                        }}
-                      >
-                        <Trash2 data-icon="inline-start" aria-hidden />
-                      </Button>
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="destructive"
+                            size="icon"
+                            title="Delete shift"
+                            aria-label="Delete shift"
+                          >
+                            <Trash2 data-icon="inline-start" aria-hidden />
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Delete shift?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              Delete {s.name as string}? Records referencing it will keep the name but lose the link.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction
+                              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                              onClick={async () => {
+                                try {
+                                  await deleteShift(s.id as string);
+                                  await load();
+                                  toast.success("Shift deleted");
+                                } catch {
+                                  toast.error("Failed to delete shift");
+                                }
+                              }}
+                            >
+                              Delete
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -688,13 +805,18 @@ export default function SettingsPage() {
             onSubmit={async (e) => {
               e.preventDefault();
               if (!shiftName.trim()) return;
-              await saveShift({
-                name: shiftName.trim(),
-                hoursPerDay: shiftHours,
-              });
-              setShiftName("");
-              setShiftHours(8);
-              load();
+              try {
+                await saveShift({
+                  name: shiftName.trim(),
+                  hoursPerDay: shiftHours,
+                });
+                setShiftName("");
+                setShiftHours(8);
+                await load();
+                toast.success("Shift added");
+              } catch {
+                toast.error("Failed to add shift");
+              }
             }}
           >
             <div className="flex flex-col gap-2">
