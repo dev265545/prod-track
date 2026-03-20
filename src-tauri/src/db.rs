@@ -7,7 +7,11 @@ use std::sync::Mutex;
 use tauri::{AppHandle, State};
 use tauri_plugin_dialog::DialogExt;
 
+/// Must match lib/db/schema.ts DB_VERSION. Bump when adding migrations.
+const CURRENT_SCHEMA_VERSION: u32 = 4;
+
 const TABLES: &[&str] = &[
+    "_metadata",
     "items",
     "employees",
     "productions",
@@ -18,6 +22,52 @@ const TABLES: &[&str] = &[
     "factory_holidays",
     "attendance",
 ];
+
+fn get_schema_version(conn: &Connection) -> Result<u32, String> {
+    let mut stmt = conn
+        .prepare("SELECT data FROM _metadata WHERE id = '_schema'")
+        .map_err(|e| e.to_string())?;
+    let mut rows = stmt.query([]).map_err(|e| e.to_string())?;
+    if let Some(row) = rows.next().map_err(|e| e.to_string())? {
+        let data: String = row.get(0).map_err(|e| e.to_string())?;
+        let v: serde_json::Value = serde_json::from_str(&data).map_err(|e| e.to_string())?;
+        if let Some(n) = v.get("schemaVersion").and_then(|x| x.as_u64()) {
+            return Ok(n as u32);
+        }
+    }
+    Ok(0)
+}
+
+fn set_schema_version(conn: &Connection, version: u32) -> Result<(), String> {
+    let data = serde_json::json!({ "id": "_schema", "schemaVersion": version }).to_string();
+    conn.execute(
+        "INSERT OR REPLACE INTO _metadata (id, data) VALUES ('_schema', ?1)",
+        rusqlite::params![data],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+fn run_migration(_conn: &Connection, _to_version: u32) -> Result<(), String> {
+    // Add migration logic here when bumping schema version.
+    // Example: ALTER TABLE items ADD COLUMN new_field TEXT;
+    Ok(())
+}
+
+fn run_migrations(conn: &Connection) -> Result<(), String> {
+    let version = get_schema_version(conn)?;
+    if version == 0 {
+        set_schema_version(conn, CURRENT_SCHEMA_VERSION)?;
+        return Ok(());
+    }
+    let mut v = version;
+    while v < CURRENT_SCHEMA_VERSION {
+        v += 1;
+        run_migration(conn, v)?;
+        set_schema_version(conn, v)?;
+    }
+    Ok(())
+}
 
 pub struct DbState {
     pub path: PathBuf,
@@ -50,6 +100,7 @@ impl DbState {
             )
             .map_err(|e| e.to_string())?;
         }
+        run_migrations(&conn)?;
         Ok(conn)
     }
 
