@@ -13,20 +13,22 @@ function pad(n: number): string {
   return String(n).padStart(2, "0");
 }
 
-/** Iterate dates from start to end (inclusive) */
-function* dateRange(from: string, to: string): Generator<string> {
+/** Inclusive calendar dates from `from` through `to` as YYYY-MM-DD strings. */
+function listDatesInRange(from: string, to: string): string[] {
   const [fy, fm, fd] = from.split("-").map(Number);
   const [ty, tm, td] = to.split("-").map(Number);
   const fromDate = new Date(fy, fm - 1, fd);
   const toDate = new Date(ty, tm - 1, td);
   const cur = new Date(fromDate);
+  const out: string[] = [];
   while (cur <= toDate) {
     const y = cur.getFullYear();
     const m = pad(cur.getMonth() + 1);
     const d = pad(cur.getDate());
-    yield `${y}-${m}-${d}`;
+    out.push(`${y}-${m}-${d}`);
     cur.setDate(cur.getDate() + 1);
   }
+  return out;
 }
 
 export interface MissingDay {
@@ -63,7 +65,9 @@ export async function getMissingDataDays(
   );
 
   const missing: MissingDay[] = [];
-  for (const date of dateRange(rangeStart, rangeEnd)) {
+  const dates = listDatesInRange(rangeStart, rangeEnd);
+  for (let i = 0; i < dates.length; i++) {
+    const date = dates[i];
     if (isSunday(date)) continue;
     if (holidaySet.has(date)) continue;
     if (attendanceMap.get(date) === "absent") continue;
