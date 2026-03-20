@@ -32,7 +32,9 @@ export default function OnboardingPage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [passwordError, setPasswordError] = useState("");
   const [loading, setLoading] = useState(false);
+  /** Browser: JSON or .db. Tauri: JSON only (SQLite uses native dialog). */
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const jsonFileInputRef = useRef<HTMLInputElement>(null);
 
   const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -173,47 +175,76 @@ export default function OnboardingPage() {
             Import your data
           </CardTitle>
           <p className="text-sm text-muted-foreground">
-            Choose a JSON or .db file. Import will replace any existing data.
+            {isTauri()
+              ? "Import a JSON backup (same as web export) or a SQLite .db file. Either replaces existing data."
+              : "Choose a JSON or .db file. Import will replace any existing data."}
           </p>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
           <input
-            ref={fileInputRef}
+            ref={jsonFileInputRef}
             type="file"
-            accept=".json,.db,.sqlite,.sqlite3,application/json,application/x-sqlite3"
+            accept=".json,application/json"
             className="sr-only"
             onChange={handleImportFile}
           />
+          {!isTauri() && (
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".json,.db,.sqlite,.sqlite3,application/json,application/x-sqlite3"
+              className="sr-only"
+              onChange={handleImportFile}
+            />
+          )}
           {isTauri() ? (
-            <Button
-              type="button"
-              onClick={async () => {
-                setLoading(true);
-                setImportError("");
-                setImportSuccess(false);
-                try {
-                  await openDB();
-                  const result = await importDbFromFile();
-                  if (result.success) setImportSuccess(true);
-                  else if (!result.error?.includes("cancelled"))
-                    setImportError(result.error || "Import failed.");
-                } catch (err) {
-                  setImportError((err as Error).message);
-                } finally {
-                  setLoading(false);
-                }
-              }}
-              disabled={loading}
-            >
-              {loading ? (
-                <>
-                  <Spinner data-icon="inline-start" />
-                  Importing…
-                </>
-              ) : (
-                "Choose .db file"
-              )}
-            </Button>
+            <div className="flex flex-col gap-2">
+              <Button
+                type="button"
+                variant="default"
+                onClick={() => jsonFileInputRef.current?.click()}
+                disabled={loading}
+              >
+                {loading ? (
+                  <>
+                    <Spinner data-icon="inline-start" />
+                    Importing…
+                  </>
+                ) : (
+                  "Import JSON backup"
+                )}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={async () => {
+                  setLoading(true);
+                  setImportError("");
+                  setImportSuccess(false);
+                  try {
+                    await openDB();
+                    const result = await importDbFromFile();
+                    if (result.success) setImportSuccess(true);
+                    else if (!result.error?.includes("cancelled"))
+                      setImportError(result.error || "Import failed.");
+                  } catch (err) {
+                    setImportError((err as Error).message);
+                  } finally {
+                    setLoading(false);
+                  }
+                }}
+                disabled={loading}
+              >
+                {loading ? (
+                  <>
+                    <Spinner data-icon="inline-start" />
+                    Importing…
+                  </>
+                ) : (
+                  "Import SQLite (.db)"
+                )}
+              </Button>
+            </div>
           ) : (
             <Button
               type="button"

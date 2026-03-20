@@ -722,7 +722,7 @@ export function Dashboard() {
                     <TableCell className="text-right tabular-nums font-medium">{currency(r.final)}</TableCell>
                     <TableCell>
                       <Link
-                        href={`/employee/${r.id}`}
+                        href={`/employee?id=${encodeURIComponent(String(r.id))}`}
                         className="text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded"
                       >
                         View

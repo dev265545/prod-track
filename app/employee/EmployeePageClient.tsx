@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -132,9 +132,10 @@ const MONTH_NAMES = [
 ];
 
 export function EmployeePageClient() {
-  const params = useParams();
+  const searchParams = useSearchParams();
   const router = useRouter();
-  const id = (params?.id ?? "") as string;
+  /** Static export: real IDs are passed via ?id= (only /employee is pre-rendered). */
+  const id = searchParams.get("id") ?? "";
   const [ready, setReady] = useState(false);
   const [employee, setEmployee] = useState<Record<string, unknown> | null>(
     null,
@@ -224,6 +225,10 @@ export function EmployeePageClient() {
   };
 
   useEffect(() => {
+    if (!id) {
+      router.replace("/employees");
+      return;
+    }
     openDB()
       .then(() => {
         if (!isLoggedIn() || checkExpiry()) {

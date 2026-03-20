@@ -162,11 +162,17 @@ export default function EmployeesPage() {
                       tabIndex={0}
                       role="button"
                       aria-label={`View details for ${e.name as string}`}
-                      onClick={() => router.push(`/employee/${e.id}`)}
+                      onClick={() =>
+                        router.push(
+                          `/employee?id=${encodeURIComponent(String(e.id))}`,
+                        )
+                      }
                       onKeyDown={(ev) => {
                         if (ev.key === "Enter" || ev.key === " ") {
                           ev.preventDefault();
-                          router.push(`/employee/${e.id}`);
+                          router.push(
+                            `/employee?id=${encodeURIComponent(String(e.id))}`,
+                          );
                         }
                       }}
                     >

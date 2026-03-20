@@ -272,7 +272,7 @@ export default function SalarySheetPage() {
                       <TableRow key={r.id}>
                         <TableCell className="font-medium">
                           <Link
-                            href={`/employee/${r.id}`}
+                            href={`/employee?id=${encodeURIComponent(String(r.id))}`}
                             className="text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded"
                           >
                             {r.name}
@@ -286,7 +286,7 @@ export default function SalarySheetPage() {
                         <TableCell className="text-right tabular-nums font-semibold">{currency(r.calculatedSalary)}</TableCell>
                         <TableCell>
                           <Link
-                            href={`/employee/${r.id}`}
+                            href={`/employee?id=${encodeURIComponent(String(r.id))}`}
                             className="text-sm text-primary hover:underline"
                           >
                             View
