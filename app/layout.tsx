@@ -3,6 +3,7 @@ import { Inter, Space_Grotesk } from "next/font/google";
 import { ThemeProvider } from "@/components/theme-provider";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { Toaster } from "@/components/ui/sonner";
+import { FirstRunGuard } from "@/components/FirstRunGuard";
 
 import "./globals.css";
 
@@ -37,10 +38,12 @@ export default function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
-          <SidebarProvider className="no-print">
-            {children}
-            <Toaster />
-          </SidebarProvider>
+          <FirstRunGuard>
+            <SidebarProvider className="no-print">
+              {children}
+              <Toaster />
+            </SidebarProvider>
+          </FirstRunGuard>
         </ThemeProvider>
       </body>
     </html>
