@@ -19,7 +19,9 @@ function getLatestTag() {
 }
 
 function parseVersion(v) {
-  const parts = v.split(".").map(Number);
+  // Strip prerelease/build suffix (e.g. "0.1.0-12" -> "0.1.0")
+  const base = String(v).split("-")[0];
+  const parts = base.split(".").map(Number);
   return {
     major: parts[0] || 0,
     minor: parts[1] || 0,
