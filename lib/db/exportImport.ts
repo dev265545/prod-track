@@ -39,6 +39,13 @@ export function validateExportData(data: unknown): {
   if (d.version !== EXPORT_VERSION) {
     return { valid: false, error: "Unsupported export version" };
   }
+  const schemaVersion = typeof d.schemaVersion === "number" ? d.schemaVersion : 0;
+  if (schemaVersion > DB_VERSION) {
+    return {
+      valid: false,
+      error: "This file was created by a newer version. Please update ProdTrack.",
+    };
+  }
   if (!d.stores || typeof d.stores !== "object") {
     return { valid: false, error: "Missing or invalid stores" };
   }
@@ -64,6 +71,10 @@ export function validateExportData(data: unknown): {
 }
 
 export async function importDatabase(data: ExportData): Promise<void> {
+  const { valid, error } = validateExportData(data);
+  if (!valid) {
+    throw new Error(error || "Invalid export format");
+  }
   const storeNames = Object.values(STORES);
   for (const name of storeNames) {
     const rows = data.stores[name];

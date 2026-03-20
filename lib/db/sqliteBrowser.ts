@@ -104,11 +104,29 @@ export async function importDatabaseFromSqliteBuffer(
     if (!stores[name]) stores[name] = [];
   }
 
+  // Read schemaVersion from _metadata if present (Tauri exports include it)
+  let schemaVersion = 0;
+  try {
+    const metaResult: SqlJsExecRow[] = db.exec(
+      `SELECT data FROM _metadata WHERE id = '_schema'`
+    );
+    if (metaResult.length > 0 && metaResult[0].values?.[0]?.[0]) {
+      const meta = JSON.parse(String(metaResult[0].values[0][0])) as {
+        schemaVersion?: number;
+      };
+      if (typeof meta?.schemaVersion === "number") {
+        schemaVersion = meta.schemaVersion;
+      }
+    }
+  } catch {
+    // _metadata may not exist in older .db files
+  }
+
   db.close();
 
   return {
     version: EXPORT_VERSION,
-    schemaVersion: DB_VERSION,
+    schemaVersion: schemaVersion || DB_VERSION,
     exportedAt: new Date().toISOString(),
     stores,
   };
