@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { Spinner } from "@/components/ui/spinner";
 import { Input } from "@/components/ui/input";
@@ -89,6 +89,7 @@ function getYearMonth(dateStr: string): { year: number; month: number } {
 }
 
 export function Dashboard() {
+  const router = useRouter();
   const [date, setDate] = useState(today());
   const [calYear, setCalYear] = useState(() => getYearMonth(today()).year);
   const [calMonth, setCalMonth] = useState(() => getYearMonth(today()).month);
@@ -710,24 +711,30 @@ export function Dashboard() {
                   <TableHead className="text-right tabular-nums">Gross</TableHead>
                   <TableHead className="text-right tabular-nums">Advance to cut</TableHead>
                   <TableHead className="text-right tabular-nums">Net</TableHead>
-                  <TableHead className="w-14" />
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {salaryRows.map((r) => (
-                  <TableRow key={r.id}>
+                  <TableRow
+                    key={r.id}
+                    className="cursor-pointer hover:bg-muted/50 transition-colors"
+                    onClick={() =>
+                      router.push(`/employee?id=${encodeURIComponent(String(r.id))}`)
+                    }
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        router.push(`/employee?id=${encodeURIComponent(String(r.id))}`);
+                      }
+                    }}
+                    tabIndex={0}
+                    role="button"
+                    aria-label={`View ${r.name}`}
+                  >
                     <TableCell>{r.name}</TableCell>
                     <TableCell className="text-right tabular-nums">{currency(r.gross)}</TableCell>
                     <TableCell className="text-right tabular-nums">{currency(r.advanceToCut)}</TableCell>
                     <TableCell className="text-right tabular-nums font-medium">{currency(r.final)}</TableCell>
-                    <TableCell>
-                      <Link
-                        href={`/employee?id=${encodeURIComponent(String(r.id))}`}
-                        className="text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded"
-                      >
-                        View
-                      </Link>
-                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>

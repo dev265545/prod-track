@@ -77,7 +77,15 @@ export function DashboardCalendar({
     [factoryHolidays]
   );
 
-  const totalEmployees = employees.length;
+  /** Employees active on a given date (started on or before that date). */
+  const countActiveOnDate = useMemo(() => {
+    return (dateStr: string) =>
+      employees.filter((e) => {
+        const start = (e.createdAt as string) || "1970-01-01";
+        return start <= dateStr;
+      }).length;
+  }, [employees]);
+
   const today = toISODate(new Date());
 
   const cells: (number | null)[] = [];
@@ -146,8 +154,9 @@ export function DashboardCalendar({
             dateStr <= periodTo;
           const isDayOff = dayOffSet.has(dateStr);
           const enteredEmps = dateEntryStatus.get(dateStr)?.size ?? 0;
+          const activeOnDate = countActiveOnDate(dateStr);
           const allEntered =
-            totalEmployees > 0 && enteredEmps >= totalEmployees;
+            activeOnDate > 0 && enteredEmps >= activeOnDate;
           const someEntered = enteredEmps > 0 && !allEntered;
 
           return (
@@ -193,7 +202,7 @@ export function DashboardCalendar({
                 {someEntered && (
                   <span
                     className="size-1.5 rounded-full bg-[hsl(var(--warning))]"
-                    title={`${enteredEmps}/${totalEmployees} entered`}
+                    title={`${enteredEmps}/${activeOnDate} entered`}
                     aria-hidden
                   />
                 )}

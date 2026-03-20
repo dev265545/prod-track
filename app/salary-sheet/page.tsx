@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Printer, FileSpreadsheet } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
@@ -264,34 +263,33 @@ export default function SalarySheetPage() {
                       <TableHead className="text-right tabular-nums">Total paid days</TableHead>
                       <TableHead className="text-right tabular-nums">Rate/day</TableHead>
                       <TableHead className="text-right tabular-nums">Salary</TableHead>
-                      <TableHead className="w-16" />
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {rows.map((r) => (
-                      <TableRow key={r.id}>
-                        <TableCell className="font-medium">
-                          <Link
-                            href={`/employee?id=${encodeURIComponent(String(r.id))}`}
-                            className="text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded"
-                          >
-                            {r.name}
-                          </Link>
-                        </TableCell>
+                      <TableRow
+                        key={r.id}
+                        className="cursor-pointer hover:bg-muted/50 transition-colors"
+                        onClick={() =>
+                          router.push(`/employee?id=${encodeURIComponent(String(r.id))}`)
+                        }
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            router.push(`/employee?id=${encodeURIComponent(String(r.id))}`);
+                          }
+                        }}
+                        tabIndex={0}
+                        role="button"
+                        aria-label={`View ${r.name}`}
+                      >
+                        <TableCell className="font-medium">{r.name}</TableCell>
                         <TableCell className="text-right tabular-nums">{number(r.presentDays)}</TableCell>
                         <TableCell className="text-right tabular-nums">{number(r.absentDays)}</TableCell>
                         <TableCell className="text-right tabular-nums">{number(r.earnedSundays)}</TableCell>
                         <TableCell className="text-right tabular-nums">{number(r.totalPaidDays)}</TableCell>
                         <TableCell className="text-right tabular-nums text-muted-foreground">{currency(r.ratePerDay)}</TableCell>
                         <TableCell className="text-right tabular-nums font-semibold">{currency(r.calculatedSalary)}</TableCell>
-                        <TableCell>
-                          <Link
-                            href={`/employee?id=${encodeURIComponent(String(r.id))}`}
-                            className="text-sm text-primary hover:underline"
-                          >
-                            View
-                          </Link>
-                        </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
