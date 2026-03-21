@@ -135,7 +135,7 @@ export function EmployeePageClient() {
   const searchParams = useSearchParams();
   const router = useRouter();
   /** Static export: real IDs are passed via ?id= (only /employee is pre-rendered). */
-  const id = searchParams.get("id") ?? "";
+  const id = searchParams?.get("id") ?? "";
   const [ready, setReady] = useState(false);
   const [employee, setEmployee] = useState<Record<string, unknown> | null>(
     null,

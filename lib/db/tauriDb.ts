@@ -4,14 +4,8 @@
  * Data auto-syncs to SQLite on every change.
  */
 
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "@/lib/tauriBridge";
 import { STORES } from "./schema";
-
-declare global {
-  interface Window {
-    __TAURI__?: unknown;
-  }
-}
 
 export function openDB(): Promise<void> {
   return invoke("init_db");

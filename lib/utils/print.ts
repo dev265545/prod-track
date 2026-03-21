@@ -40,8 +40,7 @@ function printInNewWindow(html: string): void {
 async function openHtmlInBrowser(html: string): Promise<void> {
   console.log("[print] Opening HTML in system browser (no printer / fallback)...");
   try {
-    const { invoke } = await import("@tauri-apps/api/core");
-    const { openPath } = await import("@tauri-apps/plugin-opener");
+    const { invoke, openPath } = await import("@/lib/tauriBridge");
     const htmlWithPrint = injectPrintScript(html);
     console.log("[print] Writing temp file...");
     const path = await invoke<string>("write_temp_html", { html: htmlWithPrint });
@@ -63,7 +62,7 @@ export async function printHtml(html: string): Promise<void> {
     try {
       console.log("[print] Tauri: fetching printers...");
       const { getPrinters, printHtml: pluginPrintHtml } = await import(
-        "tauri-plugin-printer-v2"
+        "@/lib/tauriBridge"
       );
       const printersJson = await getPrinters();
       const printers = JSON.parse(printersJson) as {

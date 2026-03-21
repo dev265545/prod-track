@@ -12,6 +12,11 @@ out/
 # Tauri / Rust
 src-tauri/target/
 
+# Fixed WebView2 runtime for Windows 7 bundles (~180 MB). CI: .github/scripts/setup-webview2.ps1
+src-tauri/webview2-fixed-runtime/
+src-tauri/webview2-cab-tmp/
+src-tauri/Microsoft.WebView2.FixedVersionRuntime.109.0.1518.78.x64/
+
 # Local / references (if you keep local data here)
 references/
 
