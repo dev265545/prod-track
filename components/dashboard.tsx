@@ -428,8 +428,8 @@ export function Dashboard() {
           )}
         </div>
 
-        <div className="flex flex-col lg:flex-row gap-4 lg:items-stretch lg:min-h-[340px]">
-          <div className="lg:shrink-0 lg:self-stretch">
+        <div className="flex flex-col lg:flex-row gap-4 lg:items-stretch lg:min-h-[340px] w-full">
+          <div className="shrink-0 w-full lg:w-auto lg:self-stretch">
             <DashboardCalendar
               year={calYear}
               month={calMonth}
@@ -444,7 +444,7 @@ export function Dashboard() {
               periodTo={period?.to}
             />
           </div>
-          <div className="grid grid-cols-2 grid-rows-[1fr_1fr_auto] gap-3 h-full min-h-0 flex-1 min-w-[280px] max-w-[400px] lg:self-stretch">
+          <div className="grid grid-cols-2 gap-3 min-w-[280px] max-w-[400px] w-full lg:w-auto lg:grid-rows-[1fr_1fr_auto] lg:h-full lg:flex-1 lg:self-stretch min-h-[260px] lg:min-h-0">
           <Card className="p-3 sm:p-4 flex flex-col min-h-0">
             <CardHeader className="p-0 pb-1">
               <div className="flex items-center gap-1.5">
