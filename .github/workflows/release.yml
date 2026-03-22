@@ -72,6 +72,9 @@ jobs:
         run: |
           .\.github\scripts\setup-webview2.ps1 -CabName "${{ matrix.webview_cab }}"
 
+      - name: Patch tauri.conf for fixed runtime
+        run: node .github/scripts/use-fixed-webview.js
+
       - name: Build and release (Tauri)
         uses: tauri-apps/tauri-action@v0
         env:

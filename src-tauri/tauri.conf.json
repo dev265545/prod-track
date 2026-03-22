@@ -36,8 +36,8 @@
     ],
     "windows": {
       "webviewInstallMode": {
-        "type": "fixedRuntime",
-        "path": "./webview2-fixed-runtime/"
+        "type": "downloadBootstrapper",
+        "silent": true
       }
     }
   }
