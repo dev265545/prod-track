@@ -75,6 +75,16 @@ jobs:
       - name: Patch tauri.conf for fixed runtime
         run: node .github/scripts/use-fixed-webview.js
 
+      - name: Build frontend and fix asset paths for Tauri
+        run: |
+          pnpm run build
+          node scripts/fix-tauri-asset-paths.js
+        env:
+          NODE_ENV: production
+
+      - name: Verify asset paths for Tauri
+        run: node -e "const h=require('fs').readFileSync('out/index.html','utf8'); if(h.includes('href=\"/_next/')){console.error('ERROR: Asset paths not fixed'); process.exit(1);} console.log('Asset paths OK');"
+
       - name: Build and release (Tauri)
         uses: tauri-apps/tauri-action@v0
         env:

@@ -7,7 +7,7 @@
     "frontendDist": "../out",
     "devUrl": "http://localhost:1420",
     "beforeDevCommand": "npm run dev -- -p 1420",
-    "beforeBuildCommand": "npm run build && node scripts/fix-tauri-asset-paths.js"
+    "beforeBuildCommand": "pnpm run build && node scripts/fix-tauri-asset-paths.js"
   },
   "app": {
     "withGlobalTauri": true,
