@@ -83,7 +83,7 @@ jobs:
           NODE_ENV: production
 
       - name: Verify asset paths for Tauri
-        run: node -e "const h=require('fs').readFileSync('out/index.html','utf8'); if(h.includes('href=\"/_next/')){console.error('ERROR: Asset paths not fixed'); process.exit(1);} console.log('Asset paths OK');"
+        run: node .github/scripts/verify-asset-paths.js
 
       - name: Build and release (Tauri)
         uses: tauri-apps/tauri-action@v0
