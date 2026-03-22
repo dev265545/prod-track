@@ -1,74 +1,100 @@
-# ProdTrack Lite
+# prodtrack-lite
 
-Lightweight production & payroll tracking. **Dev** uses Tailwind CDN + ES modules; **build** outputs a single JS bundle and a single CSS with only the Tailwind classes you use (no CDN, fully offline).
+TypeScript application with one React UI shipped two ways: **Next.js static export** (`out/`) and a **Tauri 2** desktop bundle. Persistence is **IndexedDB** in the browser and **SQLite** under Tauri; a small adapter selects the backend at runtime.
 
-## Development
+---
 
-```bash
-npm install
-npm run dev
+## Architecture notes
+
+- **Runtime-aware data access** — `lib/db/adapter.ts` exposes one API over **IndexedDB** (web) and **SQLite** via Tauri `invoke` (desktop), so callers do not depend on a specific store implementation.
+- **Static export for embedding** — `next.config.js` sets `output: "export"` in production so the UI is static assets consumed by Tauri as `frontendDist`. Development uses the normal Next.js dev server.
+- **Tauri without breaking static export** — `lib/tauriBridge.ts` calls `window.__TAURI__?.core?.invoke` so the production JS bundle is not tied to `@tauri-apps/*` module graphs that complicate `next build` export. DB, dialogs, opener, and printing go through this path when `__TAURI__` is present.
+- **Rust / SQLite** — `src-tauri` uses **rusqlite** (bundled libsqlite3), **serde** / **serde_json** for IPC payloads, and Tauri v2 plugins: dialog, log, opener, printer. File save/open for DB backup uses the **dialog** plugin from Rust.
+- **Versioned JSON export/import** — `lib/db/exportImport.ts` defines export format version, schema version, and validation before applying imported data.
+- **Browser SQLite files** — `lib/db/sqliteBrowser.ts` uses **sql.js** (WASM) to build or read `.db` files in the same **table-per-store** shape as the Rust side when not running inside Tauri.
+- **Client-side gate** — `lib/auth.ts`: password hashing via **Web Crypto** (`SubtleCrypto`), session timestamp in `localStorage`. Local-first only; not server authentication.
+- **UI** — React 18, App Router, Radix primitives, Tailwind CSS 4, CVA / `tailwind-merge`, `next-themes`.
+
+---
+
+## Stack
+
+| Area | Technology |
+|------|------------|
+| Language | TypeScript (**strict**), JavaScript on legacy/excluded paths |
+| UI | React 18, Next.js 14 (App Router) |
+| Styling | Tailwind CSS 4, PostCSS, `tw-animate-css` |
+| Components | Radix UI primitives, shadcn-style patterns (`class-variance-authority`, `tailwind-merge`, `clsx`) |
+| Icons | Lucide React |
+| Theming | `next-themes` |
+| Dates | `date-fns`, `react-day-picker` |
+| Data (web) | IndexedDB |
+| Data (desktop) | SQLite (Rust `rusqlite`, bundled) |
+| Desktop shell | Tauri **2** (Rust **2021**), custom `__TAURI__` bridge |
+| WASM | `sql.js` for in-browser SQLite `.db` build and ingest |
+| Parsing | PapaParse (CSV) |
+| Tooling | ESLint (`eslint-config-next`), esbuild (toolchain) |
+
+---
+
+## CI / releases
+
+Workflow: `.github/workflows/release.yml`
+
+- Matrix: Windows **x64** and **x86** Tauri builds (`fail-fast: false`).
+- **pnpm** + lockfile, Node **LTS**; Rust **stable**; **swatinem/rust-cache** for `src-tauri`.
+- **Fixed WebView2** runtime (v109 CAB) plus `.github/scripts/use-fixed-webview.js` so bundles target **Windows 7 SP1+** with a known runtime, not only machines with a current Edge install.
+- Version bump: `.github/scripts/bump-version.js`; artifacts published with **tauri-apps/tauri-action** to GitHub Releases.
+
+---
+
+## Prerequisites
+
+- **Node.js** (LTS; CI uses `lts/*`)
+- **pnpm** (lockfile + Actions)
+- **Rust stable** + Tauri prerequisites — for `tauri dev` / `tauri build` only
+
+---
+
+## Scripts
+
+| Command | Purpose |
+|---------|---------|
+| `pnpm install` | Install dependencies |
+| `pnpm run dev` | Next.js dev server (Tauri dev uses port **1420** in `src-tauri/tauri.conf.json`) |
+| `pnpm run build` | Production Next build → static **`out/`** when `NODE_ENV=production` |
+| `pnpm run start` | Next production server |
+| `pnpm run lint` | ESLint |
+| `pnpm run tauri:dev` | Desktop shell + dev server |
+| `pnpm run tauri:build` | Static frontend + native bundle |
+
+---
+
+## Build outputs
+
+- **Web (static):** `out/` — Next static export; Tauri `frontendDist` points here.
+- **Desktop:** Artifacts under `src-tauri/target/` per target triple.
+
+---
+
+## Repository layout (high level)
+
+```
+app/           Next.js App Router routes and layouts
+components/    Shared React UI (`components/ui`, app shell)
+lib/           Services, DB adapter, export/import, Tauri bridge, auth utilities
+src-tauri/     Rust crate, Tauri config, icons, capabilities
+public/        Static assets
 ```
 
-Then open the URL (e.g. http://localhost:3000). Uses Tailwind CDN + modular JS. Requires a server (e.g. `npx serve`) because of ES modules.
+Legacy or reference code may live under `js/`; `tsconfig.json` excludes some of it. Current application code lives under **`app/`**, **`components/`**, and **`lib/`**.
 
-## Build (offline dist)
+---
 
-```bash
-npm run build
-```
+## Configuration files
 
-Produces **dist/**:
-
-- **dist/app.js** – All JS in one file (no `import`/`export`), works with `file://` or any server.
-- **dist/app.css** – Tailwind scans `index.html` and `js/**/*.js`, keeps only the classes you use, plus your custom (shadcn-style) styles. No CDN.
-- **dist/index.html** – References `app.js` and `app.css`; open it in a browser and it works fully offline.
-
-So in dev you get the CDN and full Tailwind; in build the CDN is “replaced” by a single CSS that has exactly the classes you use.
-
-## Using the built app
-
-Open **dist/index.html** in a browser (double‑click or drag into the window). No server, no internet. Data is stored in IndexedDB.
-
-## Features
-
-- **Dashboard** – Daily production by item, quick add, salary summary for current period
-- **Employee page** – Production entries, advances, period-based salary, **printable salary sheet**
-- **Aggregated production** – Table by date × item (total qty & value)
-- **Settings** – Items & employees CRUD, **delete historical data** (productions/advances before a date)
-- **16th–15th pay period** – Periods auto-computed by month/year
-
-## Data (IndexedDB)
-
-- **prodtrack-db** v2  
-  Stores: `items`, `employees`, `productions`, `advances`, `advance_deductions`  
-  All data stays in the browser; works fully offline.
-
-### Export / Import
-
-- **Settings → Export / Import**
-  - **Export database** – Downloads a JSON file with all data. Use it as a backup or to move to another device/browser.
-  - **Import from file** – Choose a previously exported JSON file to replace current data.
-  - **Auto import** – If the app is served over HTTP (e.g. `npm run dev`), it can load data from **dist/data/prodtrack-export.json**. Place your export file there (rename the downloaded export to `prodtrack-export.json`), then click **Auto import** to load it. Useful when opening the app in a new browser or after a fresh deploy.
-
-## Structure
-
-```
-/prodtrack
-  index.html
-  js/
-    db/         indexeddb.js, schema.js
-    services/   productionService, employeeService, itemService, advanceService, salaryService
-    ui/         dashboard, employeePage, reports, settings
-    utils/      date.js (period logic), formatter.js
-    app.js      entry & hash router
-```
-
-## Period logic
-
-Pay period = **16th of month N → 15th of month N+1**.  
-`getPeriodForDate(date)` returns `{ from, to, label }`. Period selector uses this for salary and reports.
-
-## Delete historical data
-
-Settings → **Delete historical data** → choose “before date” → confirm.  
-Removes all productions and advances before that date (irreversible).
+- `next.config.js` — conditional static export for Tauri, React Strict Mode
+- `tsconfig.json` — `strict`, path alias `@/*` → project root
+- `tailwind.config.ts` / PostCSS — styling pipeline
+- `src-tauri/tauri.conf.json` — windowing, dev URL, bundle identifiers
+- `src-tauri/Cargo.toml` — Rust edition, `rusqlite`, Tauri plugins
