@@ -231,6 +231,26 @@ export async function bindMainSqliteFileHandle(
   await openSqliteFromStoredHandle();
 }
 
+/** Close sql.js + timers without clearing the saved File System Access handle (e.g. reconnect after USB replug). */
+async function resetInMemorySqliteConnection(): Promise<void> {
+  stopSafetyTimer();
+  if (flushTimer) {
+    clearTimeout(flushTimer);
+    flushTimer = null;
+  }
+  await flushChain.catch(() => {});
+  flushChain = Promise.resolve();
+  if (db) {
+    try {
+      db.close();
+    } catch {
+      // ignore
+    }
+    db = null;
+  }
+  activeHandle = null;
+}
+
 async function openSqliteFromStoredHandle(): Promise<void> {
   stopSafetyTimer();
   const stored = await getStoredMainSqliteHandle();
@@ -241,7 +261,16 @@ async function openSqliteFromStoredHandle(): Promise<void> {
   }
   const { handle } = stored;
   await ensureReadWritePermission(handle);
-  const file = await handle.getFile();
+  let file: File;
+  try {
+    file = await handle.getFile();
+  } catch {
+    const err = new Error(
+      "Could not read the database file. It may have been moved, renamed, or deleted.",
+    );
+    (err as Error & { code?: string }).code = SQLITE_FILE_ERROR.READ_FAILED;
+    throw err;
+  }
   const buf = await file.arrayBuffer();
   const SQL = await getSqlJsModule();
   if (db) {
@@ -269,24 +298,20 @@ async function openSqliteFromStoredHandle(): Promise<void> {
 }
 
 export async function forgetSqliteFileAndClose(): Promise<void> {
-  stopSafetyTimer();
-  if (flushTimer) clearTimeout(flushTimer);
-  flushTimer = null;
-  await flushChain.catch(() => {});
-  if (db) {
-    try {
-      db.close();
-    } catch {
-      // ignore
-    }
-    db = null;
-  }
-  activeHandle = null;
+  await resetInMemorySqliteConnection();
   await clearStoredMainSqliteHandle();
 }
 
 export async function openDB(): Promise<void> {
-  if (db && activeHandle) return;
+  if (db && activeHandle) {
+    try {
+      await ensureReadWritePermission(activeHandle);
+      await activeHandle.getFile();
+      return;
+    } catch {
+      await resetInMemorySqliteConnection();
+    }
+  }
   await openSqliteFromStoredHandle();
 }
 

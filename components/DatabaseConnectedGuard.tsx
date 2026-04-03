@@ -101,7 +101,8 @@ export function DatabaseConnectedGuard({
                   variant="outline"
                   onClick={async () => {
                     await forgetSqliteFileAndClose();
-                    router.replace("/onboarding");
+                    /* relink=1 keeps FirstRunGuard from sending completed users back to / */
+                    router.replace("/onboarding?relink=1");
                   }}
                 >
                   Choose a different database file…

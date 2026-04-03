@@ -171,7 +171,9 @@ export default function OnboardingPage() {
   useEffect(() => {
     if (!isSqliteFileMode()) return;
     void getStoredMainSqliteHandle().then((s) => {
-      if (s) setExistingDbName(s.info.displayName || s.handle.name);
+      setExistingDbName(
+        s ? s.info.displayName || s.handle.name || null : null,
+      );
     });
   }, []);
 

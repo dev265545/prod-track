@@ -3,11 +3,13 @@
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { isFirstRunComplete, setFirstRunComplete } from "@/lib/onboarding";
-import { openDB } from "@/lib/db/adapter";
+import { openDB, isSqliteFileMode } from "@/lib/db/adapter";
 import {
   getAppDbRecord,
   legacyWorkspaceHasData,
 } from "@/lib/db/appMetadata";
+import { getStoredMainSqliteHandle } from "@/lib/db/sqliteFileHandleStore";
+import { shouldRedirectCompletedUserFromOnboarding } from "@/lib/onboarding/onboardingRedirectPolicy";
 
 export function FirstRunGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -41,6 +43,18 @@ export function FirstRunGuard({ children }: { children: React.ReactNode }) {
           router.replace("/onboarding");
         }
       } else if (pathname === "/onboarding") {
+        const search =
+          typeof window !== "undefined" ? window.location.search : "";
+        const hasStoredHandle =
+          (await getStoredMainSqliteHandle()) != null;
+        if (
+          !shouldRedirectCompletedUserFromOnboarding(pathname, search, {
+            sqliteFileMode: isSqliteFileMode(),
+            hasStoredSqliteHandle: hasStoredHandle,
+          })
+        ) {
+          return;
+        }
         router.replace("/");
       }
     })();
