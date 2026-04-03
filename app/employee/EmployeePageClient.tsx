@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams, useRouter } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
@@ -50,6 +50,7 @@ import { getSalaryRecordsByEmployee } from "@/lib/services/salaryRecordService";
 import {
   calculateSalary,
   getPrintableSalaryHtml,
+  getPrintableMonthlyAttendanceSheetHtml,
 } from "@/lib/services/salaryService";
 import { printHtml } from "@/lib/utils/print";
 import { getHolidaysInRange } from "@/lib/services/factoryHolidayService";
@@ -73,6 +74,8 @@ import {
   today,
   isSunday,
   isRestrictedForEntry,
+  formatMonthYear,
+  toISODate,
 } from "@/lib/utils/date";
 import { getMissingDataDays } from "@/lib/utils/missingDataWarnings";
 import { getHolidayByDate } from "@/lib/services/factoryHolidayService";
@@ -90,6 +93,8 @@ import {
   LayoutGrid,
   Wallet,
   AlertTriangle,
+  Printer,
+  FileSpreadsheet,
 } from "lucide-react";
 import {
   Dialog,
@@ -115,6 +120,13 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
 
 const MONTH_NAMES = [
   "Jan",
@@ -130,6 +142,19 @@ const MONTH_NAMES = [
   "Nov",
   "Dec",
 ];
+
+function monthPickerOptions(count = 36): { value: string; label: string }[] {
+  const out: { value: string; label: string }[] = [];
+  const now = new Date();
+  for (let i = 0; i < count; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    out.push({
+      value: `${d.getFullYear()}-${d.getMonth()}`,
+      label: formatMonthYear(toISODate(d)),
+    });
+  }
+  return out;
+}
 
 export function EmployeePageClient() {
   const searchParams = useSearchParams();
@@ -263,22 +288,25 @@ export function EmployeePageClient() {
     });
   }, [id, from, to]);
 
-  useEffect(() => {
+  const loadCalendarMonth = useCallback(async () => {
     if (!id) return;
     const padM = String(calMonth + 1).padStart(2, "0");
     const monthStart = `${calYear}-${padM}-01`;
     const lastDay = new Date(calYear, calMonth + 1, 0).getDate();
     const monthEnd = `${calYear}-${padM}-${lastDay}`;
-    Promise.all([
+    const [holidays, prods, att] = await Promise.all([
       getHolidaysInRange(monthStart, monthEnd),
       getProductionsByEmployee(id, monthStart, monthEnd),
       getAttendanceByEmployeeInRange(id, monthStart, monthEnd),
-    ]).then(([holidays, prods, att]) => {
-      setFactoryHolidays(holidays.map((h) => h.date as string));
-      setCalendarProductions(prods);
-      setCalendarAttendance(att);
-    });
+    ]);
+    setFactoryHolidays(holidays.map((h) => h.date as string));
+    setCalendarProductions(prods);
+    setCalendarAttendance(att);
   }, [id, calYear, calMonth]);
+
+  useEffect(() => {
+    loadCalendarMonth();
+  }, [loadCalendarMonth]);
 
   const refreshMissingData = () => {
     if (!id || !employee || !from || !to) return;
@@ -418,6 +446,8 @@ export function EmployeePageClient() {
     totalHoursWorked: monthHours,
   } = attendanceStats;
   const calculatedSalary = totalPaidDays * ratePerDay;
+
+  const monthSheetOptions = monthPickerOptions(36);
 
   const periodProdQty = productions.reduce(
     (sum, p) => sum + ((p.quantity as number) || 0),
@@ -1175,6 +1205,63 @@ export function EmployeePageClient() {
         </div>
 
         <Card className="p-6 sm:p-8 transition-all duration-300 ease-out animate-fade-in animate-stagger-3">
+          <CardHeader className="p-0 mb-4 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <CardTitle className="text-xl font-semibold font-heading flex items-center gap-2">
+                <FileSpreadsheet className="size-5 text-primary shrink-0" />
+                Monthly attendance (print)
+              </CardTitle>
+              <p className="text-sm text-muted-foreground mt-1 max-w-xl">
+                Full-month attendance, hours, and day pay—only in the printout. Pick the month here or from the calendar, then print.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-end gap-3 shrink-0">
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="month-sheet-month">Month</Label>
+                <Select
+                  value={`${calYear}-${calMonth}`}
+                  onValueChange={(v) => {
+                    const [y, m] = v.split("-").map(Number);
+                    setCalYear(y);
+                    setCalMonth(m);
+                  }}
+                >
+                  <SelectTrigger
+                    id="month-sheet-month"
+                    className="min-w-[200px] w-56 min-h-12"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {monthSheetOptions.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <Button
+                type="button"
+                variant="secondary"
+                className="min-h-12"
+                onClick={async () => {
+                  const { html } = await getPrintableMonthlyAttendanceSheetHtml(
+                    id,
+                    calYear,
+                    calMonth,
+                  );
+                  await printHtml(html);
+                }}
+              >
+                <Printer data-icon="inline-start" className="size-4" />
+                Print monthly attendance
+              </Button>
+            </div>
+          </CardHeader>
+        </Card>
+
+        <Card className="p-6 sm:p-8 transition-all duration-300 ease-out animate-fade-in animate-stagger-4">
           <CardHeader className="p-0 mb-5">
             <CardTitle className="text-xl font-semibold font-heading">
               Salary (15-day periods)
@@ -1218,7 +1305,7 @@ export function EmployeePageClient() {
                   await printHtml(html);
                 }}
               >
-                Print salary sheet
+                Print production & advances
               </Button>
             </div>
             {salary && (
@@ -1246,7 +1333,7 @@ export function EmployeePageClient() {
           </CardContent>
         </Card>
 
-        <Card className="p-6 sm:p-8 transition-all duration-300 ease-out animate-fade-in animate-stagger-4">
+        <Card className="p-6 sm:p-8 transition-all duration-300 ease-out animate-fade-in animate-stagger-5">
           <CardHeader className="p-0 mb-4">
             <CardTitle className="text-xl font-semibold font-heading">
               Salary for this period
@@ -1438,6 +1525,7 @@ export function EmployeePageClient() {
                 });
                 setProductions(prods);
                 setAdvances(advs);
+                await loadCalendarMonth();
                 refreshMissingData();
                 toast.success("Production entry added");
               }}
@@ -1601,9 +1689,17 @@ export function EmployeePageClient() {
             </DialogHeader>
             <div className="flex-1 overflow-y-auto -mx-1 px-1">
               {productions.length === 0 ? (
-                <p className="py-8 text-center text-sm text-muted-foreground">
-                  No production entries for this period.
-                </p>
+                <Empty className="py-10 border-0 animate-fade-in">
+                  <EmptyHeader>
+                    <EmptyMedia variant="icon">
+                      <Package className="size-6 text-muted-foreground" />
+                    </EmptyMedia>
+                    <EmptyTitle>No production this period</EmptyTitle>
+                    <EmptyDescription>
+                      Add production entries above or pick another pay period from the 15-day selector.
+                    </EmptyDescription>
+                  </EmptyHeader>
+                </Empty>
               ) : (
                 <Table>
                   <TableHeader>
@@ -1677,6 +1773,7 @@ export function EmployeePageClient() {
                                         });
                                         setProductions(prods);
                                         setAdvances(advs);
+                                        await loadCalendarMonth();
                                         refreshMissingData();
                                         toast.success("Production entry deleted");
                                       } catch {
@@ -1757,9 +1854,17 @@ export function EmployeePageClient() {
             {advancesModalTab === "advances" ? (
               <div className="max-h-[40vh] overflow-y-auto -mx-1 px-1">
                 {allAdvances.length === 0 ? (
-                  <p className="py-6 text-center text-sm text-muted-foreground">
-                    No advances recorded yet.
-                  </p>
+                  <Empty className="py-8 border-0 animate-fade-in">
+                    <EmptyHeader>
+                      <EmptyMedia variant="icon">
+                        <Wallet className="size-6 text-muted-foreground" />
+                      </EmptyMedia>
+                      <EmptyTitle>No advances yet</EmptyTitle>
+                      <EmptyDescription>
+                        Advances you record appear here with date and amount.
+                      </EmptyDescription>
+                    </EmptyHeader>
+                  </Empty>
                 ) : (
                   <Table>
                     <TableHeader>
@@ -1846,9 +1951,17 @@ export function EmployeePageClient() {
             ) : (
               <div className="max-h-[40vh] overflow-y-auto -mx-1 px-1">
                 {deductions.length === 0 ? (
-                  <p className="py-6 text-center text-sm text-muted-foreground">
-                    No settlements recorded yet.
-                  </p>
+                  <Empty className="py-8 border-0 animate-fade-in">
+                    <EmptyHeader>
+                      <EmptyMedia variant="icon">
+                        <IndianRupee className="size-6 text-muted-foreground" />
+                      </EmptyMedia>
+                      <EmptyTitle>No settlements yet</EmptyTitle>
+                      <EmptyDescription>
+                        Saved period deductions show here after you submit a settlement.
+                      </EmptyDescription>
+                    </EmptyHeader>
+                  </Empty>
                 ) : (
                   <Table>
                     <TableHeader>

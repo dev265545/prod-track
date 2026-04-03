@@ -7,30 +7,12 @@
 import { getAll, STORES } from "./adapter";
 import type { ExportData } from "./exportImport";
 import { DB_VERSION } from "./schema";
+import { getSqlJsModule, type SqlJsExecRow, type SqlJsModule } from "./sqlJsLoader";
 
 const EXPORT_VERSION = 1;
 
-/** sql.js exec() returns an array of { columns, values } per statement. */
-type SqlJsExecRow = { columns: string[]; values: unknown[][] };
-
-type SqlJsModule = {
-  Database: new (data?: Uint8Array) => {
-    run(sql: string, params?: Record<string, unknown>): void;
-    exec(sql: string): SqlJsExecRow[];
-    export(): Uint8Array;
-    close(): void;
-  };
-};
-
 async function getSqlJs(): Promise<SqlJsModule> {
-  if (typeof window === "undefined") {
-    throw new Error("SQLite export/import is only available in the browser.");
-  }
-  const initSqlJs = (await import("sql.js")).default;
-  const SQL = await initSqlJs({
-    locateFile: (file: string) => `https://sql.js.org/dist/${file}`,
-  });
-  return SQL as unknown as SqlJsModule;
+  return getSqlJsModule();
 }
 
 /** Build a SQLite .db in memory from current DB and return as Uint8Array (for download). */

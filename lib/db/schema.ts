@@ -4,7 +4,11 @@
  */
 
 export const DB_NAME = "prodtrack-db";
-export const DB_VERSION = 4;
+/** Bump when IndexedDB layout or SQLite migrations need to run (keep in sync with Tauri `CURRENT_SCHEMA_VERSION`). */
+export const DB_VERSION = 5;
+
+/** SQLite / IndexedDB table for `_schema`, `_app`, and other internal rows (not part of JSON export stores). */
+export const METADATA_STORE = "_metadata";
 
 export const STORES = {
   ITEMS: "items",

@@ -1,6 +1,6 @@
 /**
- * Get current release version (latest v* tag or package.json), bump patch, write to package.json
- * and tauri.conf.json, and output the new version for the workflow.
+ * Get current release version (latest v* tag or package.json), bump patch, write to package.json,
+ * optionally sync src-tauri/tauri.conf.json if present, and output the new version for the workflow.
  */
 const fs = require("fs");
 const path = require("path");
@@ -49,9 +49,11 @@ const pkg = require(pkgPath);
 pkg.version = newVersion;
 fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
 
-const tauri = require(tauriPath);
-tauri.version = newVersion;
-fs.writeFileSync(tauriPath, JSON.stringify(tauri, null, 2) + "\n");
+if (fs.existsSync(tauriPath)) {
+  const tauri = require(tauriPath);
+  tauri.version = newVersion;
+  fs.writeFileSync(tauriPath, JSON.stringify(tauri, null, 2) + "\n");
+}
 
 const outFile = process.env.GITHUB_OUTPUT;
 if (outFile) {

@@ -2,8 +2,8 @@
  * ProdTrack Lite - Export / Import database
  */
 
-import { getAll, clear, put, STORES } from "./adapter";
-import { DB_VERSION } from "./schema";
+import { getAll, clear, put, remove, STORES } from "./adapter";
+import { DB_VERSION, METADATA_STORE } from "./schema";
 
 const EXPORT_VERSION = 1;
 export const AUTO_IMPORT_PATH = "data/prodtrack-export.json";
@@ -75,6 +75,11 @@ export async function importDatabase(data: ExportData): Promise<void> {
   if (!valid) {
     throw new Error(error || "Invalid export format");
   }
+  try {
+    await remove(METADATA_STORE, "_app");
+  } catch {
+    /* store may not exist on very old backends */
+  }
   const storeNames = Object.values(STORES);
   for (const name of storeNames) {
     const rows = data.stores[name];
@@ -91,6 +96,11 @@ export async function importDatabase(data: ExportData): Promise<void> {
 export async function clearAllData(): Promise<void> {
   for (const name of Object.values(STORES)) {
     await clear(name);
+  }
+  try {
+    await remove(METADATA_STORE, "_app");
+  } catch {
+    /* optional */
   }
 }
 

@@ -283,7 +283,7 @@ export function Dashboard() {
         shift: quickShift,
       });
       setQuickQty(1);
-      await load();
+      await Promise.all([load(), loadCalendar()]);
       toast.success("Production added");
     } catch {
       toast.error("Failed to add production");
@@ -295,14 +295,30 @@ export function Dashboard() {
   if (!aggregated || !period) {
     return (
       <AppShell>
-        <main className="flex flex-col gap-8">
-          <Skeleton className="h-10 w-48" />
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-            <Skeleton className="h-24 rounded-2xl" />
-            <Skeleton className="h-24 rounded-2xl" />
-            <Skeleton className="h-24 rounded-2xl" />
+        <main className="flex flex-col gap-8" aria-busy="true" aria-live="polite">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <Skeleton className="h-10 w-48 max-w-full animate-fade-in rounded-lg" />
+            <div className="flex flex-col gap-2">
+              <Skeleton className="h-4 w-14 animate-fade-in animate-stagger-1 rounded-md" />
+              <Skeleton className="h-11 w-[180px] animate-fade-in animate-stagger-1 rounded-xl" />
+            </div>
           </div>
-          <Skeleton className="h-64 rounded-2xl" />
+          <Skeleton className="h-12 w-full max-w-2xl animate-fade-in animate-stagger-2 rounded-lg" />
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-stretch">
+            <Skeleton className="h-[min(360px,55vh)] min-h-[280px] w-full shrink-0 animate-fade-in animate-stagger-2 rounded-2xl lg:max-w-[340px]" />
+            <div className="grid flex-1 grid-cols-2 gap-3 lg:grid-rows-[1fr_1fr_auto]">
+              <Skeleton className="h-28 animate-fade-in animate-stagger-3 rounded-2xl" />
+              <Skeleton className="h-28 animate-fade-in animate-stagger-3 rounded-2xl" />
+              <Skeleton className="h-28 animate-fade-in animate-stagger-4 rounded-2xl" />
+              <Skeleton className="h-28 animate-fade-in animate-stagger-4 rounded-2xl" />
+              <Skeleton className="col-span-2 h-24 animate-fade-in animate-stagger-5 rounded-2xl" />
+            </div>
+          </div>
+          <div className="flex flex-col gap-4">
+            <Skeleton className="h-8 w-56 animate-fade-in rounded-lg" />
+            <Skeleton className="h-48 animate-fade-in animate-stagger-5 rounded-2xl" />
+            <Skeleton className="h-40 animate-fade-in animate-stagger-6 rounded-2xl" />
+          </div>
         </main>
       </AppShell>
     );

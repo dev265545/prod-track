@@ -7,6 +7,8 @@ import { useTheme } from "next-themes";
 import {
   Package2,
   LayoutGrid,
+  Boxes,
+  Clock,
   FileBarChart,
   FileSpreadsheet,
   UsersRound,
@@ -29,6 +31,8 @@ import {
 
 const navLinks = [
   { href: "/", icon: LayoutGrid, label: "Dashboard" },
+  { href: "/items", icon: Boxes, label: "Items" },
+  { href: "/shifts", icon: Clock, label: "Shifts" },
   { href: "/reports", icon: FileBarChart, label: "Production report" },
   { href: "/salary-sheet", icon: FileSpreadsheet, label: "Salary sheet" },
   { href: "/employees", icon: UsersRound, label: "Employees" },

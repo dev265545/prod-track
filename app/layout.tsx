@@ -4,6 +4,7 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { Toaster } from "@/components/ui/sonner";
 import { FirstRunGuard } from "@/components/FirstRunGuard";
+import { DatabaseConnectedGuard } from "@/components/DatabaseConnectedGuard";
 
 import "./globals.css";
 
@@ -39,10 +40,12 @@ export default function RootLayout({
           disableTransitionOnChange
         >
           <FirstRunGuard>
-            <SidebarProvider className="no-print">
-              {children}
-              <Toaster />
-            </SidebarProvider>
+            <DatabaseConnectedGuard>
+              <SidebarProvider className="no-print">
+                {children}
+                <Toaster />
+              </SidebarProvider>
+            </DatabaseConnectedGuard>
           </FirstRunGuard>
         </ThemeProvider>
       </body>

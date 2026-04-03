@@ -9,6 +9,9 @@ dist/
 .next/
 out/
 
+# Portable web bundle output (run npm run pack-portable)
+portable/web/
+
 # Tauri / Rust
 src-tauri/target/
 

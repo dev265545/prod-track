@@ -6,9 +6,11 @@ import { getShifts } from "./shiftService";
 import {
   getWorkingDaysInMonth,
   getRatePerDay,
+  getRatePerHour,
   getEarnedSundays,
 } from "@/lib/utils/salaryRates";
-import { getMonthRange, getWorkingDayDates } from "@/lib/utils/date";
+import { getMonthRange, getWorkingDayDates, getDatesInRange } from "@/lib/utils/date";
+import { computeDayPayFraction } from "@/lib/utils/attendanceStats";
 
 export interface SalarySheetRow {
   id: string;
@@ -19,6 +21,9 @@ export interface SalarySheetRow {
   totalPaidDays: number;
   monthlySalary: number;
   ratePerDay: number;
+  ratePerHour: number;
+  hoursExtraTotal: number;
+  hoursReducedTotal: number;
   calculatedSalary: number;
 }
 
@@ -47,6 +52,10 @@ export async function getSalarySheetForMonth(
   const holidayDates = holidays.map((h) => h.date as string);
   const workingDays = getWorkingDaysInMonth(year, month, holidayDates);
   const workingDayDates = getWorkingDayDates(year, month, holidayDates);
+  const monthDateList = getDatesInRange(from, to);
+  const holidayDatesInMonth = monthDateList.filter((d) =>
+    holidayDates.includes(d)
+  );
 
   // Productions by employee+date
   const prodByEmpDate = new Map<string, Set<string>>();
@@ -80,20 +89,34 @@ export async function getSalarySheetForMonth(
     const ratePerDay = getRatePerDay(monthlySalary, workingDays);
     const shiftId = emp.shiftId as string | undefined;
     const hoursPerDay = shiftId ? (shiftMap[shiftId] ?? 8) : 8;
+    const ratePerHour = getRatePerHour(monthlySalary, workingDays, hoursPerDay);
     const empProdDates = prodByEmpDate.get(empId) ?? new Set<string>();
     const empAtt = attByEmpDate.get(empId) ?? new Map();
 
     let paidWorkingDays = 0;
     let daysCountForSunday = 0;
     let absentCount = 0;
+    let hoursExtraTotal = 0;
+    let hoursReducedTotal = 0;
+
+    const bumpHours = (att: {
+      hoursExtra?: number;
+      hoursReduced?: number;
+    }) => {
+      const ex = att.hoursExtra ?? 0;
+      const red = att.hoursReduced ?? 0;
+      if (ex > 0) hoursExtraTotal += ex;
+      if (red > 0) hoursReducedTotal += red;
+    };
 
     // Working days: present (explicit or inferred from production), absent (explicit or no entry)
     for (const dateStr of workingDayDates) {
       const att = empAtt.get(dateStr);
       const hasProd = empProdDates.has(dateStr);
       if (att?.status === "present") {
-        paidWorkingDays += computeDayValue(att, hoursPerDay);
+        paidWorkingDays += computeDayPayFraction(att, hoursPerDay);
         daysCountForSunday += 1;
+        bumpHours(att);
       } else if (att?.status === "absent") {
         absentCount += 1;
       } else if (hasProd) {
@@ -105,26 +128,32 @@ export async function getSalarySheetForMonth(
     }
 
     // Holidays: present = count for Sunday only, no salary; absent/no entry = don't count
-    for (const dateStr of holidayDates) {
+    for (const dateStr of holidayDatesInMonth) {
       const att = empAtt.get(dateStr);
       if (att?.status === "present") {
         daysCountForSunday += 1;
+        bumpHours(att);
       }
     }
 
     const earnedSundays = getEarnedSundays(daysCountForSunday);
-    const totalPaidDays = Math.round(paidWorkingDays) + earnedSundays;
-    const calculatedSalary = Math.round((paidWorkingDays + earnedSundays) * ratePerDay * 100) / 100;
+    const paidRounded = Math.round(paidWorkingDays * 100) / 100;
+    const totalPaidDays = paidRounded + earnedSundays;
+    const calculatedSalary =
+      Math.round((paidWorkingDays + earnedSundays) * ratePerDay * 100) / 100;
 
     return {
       id: empId,
       name: (emp.name as string) || "Unknown",
-      presentDays: Math.round(paidWorkingDays),
+      presentDays: paidRounded,
       absentDays: absentCount,
       earnedSundays,
       totalPaidDays,
       monthlySalary,
       ratePerDay,
+      ratePerHour,
+      hoursExtraTotal: Math.round(hoursExtraTotal * 100) / 100,
+      hoursReducedTotal: Math.round(hoursReducedTotal * 100) / 100,
       calculatedSalary,
     };
   });
@@ -137,16 +166,3 @@ export async function getSalarySheetForMonth(
   };
 }
 
-function computeDayValue(
-  att: { hoursWorked?: number; hoursReduced?: number; hoursExtra?: number },
-  fullDayHours: number
-): number {
-  if (fullDayHours <= 0) return 1;
-  if (att.hoursWorked != null && att.hoursWorked >= 0) {
-    return Math.min(Math.max(att.hoursWorked / fullDayHours, 0), 2);
-  }
-  const reduced = att.hoursReduced ?? 0;
-  const extra = att.hoursExtra ?? 0;
-  const adj = (extra - reduced) / fullDayHours;
-  return Math.min(Math.max(1 + adj, 0), 2);
-}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,9 +17,17 @@ import { login } from "@/lib/auth";
 
 export default function LoginPage() {
   const router = useRouter();
+  const [welcomeBack, setWelcomeBack] = useState(false);
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    setWelcomeBack(
+      new URLSearchParams(window.location.search).get("welcome") === "1",
+    );
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -47,7 +55,9 @@ export default function LoginPage() {
         <CardHeader className="flex flex-col gap-1">
           <CardTitle className="text-2xl font-heading">ProdTrack Lite</CardTitle>
           <p className="text-sm text-muted-foreground">
-            Enter password to continue
+            {welcomeBack
+              ? "Welcome back — enter your app password for this database."
+              : "Enter password to continue"}
           </p>
         </CardHeader>
         <CardContent>

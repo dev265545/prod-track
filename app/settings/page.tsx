@@ -8,7 +8,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import {
@@ -21,15 +20,7 @@ import {
 } from "@/components/ui/table";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { DatePicker } from "@/components/ui/date-picker";
-import {
-  Trash2,
-  Download,
-  ShieldAlert,
-  Calendar,
-  Package,
-  Clock,
-} from "lucide-react";
-import { Skeleton } from "@/components/ui/skeleton";
+import { Trash2, Download, ShieldAlert, Calendar } from "lucide-react";
 import { openDB } from "@/lib/db/adapter";
 import {
   isLoggedIn,
@@ -37,8 +28,6 @@ import {
   verifyMasterPassword,
   setAppPassword,
 } from "@/lib/auth";
-import { getItems, saveItem, deleteItem } from "@/lib/services/itemService";
-import { getShifts, saveShift, deleteShift } from "@/lib/services/shiftService";
 import {
   getAllHolidays,
   saveHoliday,
@@ -72,12 +61,11 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { AppLoadingScreen } from "@/components/app-loading-screen";
 
 export default function SettingsPage() {
   const router = useRouter();
   const [ready, setReady] = useState(false);
-  const [items, setItems] = useState<Record<string, unknown>[]>([]);
-  const [shifts, setShifts] = useState<Record<string, unknown>[]>([]);
   const [factoryHolidays, setFactoryHolidays] = useState<
     Record<string, unknown>[]
   >([]);
@@ -86,21 +74,11 @@ export default function SettingsPage() {
   const [deleteResult, setDeleteResult] = useState("");
   const [exportResult, setExportResult] = useState("");
   const [securityResult, setSecurityResult] = useState("");
-  const [itemName, setItemName] = useState("");
-  const [itemRate, setItemRate] = useState(0);
-  const [shiftName, setShiftName] = useState("");
-  const [shiftHours, setShiftHours] = useState(8);
   const [dbPath, setDbPath] = useState<string | null>(null);
   const importJsonInputRef = useRef<HTMLInputElement>(null);
 
   const load = async () => {
-    const [i, s, h] = await Promise.all([
-      getItems(),
-      getShifts(),
-      getAllHolidays(),
-    ]);
-    setItems(i);
-    setShifts(s);
+    const h = await getAllHolidays();
     setFactoryHolidays(h);
   };
 
@@ -123,13 +101,10 @@ export default function SettingsPage() {
 
   if (!ready) {
     return (
-      <AppShell>
-        <main className="flex flex-col gap-8">
-          <Skeleton className="h-10 w-64" />
-          <Skeleton className="h-40 rounded-2xl" />
-          <Skeleton className="h-48 rounded-2xl" />
-        </main>
-      </AppShell>
+      <AppLoadingScreen
+        title="Opening settings…"
+        description="Loading your preferences and data tools."
+      />
     );
   }
 
@@ -144,9 +119,17 @@ export default function SettingsPage() {
   return (
     <AppShell>
       <main className="flex flex-col gap-10 animate-fade-in">
-        <h1 className="text-3xl font-bold text-foreground font-heading">
-          Settings &amp; data
-        </h1>
+        <header className="flex flex-col gap-2">
+          <h1 className="text-3xl font-bold text-foreground font-heading md:text-4xl">
+            Settings &amp; data
+          </h1>
+          <p className="max-w-2xl text-base text-muted-foreground leading-relaxed">
+            Packaging item groups and shifts now live under{" "}
+            <strong className="font-medium text-foreground">Items</strong> and{" "}
+            <strong className="font-medium text-foreground">Shifts</strong> in the
+            sidebar.
+          </p>
+        </header>
 
         <Card>
           <CardHeader>
@@ -605,253 +588,6 @@ export default function SettingsPage() {
             </div>
             <Button type="submit" className={btnPrimaryClass}>
               Add holiday
-            </Button>
-          </form>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-xl font-semibold text-foreground font-heading flex items-center gap-2">
-              <Package className="size-5 text-primary" />
-              Packaging item groups
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-          <div className="overflow-x-auto mb-6">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Packaging item group</TableHead>
-                  <TableHead className="text-right">Packaging price (₹)</TableHead>
-                  <TableHead className="w-16" />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {items.map((i) => (
-                  <TableRow key={i.id as string}>
-                    <TableCell>{i.name as string}</TableCell>
-                    <TableCell className="text-right tabular-nums">{i.rate as number}</TableCell>
-                    <TableCell>
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                          <Button
-                            type="button"
-                            variant="destructive"
-                            size="icon"
-                            title="Delete packaging item group"
-                            aria-label="Delete packaging item group"
-                          >
-                            <Trash2 data-icon="inline-start" aria-hidden />
-                          </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>Delete packaging item group?</AlertDialogTitle>
-                            <AlertDialogDescription>
-                              Delete {i.name as string}? Productions using it will keep the id but show as unknown.
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>Cancel</AlertDialogCancel>
-                            <AlertDialogAction
-                              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                              onClick={async () => {
-                                try {
-                                  await deleteItem(i.id as string);
-                                  await load();
-                                  toast.success("Packaging item group deleted");
-                                } catch {
-                                  toast.error("Failed to delete packaging item group");
-                                }
-                              }}
-                            >
-                              Delete
-                            </AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-          <form
-            className="flex flex-wrap gap-4 items-end"
-            onSubmit={async (e) => {
-              e.preventDefault();
-              if (!itemName.trim()) return;
-              try {
-                await saveItem({
-                  name: itemName.trim(),
-                  rate: itemRate,
-                });
-                setItemName("");
-                setItemRate(0);
-                await load();
-                toast.success("Packaging item group added");
-              } catch {
-                toast.error("Failed to add packaging item group");
-              }
-            }}
-          >
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="itemName">Packaging item group name</Label>
-              <Input
-                id="itemName"
-                type="text"
-                value={itemName}
-                onChange={(e) => setItemName(e.target.value)}
-                placeholder="e.g. RD CONT - 1000PCS"
-                className="w-64 min-h-[44px]"
-                required
-              />
-            </div>
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="itemRate">Packaging price (₹)</Label>
-              <Input
-                id="itemRate"
-                type="number"
-                min={0}
-                step={0.01}
-                value={itemRate}
-                onChange={(e) => setItemRate(parseFloat(e.target.value) || 0)}
-                className="w-28 min-h-[44px]"
-              />
-            </div>
-            <Button type="submit" className={btnPrimaryClass}>
-              Add packaging item group
-            </Button>
-          </form>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className={headingClass + " flex items-center gap-2"}>
-              <Clock className="size-5 text-primary" />
-              Shifts
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-          <p className="text-base text-muted-foreground mb-5">
-            Define shift names and hours per day. Used for production and salary
-            reference.
-          </p>
-          <div className="overflow-x-auto mb-6">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead className="text-right">Hours/day</TableHead>
-                  <TableHead className="w-16" />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {shifts.map((s) => (
-                  <TableRow key={s.id as string}>
-                    <TableCell>{s.name as string}</TableCell>
-                    <TableCell className="text-right tabular-nums">
-                      {s.hoursPerDay as number}
-                    </TableCell>
-                    <TableCell>
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                          <Button
-                            type="button"
-                            variant="destructive"
-                            size="icon"
-                            title="Delete shift"
-                            aria-label="Delete shift"
-                          >
-                            <Trash2 data-icon="inline-start" aria-hidden />
-                          </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>Delete shift?</AlertDialogTitle>
-                            <AlertDialogDescription>
-                              Delete {s.name as string}? Records referencing it will keep the name but lose the link.
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>Cancel</AlertDialogCancel>
-                            <AlertDialogAction
-                              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                              onClick={async () => {
-                                try {
-                                  await deleteShift(s.id as string);
-                                  await load();
-                                  toast.success("Shift deleted");
-                                } catch {
-                                  toast.error("Failed to delete shift");
-                                }
-                              }}
-                            >
-                              Delete
-                            </AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-          <form
-            className="flex flex-wrap gap-4 items-end"
-            onSubmit={async (e) => {
-              e.preventDefault();
-              if (!shiftName.trim()) return;
-              try {
-                await saveShift({
-                  name: shiftName.trim(),
-                  hoursPerDay: shiftHours,
-                });
-                setShiftName("");
-                setShiftHours(8);
-                await load();
-                toast.success("Shift added");
-              } catch {
-                toast.error("Failed to add shift");
-              }
-            }}
-          >
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="shiftName">Name</Label>
-              <Input
-                id="shiftName"
-                type="text"
-                value={shiftName}
-                onChange={(e) => setShiftName(e.target.value)}
-                placeholder="e.g. 8AM-8PM"
-                className="w-40 min-h-[44px]"
-                required
-              />
-            </div>
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="shiftHours">Hours per day</Label>
-              <Input
-                id="shiftHours"
-                type="number"
-                min={1}
-                max={24}
-                value={shiftHours}
-                onChange={(e) =>
-                  setShiftHours(
-                    Math.max(
-                      1,
-                      Math.min(24, parseInt(e.target.value, 10) || 8),
-                    ),
-                  )
-                }
-                className="w-24 min-h-[44px]"
-              />
-            </div>
-            <Button type="submit" className={btnPrimaryClass}>
-              Add shift
             </Button>
           </form>
           </CardContent>

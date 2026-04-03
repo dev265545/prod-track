@@ -2,6 +2,8 @@
  * ProdTrack Lite - Auth (client-side)
  */
 
+import { getAppDbRecord, upsertAppDbRecord } from "./db/appMetadata";
+
 const STORAGE_PASSWORD_HASH = "prodtrack_app_password_hash";
 const STORAGE_LOGIN_TS = "prodtrack_login_ts";
 const SESSION_HOURS = 5;
@@ -23,8 +25,16 @@ async function hashPassword(password: string): Promise<string> {
 }
 
 export async function verifyAppPassword(input: string): Promise<boolean> {
-  const stored = getStorage()?.getItem(STORAGE_PASSWORD_HASH);
   const hash = await hashPassword(input);
+  try {
+    const meta = await getAppDbRecord();
+    if (meta?.passwordHash) {
+      return hash === meta.passwordHash;
+    }
+  } catch {
+    // DB not open yet — fall through to local defaults
+  }
+  const stored = getStorage()?.getItem(STORAGE_PASSWORD_HASH);
   if (!stored) return input === DEFAULT_APP_PASSWORD;
   return hash === stored;
 }
@@ -36,6 +46,14 @@ export function verifyMasterPassword(input: string): boolean {
 export async function setAppPassword(newPassword: string): Promise<void> {
   const hash = await hashPassword(newPassword);
   getStorage()?.setItem(STORAGE_PASSWORD_HASH, hash);
+  try {
+    await upsertAppDbRecord({
+      passwordHash: hash,
+      onboardingComplete: true,
+    });
+  } catch {
+    // IndexedDB/sqlite not ready (e.g. unit tests) — localStorage still updated
+  }
 }
 
 export function isLoggedIn(): boolean {
@@ -74,6 +92,15 @@ export async function login(password: string): Promise<boolean> {
   const ok = await verifyAppPassword(password);
   if (!ok) return false;
   await persistDefaultHashIfNeeded(password);
+  try {
+    const hash = await hashPassword(password);
+    await upsertAppDbRecord({
+      passwordHash: hash,
+      onboardingComplete: true,
+    });
+  } catch {
+    /* ignore */
+  }
   startSession();
   return true;
 }

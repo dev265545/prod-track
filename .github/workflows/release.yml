@@ -1,4 +1,4 @@
-# Build Tauri for Windows x64 + x86 (32-bit), bundle fixed WebView2 for Windows 7, publish GitHub Release.
+# Build static web + portable folder (PowerShell local server, File System Access API / sql.js), publish ZIP on GitHub Release.
 
 name: Release
 
@@ -8,27 +8,15 @@ on:
     branches:
       - main
 
-jobs:
-  publish-tauri:
-    permissions:
-      contents: write
-    env:
-      # Tauri CLI maps CI=1 to invalid --ci flag; GHA sets CI by default.
-      CI: "false"
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: windows-latest
-            rust_target: x86_64-pc-windows-msvc
-            webview_cab: Microsoft.WebView2.FixedVersionRuntime.109.0.1518.78.x64.cab
-            args: ""
-          - platform: windows-latest
-            rust_target: i686-pc-windows-msvc
-            webview_cab: Microsoft.WebView2.FixedVersionRuntime.109.0.1518.78.x86.cab
-            args: "--target i686-pc-windows-msvc"
+permissions:
+  contents: write
 
-    runs-on: ${{ matrix.platform }}
+env:
+  CI: "false"
+
+jobs:
+  release-portable:
+    runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
@@ -38,67 +26,55 @@ jobs:
       - name: Fetch tags
         run: git fetch --tags
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 9
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "lts/*"
-          cache: pnpm
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
 
       - name: Bump version
         id: bump
         run: node .github/scripts/bump-version.js
 
-      - name: Install Rust stable (${{ matrix.rust_target }})
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.rust_target }}
+      - name: Test
+        run: npm test
 
-      - name: Rust cache
-        uses: swatinem/rust-cache@v2
-        with:
-          workspaces: "src-tauri -> target"
-          key: ${{ matrix.rust_target }}
+      - name: Build static web (sqlite-file backend + wasm)
+        run: npm run build:web-sqlite
 
-      - name: Install frontend dependencies
-        run: pnpm install
+      - name: Pack portable/web
+        run: npm run pack-portable
 
-      - name: WebView2 fixed runtime (Win7 bundle)
-        shell: pwsh
+      - name: Verify wasm bundled
+        run: test -f portable/web/wasm/sql-wasm.wasm
+
+      - name: Zip portable bundle
+        id: zip
         run: |
-          .\.github\scripts\setup-webview2.ps1 -CabName "${{ matrix.webview_cab }}"
+          VERSION="${{ steps.bump.outputs.version }}"
+          OUT="ProdTrack-portable-${VERSION}.zip"
+          zip -r "$OUT" portable \
+            -x "portable/web/.DS_Store" \
+            -x "**/__MACOSX/**"
+          echo "path=$OUT" >> "$GITHUB_OUTPUT"
+          ls -la "$OUT"
 
-      - name: Patch tauri.conf for fixed runtime
-        run: node .github/scripts/use-fixed-webview.js
-
-      - name: Build frontend and fix asset paths for Tauri
-        run: |
-          pnpm run build
-          node scripts/fix-tauri-asset-paths.js
-        env:
-          NODE_ENV: production
-
-      - name: Verify asset paths for Tauri
-        run: node .github/scripts/verify-asset-paths.js
-
-      - name: Build and release (Tauri)
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
         with:
-          tagName: v${{ steps.bump.outputs.version }}
-          releaseName: "ProdTrack v${{ steps.bump.outputs.version }}"
-          releaseBody: |
-            **Windows installers** (x64 and x86) include fixed WebView2 **109.0.1518.78** for Windows 7 SP1+.
+          tag_name: v${{ steps.bump.outputs.version }}
+          name: ProdTrack v${{ steps.bump.outputs.version }}
+          body: |
+            **Portable bundle** — static web app plus the Windows folder in `portable/` (run `Start-ProdTrack.cmd`).
 
-            - **x64**: use `*_x64_en-US.msi` or `*_x64-setup.exe` on 64-bit Windows.
-            - **x86**: use `*_i686_en-US.msi` or `*_i686-setup.exe` on 32-bit Windows.
+            - Unzip, keep the `portable` folder intact (must include `portable/web/` with `wasm/sql-wasm.wasm`).
+            - Uses a local HTTP server and the browser (Chrome or compatible) with File System Access for your `.db` file.
 
             Built from `${{ github.ref_name }}` @ `${{ github.sha }}`
-          releaseDraft: false
-          prerelease: false
-          args: ${{ matrix.args }}
+          files: ${{ steps.zip.outputs.path }}
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

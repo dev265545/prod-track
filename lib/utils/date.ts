@@ -141,7 +141,32 @@ export function getMonthRange(
   };
 }
 
-/** Get all working day dates in a month (excludes Sundays and factory holidays). */
+/** Every calendar date from `from` through `to` inclusive (ISO strings). */
+export function getDatesInRange(fromDate: string, toDate: string): string[] {
+  const out: string[] = [];
+  let cursor = fromDate;
+  while (cursor <= toDate) {
+    out.push(cursor);
+    const d = new Date(cursor + "T12:00:00");
+    d.setDate(d.getDate() + 1);
+    cursor = toISODate(d);
+  }
+  return out;
+}
+
+/** Count Mon–Sat workdays in a range, excluding factory holidays and Sundays. */
+export function getWorkingDaysInRange(
+  fromDate: string,
+  toDate: string,
+  factoryHolidayDates: string[] = []
+): number {
+  const holidaySet = new Set(factoryHolidayDates);
+  return getDatesInRange(fromDate, toDate).filter(
+    (d) => !isSunday(d) && !holidaySet.has(d)
+  ).length;
+}
+
+/** All working day dates in a month (excludes Sundays and factory holidays). */
 export function getWorkingDayDates(
   year: number,
   month: number,

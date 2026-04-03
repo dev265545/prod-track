@@ -2,11 +2,14 @@
  * ProdTrack Lite - IndexedDB wrapper (web backend)
  */
 
-import { DB_NAME, DB_VERSION, STORES } from "./schema";
+import { DB_NAME, DB_VERSION, METADATA_STORE, STORES } from "./schema";
 
 let dbInstance: IDBDatabase | null = null;
 
 function createSchema(db: IDBDatabase) {
+  if (!db.objectStoreNames.contains(METADATA_STORE)) {
+    db.createObjectStore(METADATA_STORE, { keyPath: "id" });
+  }
   if (!db.objectStoreNames.contains(STORES.ITEMS)) {
     db.createObjectStore(STORES.ITEMS, { keyPath: "id" });
   }

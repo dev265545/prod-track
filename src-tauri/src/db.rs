@@ -8,7 +8,7 @@ use tauri::{AppHandle, State};
 use tauri_plugin_dialog::DialogExt;
 
 /// Must match lib/db/schema.ts DB_VERSION. Bump when adding migrations.
-const CURRENT_SCHEMA_VERSION: u32 = 4;
+const CURRENT_SCHEMA_VERSION: u32 = 5;
 
 const TABLES: &[&str] = &[
     "_metadata",
@@ -48,9 +48,14 @@ fn set_schema_version(conn: &Connection, version: u32) -> Result<(), String> {
     Ok(())
 }
 
-fn run_migration(_conn: &Connection, _to_version: u32) -> Result<(), String> {
-    // Add migration logic here when bumping schema version.
-    // Example: ALTER TABLE items ADD COLUMN new_field TEXT;
+fn run_migration(_conn: &Connection, to_version: u32) -> Result<(), String> {
+    match to_version {
+        5 => {
+            // Reserved: app metadata row `_app` (password hash, onboarding) lives in `_metadata`.
+            // Older DBs only had `_schema`; no ALTER needed.
+        }
+        _ => {}
+    }
     Ok(())
 }
 

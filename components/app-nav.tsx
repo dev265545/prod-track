@@ -41,6 +41,28 @@ export function AppNav() {
           Dashboard
         </Link>
         <Link
+          href="/items"
+          className={cn(
+            "nav-link",
+            pathname === "/items"
+              ? "bg-accent text-accent-foreground"
+              : "text-muted-foreground",
+          )}
+        >
+          Items
+        </Link>
+        <Link
+          href="/shifts"
+          className={cn(
+            "nav-link",
+            pathname === "/shifts"
+              ? "bg-accent text-accent-foreground"
+              : "text-muted-foreground",
+          )}
+        >
+          Shifts
+        </Link>
+        <Link
           href="/reports"
           className={cn(
             "nav-link",
