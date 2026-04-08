@@ -1,39 +1,48 @@
 # prodtrack-lite
 
-TypeScript application with one React UI shipped two ways: **Next.js static export** (`out/`) and a **Tauri 2** desktop bundle. Persistence is **IndexedDB** in the browser and **SQLite** under Tauri; a small adapter selects the backend at runtime.
+TypeScript app with one React UI, shipped in two main ways:
+
+1. **Static web** (`out/`) — Next.js static export. Pick a **database backend at build time**:
+   - **IndexedDB** (default `npm run build`) — data stays in the browser profile.
+   - **SQLite file** (`npm run build:web-sqlite`) — **sql.js** (WASM) + **File System Access API**; user picks or creates a `.db` file (portable / USB-friendly). Same table layout as desktop.
+2. **Tauri 2 desktop** (optional) — native shell with **SQLite** via Rust (`rusqlite`). Use `npm run tauri:dev` / `npm run tauri:build` when you need a desktop bundle instead of the browser.
+
+`lib/db/adapter.ts` chooses **Tauri** → **sqlite-file** (env) → **IndexedDB** at runtime.
 
 ---
 
 ## Architecture notes
 
-- **Runtime-aware data access** — `lib/db/adapter.ts` exposes one API over **IndexedDB** (web) and **SQLite** via Tauri `invoke` (desktop), so callers do not depend on a specific store implementation.
-- **Static export for embedding** — `next.config.js` sets `output: "export"` in production so the UI is static assets consumed by Tauri as `frontendDist`. Development uses the normal Next.js dev server.
-- **Tauri without breaking static export** — `lib/tauriBridge.ts` calls `window.__TAURI__?.core?.invoke` so the production JS bundle is not tied to `@tauri-apps/*` module graphs that complicate `next build` export. DB, dialogs, opener, and printing go through this path when `__TAURI__` is present.
-- **Rust / SQLite** — `src-tauri` uses **rusqlite** (bundled libsqlite3), **serde** / **serde_json** for IPC payloads, and Tauri v2 plugins: dialog, log, opener, printer. File save/open for DB backup uses the **dialog** plugin from Rust.
+- **Runtime-aware data access** — One adapter API over **IndexedDB**, **sqlite-file** (`NEXT_PUBLIC_DB_BACKEND=sqlite-file`), and **Tauri/SQLite**, so app code does not depend on a specific store.
+- **Static export** — `next.config.js` sets `output: "export"` in production so the UI is static assets (`out/`). The **GitHub Release** workflow builds the **sqlite-file** variant and packs `portable/` for Windows (local HTTP server + browser).
+- **Tauri without tying the web bundle to Rust** — `lib/tauriBridge.ts` uses `window.__TAURI__?.core?.invoke` so the exported JS is not forced through `@tauri-apps/*` graphs. DB, dialogs, opener, and printing use that path when `__TAURI__` is present.
+- **Rust / SQLite (desktop only)** — `src-tauri` uses **rusqlite**, **serde** / **serde_json**, Tauri v2 plugins (dialog, log, opener, printer). Backup/import file UI uses the **dialog** plugin from Rust when running in Tauri.
+- **Browser SQLite (web, sqlite-file build)** — `lib/db/sqliteFileAdapter.ts` + **sql.js** WASM; persistence is a user-selected `.db` file. `lib/db/sqliteBrowser.ts` still handles import/export buffers in the same **table-per-store** shape as Rust/Tauri.
 - **Versioned JSON export/import** — `lib/db/exportImport.ts` defines export format version, schema version, and validation before applying imported data.
-- **Browser SQLite files** — `lib/db/sqliteBrowser.ts` uses **sql.js** (WASM) to build or read `.db` files in the same **table-per-store** shape as the Rust side when not running inside Tauri.
 - **Client-side gate** — `lib/auth.ts`: password hashing via **Web Crypto** (`SubtleCrypto`), session timestamp in `localStorage`. Local-first only; not server authentication.
+- **Legacy browsers** — Theme uses sRGB fallbacks plus generated `app/generated/legacy-opacity-fallbacks.css` from `scripts/generate-legacy-opacity-fallbacks.mjs` (run via `npm run generate:legacy-css` or before `npm run build`).
 - **UI** — React 18, App Router, Radix primitives, Tailwind CSS 4, CVA / `tailwind-merge`, `next-themes`.
 
 ---
 
 ## Stack
 
-| Area | Technology |
-|------|------------|
-| Language | TypeScript (**strict**), JavaScript on legacy/excluded paths |
-| UI | React 18, Next.js 14 (App Router) |
-| Styling | Tailwind CSS 4, PostCSS, `tw-animate-css` |
-| Components | Radix UI primitives, shadcn-style patterns (`class-variance-authority`, `tailwind-merge`, `clsx`) |
-| Icons | Lucide React |
-| Theming | `next-themes` |
-| Dates | `date-fns`, `react-day-picker` |
-| Data (web) | IndexedDB |
-| Data (desktop) | SQLite (Rust `rusqlite`, bundled) |
-| Desktop shell | Tauri **2** (Rust **2021**), custom `__TAURI__` bridge |
-| WASM | `sql.js` for in-browser SQLite `.db` build and ingest |
-| Parsing | PapaParse (CSV) |
-| Tooling | ESLint (`eslint-config-next`), esbuild (toolchain) |
+| Area              | Technology                                                                                         |
+| ----------------- | -------------------------------------------------------------------------------------------------- |
+| Language          | TypeScript (**strict**), JavaScript on legacy/excluded paths                                       |
+| UI                | React 18, Next.js 14 (App Router)                                                                |
+| Styling           | Tailwind CSS 4, PostCSS, `tw-animate-css`                                                          |
+| Components        | Radix UI primitives, shadcn-style patterns (`class-variance-authority`, `tailwind-merge`, `clsx`) |
+| Icons             | Lucide React                                                                                       |
+| Theming           | `next-themes`                                                                                      |
+| Dates             | `date-fns`, `react-day-picker`                                                                     |
+| Data (web default)| IndexedDB                                                                                          |
+| Data (web sqlite) | **sql.js** WASM + File System Access API (`NEXT_PUBLIC_DB_BACKEND=sqlite-file`)                    |
+| Data (desktop)    | SQLite (**Rust `rusqlite`**, bundled) via Tauri                                                    |
+| Desktop shell     | Tauri **2** (optional), custom `__TAURI__` bridge                                                  |
+| WASM              | `sql.js` — bundled under `public/wasm/` for sqlite-file builds (`npm run copy-sql-wasm`)           |
+| Parsing           | PapaParse (CSV)                                                                                    |
+| Tooling           | ESLint (`eslint-config-next`), Vitest, esbuild (toolchain)                                         |
 
 ---
 
@@ -41,39 +50,46 @@ TypeScript application with one React UI shipped two ways: **Next.js static expo
 
 Workflow: `.github/workflows/release.yml`
 
-- Matrix: Windows **x64** and **x86** Tauri builds (`fail-fast: false`).
-- **pnpm** + lockfile, Node **LTS**; Rust **stable**; **swatinem/rust-cache** for `src-tauri`.
-- **Fixed WebView2** runtime (v109 CAB) plus `.github/scripts/use-fixed-webview.js` so bundles target **Windows 7 SP1+** with a known runtime, not only machines with a current Edge install.
-- Version bump: `.github/scripts/bump-version.js`; artifacts published with **tauri-apps/tauri-action** to GitHub Releases.
+- **Portable web** — `npm ci`, `npm test`, `npm run build:web-sqlite`, `npm run pack-portable`, verify `portable/web/wasm/sql-wasm.wasm`, zip `portable/` as `ProdTrack-portable-<version>.zip`, publish with **softprops/action-gh-release**.
+- Intended use: unzip, run **`Start-ProdTrack.cmd`** (local server + Chrome or compatible browser), pick a `.db` file for SQLite-in-the-browser mode.
+
+Tauri desktop builds are **not** part of that workflow; build them locally with `npm run tauri:build` when needed.
 
 ---
 
 ## Prerequisites
 
 - **Node.js** (LTS; CI uses `lts/*`)
-- **pnpm** (lockfile + Actions)
-- **Rust stable** + Tauri prerequisites — for `tauri dev` / `tauri build` only
+- **npm** (lockfile + Actions)
+- **Rust stable** + Tauri prerequisites — **only** for `npm run tauri:dev` / `npm run tauri:build`
 
 ---
 
 ## Scripts
 
-| Command | Purpose |
-|---------|---------|
-| `pnpm install` | Install dependencies |
-| `pnpm run dev` | Next.js dev server (Tauri dev uses port **1420** in `src-tauri/tauri.conf.json`) |
-| `pnpm run build` | Production Next build → static **`out/`** when `NODE_ENV=production` |
-| `pnpm run start` | Next production server |
-| `pnpm run lint` | ESLint |
-| `pnpm run tauri:dev` | Desktop shell + dev server |
-| `pnpm run tauri:build` | Static frontend + native bundle |
+| Command                    | Purpose                                                                                                      |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `npm install`              | Install dependencies                                                                                         |
+| `npm run dev`              | Next.js dev server (**IndexedDB** backend; default env)                                                      |
+| `npm run dev:web-sqlite`   | Dev server with **`NEXT_PUBLIC_DB_BACKEND=sqlite-file`** (SQLite file + WASM path)                           |
+| `npm run copy-sql-wasm`    | Copy **sql.js** WASM into `public/wasm/` for sqlite-file builds                                              |
+| `npm run generate:legacy-css` | Regenerate **legacy Chrome** rgba fallbacks (`app/generated/legacy-opacity-fallbacks.css`)                  |
+| `npm run build`            | Runs `generate:legacy-css`, then production Next build → static **`out/`** (**IndexedDB** in client bundle) |
+| `npm run build:web-sqlite` | `copy-sql-wasm` + `generate:legacy-css` + production build with **sqlite-file** backend baked in           |
+| `npm run pack-portable`    | Assemble **`portable/`** folder for the Windows portable bundle (after `build:web-sqlite`)                 |
+| `npm run start`            | Next production server (if you use non-export mode in dev)                                                   |
+| `npm run lint`             | ESLint                                                                                                       |
+| `npm run test`             | Vitest                                                                                                       |
+| `npm run tauri:dev`        | Tauri desktop + dev server (see `src-tauri/tauri.conf.json` for port)                                        |
+| `npm run tauri:build`      | Static frontend + native Tauri bundle                                                                        |
 
 ---
 
 ## Build outputs
 
-- **Web (static):** `out/` — Next static export; Tauri `frontendDist` points here.
-- **Desktop:** Artifacts under `src-tauri/target/` per target triple.
+- **Web (static):** `out/` — Next static export. Point any static host at this folder, or use it as Tauri `frontendDist` when building desktop.
+- **Portable bundle:** `portable/` — produced by `npm run pack-portable` after `npm run build:web-sqlite` (includes `portable/web/` + WASM + launcher scripts).
+- **Desktop:** Tauri artifacts under `src-tauri/target/` per target triple.
 
 ---
 
@@ -82,9 +98,12 @@ Workflow: `.github/workflows/release.yml`
 ```
 app/           Next.js App Router routes and layouts
 components/    Shared React UI (`components/ui`, app shell)
-lib/           Services, DB adapter, export/import, Tauri bridge, auth utilities
-src-tauri/     Rust crate, Tauri config, icons, capabilities
-public/        Static assets
+lib/           Services, DB adapter, sqlite file + IndexedDB + Tauri DB, export/import, bridge, auth
+public/wasm/   sql.js WASM (populated by `npm run copy-sql-wasm` for sqlite-file builds)
+scripts/       e.g. `copy-sql-wasm.mjs`, `generate-legacy-opacity-fallbacks.mjs`, `pack-portable.mjs`
+app/generated/ Generated CSS (legacy browser fallbacks; do not edit by hand)
+src-tauri/     Rust crate, Tauri config, icons, capabilities (desktop only)
+portable/      Packed portable web output (gitignored or release artifact)
 ```
 
 Legacy or reference code may live under `js/`; `tsconfig.json` excludes some of it. Current application code lives under **`app/`**, **`components/`**, and **`lib/`**.
@@ -93,8 +112,8 @@ Legacy or reference code may live under `js/`; `tsconfig.json` excludes some of 
 
 ## Configuration files
 
-- `next.config.js` — conditional static export for Tauri, React Strict Mode
+- `next.config.js` — static export in production, React Strict Mode
 - `tsconfig.json` — `strict`, path alias `@/*` → project root
 - `tailwind.config.ts` / PostCSS — styling pipeline
-- `src-tauri/tauri.conf.json` — windowing, dev URL, bundle identifiers
-- `src-tauri/Cargo.toml` — Rust edition, `rusqlite`, Tauri plugins
+- `src-tauri/tauri.conf.json` — windowing, dev URL, bundle identifiers (Tauri)
+- `src-tauri/Cargo.toml` — Rust edition, `rusqlite`, Tauri plugins (Tauri)

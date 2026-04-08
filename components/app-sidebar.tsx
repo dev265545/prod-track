@@ -1,9 +1,7 @@
 "use client";
 
-import * as React from "react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
-import { useTheme } from "next-themes";
+import { usePathname } from "next/navigation";
 import {
   Package2,
   LayoutGrid,
@@ -13,14 +11,9 @@ import {
   FileSpreadsheet,
   UsersRound,
   SlidersHorizontal,
-  LogOut,
-  Sun,
-  Moon,
 } from "lucide-react";
-import { logout } from "@/lib/auth";
 import {
   SidebarContent,
-  SidebarFooter,
   SidebarGroup,
   SidebarHeader,
   SidebarMenu,
@@ -41,16 +34,6 @@ const navLinks = [
 
 export function AppSidebar() {
   const pathname = usePathname();
-  const router = useRouter();
-  const { theme, setTheme } = useTheme();
-  const [mounted, setMounted] = React.useState(false);
-
-  React.useEffect(() => setMounted(true), []);
-
-  const handleLogout = () => {
-    logout();
-    router.replace("/login");
-  };
 
   return (
     <>
@@ -87,35 +70,6 @@ export function AppSidebar() {
           </SidebarMenu>
         </SidebarGroup>
       </SidebarContent>
-      <SidebarFooter>
-        <SidebarMenu>
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              size="lg"
-              tooltip={mounted ? (theme === "dark" ? "Light mode" : "Dark mode") : "Toggle theme"}
-              onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-              suppressHydrationWarning
-            >
-              {mounted ? (
-                theme === "dark" ? (
-                  <Sun className="size-5 shrink-0" />
-                ) : (
-                  <Moon className="size-5 shrink-0" />
-                )
-              ) : (
-                <Moon className="size-5 shrink-0" />
-              )}
-              <span>{mounted && theme === "dark" ? "Light" : "Dark"}</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-          <SidebarMenuItem>
-            <SidebarMenuButton size="lg" tooltip="Log out" onClick={handleLogout}>
-              <LogOut className="size-5 shrink-0" />
-              <span>Logout</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-        </SidebarMenu>
-      </SidebarFooter>
     </>
   );
 }
