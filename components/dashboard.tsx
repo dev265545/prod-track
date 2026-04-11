@@ -270,7 +270,7 @@ export function Dashboard() {
     const holiday = await getHolidayByDate(quickDate);
     const holidayDates = holiday ? [quickDate] : [];
     if (isRestrictedForEntry(quickDate, holidayDates)) {
-      toast.error("Cannot add production on Sundays or factory holidays.");
+      toast.error("Cannot add production on factory holidays.");
       return;
     }
     setSaving(true);
@@ -389,7 +389,7 @@ export function Dashboard() {
                     <DialogHeader>
                       <DialogTitle className="text-destructive">Missing data</DialogTitle>
                       <p className="text-sm text-muted-foreground">
-                        {totalMissing} working day{totalMissing !== 1 ? "s" : ""} without production or attendance across{" "}
+                        {totalMissing} working day{totalMissing !== 1 ? "s" : ""} without attendance across{" "}
                         {entries.length} employee{entries.length !== 1 ? "s" : ""}.
                       </p>
                     </DialogHeader>

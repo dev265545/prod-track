@@ -7,8 +7,7 @@ import {
   computeHoursInRange,
   sumHoursAdjustmentsInRange,
 } from "./attendanceStats";
-import { getWorkingDayDates } from "./date";
-import { getEarnedSundays } from "./salaryRates";
+import { getSundayDatesInMonth } from "./date";
 
 describe("computeDayPayFraction", () => {
   it("uses hoursWorked / fullDay when set", () => {
@@ -35,7 +34,7 @@ describe("computeDayPayFraction", () => {
 });
 
 describe("computeAttendanceStats", () => {
-  it("counts present, absent, and production-inferred present", () => {
+  it("counts present and absent only — production does not infer attendance", () => {
     const stats = computeAttendanceStats({
       year: 2026,
       month: 3,
@@ -44,29 +43,57 @@ describe("computeAttendanceStats", () => {
         { date: "2026-04-01", status: "present" },
         { date: "2026-04-02", status: "absent" },
       ],
-      productionDates: new Set(["2026-04-03"]),
       hoursPerDay: 8,
     });
-    expect(stats.presentDays).toBeCloseTo(2, 5);
-    // All other month working days have no attendance and no production → absent
-    expect(stats.absentDays).toBe(24);
-    expect(stats.totalHoursWorked).toBe(8 + 8);
+    expect(stats.presentDays).toBeCloseTo(1, 5);
+    expect(stats.absentDays).toBe(25);
+    expect(stats.restSundaysInMonth).toBe(4);
+    expect(stats.sundayPresentBonusDays).toBe(0);
+    expect(stats.totalPaidDays).toBeCloseTo(5, 5);
+    expect(stats.totalHoursWorked).toBe(8);
   });
 
-  it("adds holiday present to earned-Sunday counter only", () => {
-    const working = getWorkingDayDates(2026, 3, ["2026-04-07"]);
-    const stats = computeAttendanceStats({
+  it("full working month present yields full calendar paid days plus Sunday bonus when marked", () => {
+    // March 2026: 31 days, 5 Sundays
+    const nonSunDates: string[] = [];
+    for (let d = 1; d <= 31; d++) {
+      const dt = new Date(2026, 2, d);
+      if (dt.getDay() === 0) continue;
+      nonSunDates.push(
+        `2026-03-${String(d).padStart(2, "0")}`,
+      );
+    }
+    const statsNoSunMark = computeAttendanceStats({
       year: 2026,
-      month: 3,
-      holidayDates: ["2026-04-07"],
-      attendance: [
-        { date: "2026-04-07", status: "present" },
-        ...working.map((date) => ({ date, status: "present" as const })),
-      ],
-      productionDates: new Set<string>(),
+      month: 2,
+      holidayDates: [],
+      attendance: nonSunDates.map((date) => ({
+        date,
+        status: "present" as const,
+      })),
       hoursPerDay: 8,
     });
-    expect(stats.earnedSundays).toBe(getEarnedSundays(working.length + 1));
+    expect(statsNoSunMark.presentDays).toBe(26);
+    expect(statsNoSunMark.restSundaysInMonth).toBe(5);
+    expect(statsNoSunMark.sundayPresentBonusDays).toBe(0);
+    expect(statsNoSunMark.totalPaidDays).toBe(31);
+
+    const sunDates = getSundayDatesInMonth(2026, 2);
+    const statsAllSun = computeAttendanceStats({
+      year: 2026,
+      month: 2,
+      holidayDates: [],
+      attendance: [
+        ...nonSunDates.map((date) => ({
+          date,
+          status: "present" as const,
+        })),
+        ...sunDates.map((date) => ({ date, status: "present" as const })),
+      ],
+      hoursPerDay: 8,
+    });
+    expect(statsAllSun.sundayPresentBonusDays).toBe(5);
+    expect(statsAllSun.totalPaidDays).toBe(36);
   });
 });
 
@@ -93,18 +120,17 @@ describe("computeAttendanceStatsForRange", () => {
       month: 3,
       holidayDates: [],
       attendance: [{ date: "2026-04-01", status: "present" }],
-      productionDates: new Set<string>(),
     });
     const range = computeAttendanceStatsForRange({
       fromDate: "2026-04-01",
       toDate: "2026-04-30",
       holidayDates: [],
       attendance: [{ date: "2026-04-01", status: "present" }],
-      productionDates: new Set<string>(),
     });
     expect(range.presentDays).toBe(month.presentDays);
     expect(range.absentDays).toBe(month.absentDays);
-    expect(range.earnedSundays).toBe(month.earnedSundays);
+    expect(range.restSundaysInMonth).toBe(month.restSundaysInMonth);
+    expect(range.sundayPresentBonusDays).toBe(month.sundayPresentBonusDays);
     expect(range.totalPaidDays).toBe(month.totalPaidDays);
     expect(range.totalHoursWorked).toBe(month.totalHoursWorked);
   });
@@ -127,14 +153,13 @@ describe("sumHoursAdjustmentsInRange", () => {
 });
 
 describe("buildMonthSalaryBreakdown", () => {
-  it("totals base + Sunday bonus and respects includeProductionPay", () => {
+  it("totals attendance pay including paid Sundays and respects includeProductionPay", () => {
     const ratePerDay = 1000;
     const withProd = buildMonthSalaryBreakdown({
       year: 2026,
       month: 3,
       holidayDates: [],
       attendance: [{ date: "2026-04-01", status: "present" }],
-      productionDates: new Set<string>(),
       productionPayByDate: new Map([["2026-04-01", 50]]),
       hoursPerDay: 8,
       ratePerDay,
@@ -149,7 +174,6 @@ describe("buildMonthSalaryBreakdown", () => {
       month: 3,
       holidayDates: [],
       attendance: [{ date: "2026-04-01", status: "present" }],
-      productionDates: new Set<string>(),
       productionPayByDate: new Map([["2026-04-01", 50]]),
       hoursPerDay: 8,
       ratePerDay,
@@ -157,5 +181,8 @@ describe("buildMonthSalaryBreakdown", () => {
     });
     const row1b = noProd.days.find((d) => d.date === "2026-04-01");
     expect(row1b?.productionPay).toBe(0);
+    // April 2026: one working present + four paid rest Sundays
+    expect(noProd.restSundaysInMonth).toBe(4);
+    expect(noProd.totalBaseSalary).toBe(5000);
   });
 });

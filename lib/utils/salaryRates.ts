@@ -26,29 +26,22 @@ export function getWorkingDaysInMonth(
   return count;
 }
 
+/** Daily rate: monthly salary divided by calendar days in that month (not only working days). */
 export function getRatePerDay(
   monthlySalary: number,
-  workingDays: number
+  calendarDaysInMonth: number
 ): number {
-  if (workingDays <= 0) return 0;
-  return monthlySalary / workingDays;
+  if (calendarDaysInMonth <= 0) return 0;
+  return monthlySalary / calendarDaysInMonth;
 }
 
 export function getRatePerHour(
   monthlySalary: number,
-  workingDays: number,
+  calendarDaysInMonth: number,
   hoursPerDay: number
 ): number {
-  if (workingDays <= 0 || hoursPerDay <= 0) return 0;
-  return monthlySalary / (workingDays * hoursPerDay);
+  if (calendarDaysInMonth <= 0 || hoursPerDay <= 0) return 0;
+  return monthlySalary / (calendarDaysInMonth * hoursPerDay);
 }
 
-/**
- * Earned Sundays based on attendance count.
- * Thresholds: 10 days → 1 Sunday, 12 → 2, 18 → 3, 24 → 4, 30 → 5, 36 → 6, etc.
- */
-const SUNDAY_THRESHOLDS = [10, 12, 18, 24, 30, 36, 42, 48];
-
-export function getEarnedSundays(daysCountForSunday: number): number {
-  return SUNDAY_THRESHOLDS.filter((t) => daysCountForSunday >= t).length;
-}
+export { getCalendarDaysInMonth } from "./date";

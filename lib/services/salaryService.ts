@@ -9,7 +9,7 @@ import { getShifts } from "./shiftService";
 import { getPeriodForDate, getMonthRange, formatMonthYear } from "@/lib/utils/date";
 import { currency, dateDisplay, number } from "@/lib/utils/formatter";
 import {
-  getWorkingDaysInMonth,
+  getCalendarDaysInMonth,
   getRatePerDay,
   getRatePerHour,
 } from "@/lib/utils/salaryRates";
@@ -161,10 +161,9 @@ export async function getPrintableMonthlyAttendanceSheetHtml(
   month: number
 ): Promise<{ html: string; employeeName: string }> {
   const { from, to } = getMonthRange(year, month);
-  const [employee, holidays, prods, att, shifts] = await Promise.all([
+  const [employee, holidays, att, shifts] = await Promise.all([
     getEmployee(employeeId),
     getHolidaysInRange(from, to),
-    getProductionsByEmployee(employeeId, from, to),
     getAttendanceByEmployeeInRange(employeeId, from, to),
     getShifts(),
   ]);
@@ -181,16 +180,18 @@ export async function getPrintableMonthlyAttendanceSheetHtml(
 
   const monthlySalary = (employee.monthlySalary as number) ?? 0;
   const holidayDates = holidays.map((h) => h.date as string);
-  const workingDays = getWorkingDaysInMonth(year, month, holidayDates);
+  const calendarDaysInMonth = getCalendarDaysInMonth(year, month);
   const shiftMap = Object.fromEntries(
     shifts.map((s) => [s.id as string, (s.hoursPerDay as number) ?? 8])
   );
   const shiftId = employee.shiftId as string | undefined;
   const hoursPerDay = shiftId ? (shiftMap[shiftId] ?? 8) : 8;
-  const ratePerDay = getRatePerDay(monthlySalary, workingDays);
-  const ratePerHour = getRatePerHour(monthlySalary, workingDays, hoursPerDay);
-
-  const productionDates = new Set(prods.map((p) => p.date as string));
+  const ratePerDay = getRatePerDay(monthlySalary, calendarDaysInMonth);
+  const ratePerHour = getRatePerHour(
+    monthlySalary,
+    calendarDaysInMonth,
+    hoursPerDay
+  );
 
   const breakdown = buildMonthSalaryBreakdown({
     year,
@@ -203,7 +204,6 @@ export async function getPrintableMonthlyAttendanceSheetHtml(
       hoursReduced: a.hoursReduced as number | undefined,
       hoursExtra: a.hoursExtra as number | undefined,
     })),
-    productionDates,
     productionPayByDate: new Map(),
     hoursPerDay,
     ratePerDay,
@@ -229,10 +229,10 @@ export async function getPrintableMonthlyAttendanceSheetHtml(
     .join("");
 
   const summary = `<div class="border" style="padding:10px;margin-bottom:12px;border-color:#e4e4e7">
-    <p style="margin:0 0 4px"><strong>Monthly salary:</strong> ${currency(monthlySalary)} · <strong>Rate / day:</strong> ${currency(ratePerDay)} · <strong>Rate / hour:</strong> ${currency(ratePerHour)} · <strong>${number(hoursPerDay)}h</strong> shift · <strong>${number(workingDays)}</strong> working days</p>
-    <p style="margin:0 0 4px"><strong>Paid working days (fraction):</strong> ${number(breakdown.paidWorkingDays)} · <strong>Absent:</strong> ${number(breakdown.absentDays)} · <strong>Earned Sundays:</strong> ${number(breakdown.earnedSundays)} · <strong>Total paid days:</strong> ${number(breakdown.totalPaidDays)}</p>
+    <p style="margin:0 0 4px"><strong>Monthly salary:</strong> ${currency(monthlySalary)} · <strong>Rate / day:</strong> ${currency(ratePerDay)} · <strong>Rate / hour:</strong> ${currency(ratePerHour)} · <strong>${number(hoursPerDay)}h</strong> shift · <strong>${number(calendarDaysInMonth)}</strong> calendar days in month</p>
+    <p style="margin:0 0 4px"><strong>Paid working days (fraction):</strong> ${number(breakdown.paidWorkingDays)} · <strong>Absent:</strong> ${number(breakdown.absentDays)} · <strong>Paid rest Sundays:</strong> ${number(breakdown.restSundaysInMonth)} · <strong>Sunday present (extra pay):</strong> ${number(breakdown.sundayPresentBonusDays)} · <strong>Total paid days:</strong> ${number(breakdown.totalPaidDays)}</p>
     <p style="margin:0 0 4px"><strong>Extra hours (sum):</strong> ${number(breakdown.sumHoursExtra)} · <strong>Hours reduced (sum):</strong> ${number(breakdown.sumHoursReduced)}</p>
-    <p style="margin:0"><strong>Total (attendance):</strong> ${currency(breakdown.totalBaseSalary)}${breakdown.sundayBonusPay > 0 ? ` (incl. Sunday bonus ${currency(breakdown.sundayBonusPay)})` : ""}</p>
+    <p style="margin:0"><strong>Total (attendance):</strong> ${currency(breakdown.totalBaseSalary)}${breakdown.sundayBonusPay > 0 ? ` (incl. Sunday extra ${currency(breakdown.sundayBonusPay)})` : ""}</p>
   </div>`;
 
   const html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Monthly attendance — ${name}</title><style>${printStyles}</style></head><body id="printArea"><div style="margin:0 auto"><div style="display:flex;justify-content:space-between;margin-bottom:12px"><div><h1 class="text-2xl">ProdTrack Lite</h1><p class="text-sm text-gray-600">Monthly attendance &amp; salary</p></div><div class="text-sm text-right"><p><strong>Employee:</strong> ${name}</p><p><strong>Month:</strong> ${monthTitle}</p></div></div>${summary}<table class="table"><thead><tr><th class="border">Date</th><th class="border">Day</th><th class="border">Status</th><th class="border text-right">Hrs worked</th><th class="border text-right">Extra hrs</th><th class="border text-right">Less hrs</th><th class="border text-right">Equiv. hrs</th><th class="border text-right">Paid day %</th><th class="border text-right">Day pay</th></tr></thead><tbody>${dayRows}</tbody></table></div></body></html>`;

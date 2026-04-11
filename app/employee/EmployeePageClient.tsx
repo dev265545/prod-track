@@ -61,6 +61,7 @@ import {
 } from "@/lib/services/attendanceService";
 import {
   getWorkingDaysInMonth,
+  getCalendarDaysInMonth,
   getRatePerDay,
   getRatePerHour,
 } from "@/lib/utils/salaryRates";
@@ -72,7 +73,6 @@ import {
   getPeriodForDate,
   getPeriodsWithData,
   today,
-  isSunday,
   isRestrictedForEntry,
   formatMonthYear,
   toISODate,
@@ -388,14 +388,19 @@ export function EmployeePageClient() {
   ) as Record<string, Record<string, unknown>>;
 
   const workingDays = getWorkingDaysInMonth(calYear, calMonth, factoryHolidays);
+  const calendarDaysInMonth = getCalendarDaysInMonth(calYear, calMonth);
   const monthlySalary = (employee.monthlySalary as number) ?? 0;
   const shiftId = employee.shiftId as string | undefined;
   const selectedShift = shiftId ? shiftMap[shiftId] : null;
   const hoursPerDay = selectedShift
     ? ((selectedShift.hoursPerDay as number) ?? 8)
     : 8;
-  const ratePerDay = getRatePerDay(monthlySalary, workingDays);
-  const ratePerHour = getRatePerHour(monthlySalary, workingDays, hoursPerDay);
+  const ratePerDay = getRatePerDay(monthlySalary, calendarDaysInMonth);
+  const ratePerHour = getRatePerHour(
+    monthlySalary,
+    calendarDaysInMonth,
+    hoursPerDay,
+  );
 
   // Production for selected day and full month
   const dayProductions = selectedDate
@@ -420,10 +425,7 @@ export function EmployeePageClient() {
     return sum + ((p.quantity as number) || 0) * rate;
   }, 0);
 
-  // Monthly attendance summary (no entry = absent; holiday present = Sunday count only)
-  const productionDates = new Set(
-    calendarProductions.map((p) => p.date as string),
-  );
+  // Monthly attendance summary (no entry = absent on working days; Sundays paid per calendar rules)
   const attendanceStats = computeAttendanceStats({
     year: calYear,
     month: calMonth,
@@ -435,13 +437,13 @@ export function EmployeePageClient() {
       hoursReduced: a.hoursReduced as number | undefined,
       hoursExtra: a.hoursExtra as number | undefined,
     })),
-    productionDates,
     hoursPerDay,
   });
   const {
     presentDays: daysPresent,
     absentDays: daysAbsent,
-    earnedSundays,
+    restSundaysInMonth,
+    sundayPresentBonusDays,
     totalPaidDays,
     totalHoursWorked: monthHours,
   } = attendanceStats;
@@ -521,7 +523,7 @@ export function EmployeePageClient() {
                     Missing data
                   </p>
                   <p className="text-sm text-muted-foreground">
-                    {missingDataDays.length} working day{missingDataDays.length !== 1 ? "s" : ""} without production or attendance:
+                    {missingDataDays.length} working day{missingDataDays.length !== 1 ? "s" : ""} without attendance:
                   </p>
                   <ul className="text-sm max-h-40 overflow-y-auto space-y-1">
                     {missingDataDays
@@ -619,7 +621,8 @@ export function EmployeePageClient() {
                 {currency(ratePerDay)}
               </p>
               <p className="text-xs text-muted-foreground mt-1">
-                {workingDays} working days in {MONTH_NAMES[calMonth]}
+                {calendarDaysInMonth} calendar days (rate) · {workingDays}{" "}
+                working days in {MONTH_NAMES[calMonth]}
               </p>
             </CardContent>
           </Card>
@@ -664,7 +667,6 @@ export function EmployeePageClient() {
                 setTo(p.to);
               }}
               onDateDoubleClick={async (date) => {
-                if (isSunday(date)) return;
                 const existing = calendarAttendance.find(
                   (a) => (a.date as string) === date,
                 );
@@ -722,10 +724,10 @@ export function EmployeePageClient() {
                   </div>
                   <div className="rounded-lg border bg-muted/40 px-2 py-1.5 text-xs">
                     <p className="text-muted-foreground text-[10px] font-medium">
-                      Sundays
+                      Sun. rest / Sun. +
                     </p>
                     <p className="font-bold tabular-nums text-foreground text-sm">
-                      {earnedSundays}
+                      {restSundaysInMonth} / {sundayPresentBonusDays}
                     </p>
                   </div>
                   <div className="rounded-lg border bg-muted/40 px-2 py-1.5 text-xs">
@@ -842,10 +844,6 @@ export function EmployeePageClient() {
                 {!selectedDate ? (
                   <p className="text-sm text-muted-foreground">
                     Click a date on the calendar to mark attendance.
-                  </p>
-                ) : isSunday(selectedDate) ? (
-                  <p className="text-sm text-muted-foreground">
-                    Cannot mark on Sundays.
                   </p>
                 ) : (
                   <div className="space-y-3">
@@ -1493,7 +1491,7 @@ export function EmployeePageClient() {
                 const holidayDates = holiday ? [prodDate] : [];
                 if (isRestrictedForEntry(prodDate, holidayDates)) {
                   toast.error(
-                    "Cannot add production on Sundays or factory holidays.",
+                    "Cannot add production on factory holidays.",
                   );
                   return;
                 }

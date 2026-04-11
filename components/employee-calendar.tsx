@@ -175,7 +175,7 @@ export function EmployeeCalendar({
                 inPeriod && !isSelected && "bg-chart-1/20",
                 !inPeriod && !isSelected && "hover:bg-muted",
                 isToday && "font-bold",
-                isSunday && !isSelected && "text-destructive/70",
+                isSunday && !isSelected && "text-muted-foreground",
                 isDayOff && !isSelected && "bg-destructive/10",
               )}
               onClick={() => onDateClick(dateStr)}

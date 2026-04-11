@@ -5,6 +5,10 @@ import {
   getWorkingDaysInRange,
   getWorkingDayDates,
   isSunday,
+  isRestrictedForEntry,
+  getCalendarDaysInMonth,
+  getSundayDatesInMonth,
+  countSundaysInRange,
 } from "./date";
 
 describe("getMonthRange", () => {
@@ -50,5 +54,27 @@ describe("getWorkingDayDates", () => {
     const days = getWorkingDayDates(2026, 3, []);
     expect(days).toHaveLength(26);
     expect(days.every((d) => !isSunday(d))).toBe(true);
+  });
+});
+
+describe("isRestrictedForEntry", () => {
+  it("blocks factory holidays only, not Sundays", () => {
+    expect(isSunday("2026-04-05")).toBe(true);
+    expect(isRestrictedForEntry("2026-04-05", [])).toBe(false);
+    expect(isRestrictedForEntry("2026-04-06", [])).toBe(false);
+    expect(isRestrictedForEntry("2026-04-08", ["2026-04-08"])).toBe(true);
+  });
+});
+
+describe("Sunday helpers", () => {
+  it("counts calendar days and lists Sunday ISO dates", () => {
+    expect(getCalendarDaysInMonth(2026, 3)).toBe(30);
+    const sun = getSundayDatesInMonth(2026, 3);
+    expect(sun).toHaveLength(4);
+    expect(sun.every((d) => isSunday(d))).toBe(true);
+  });
+
+  it("countSundaysInRange matches list", () => {
+    expect(countSundaysInRange("2026-04-01", "2026-04-30")).toBe(4);
   });
 });

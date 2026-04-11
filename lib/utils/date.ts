@@ -120,13 +120,33 @@ export function isSunday(dateStr: string): boolean {
   return d.getDay() === 0;
 }
 
-/** Returns true if entries (production, attendance) are not allowed on this date (Sunday or factory holiday) */
+/** Returns true if entries (production, attendance) are not allowed on this date (factory holiday only; Sundays are allowed). */
 export function isRestrictedForEntry(
   dateStr: string,
   factoryHolidayDates: string[] = []
 ): boolean {
-  if (isSunday(dateStr)) return true;
   return factoryHolidayDates.includes(dateStr);
+}
+
+/** Number of calendar days in a month (1-based month index as in Date: 0 = January). */
+export function getCalendarDaysInMonth(year: number, month: number): number {
+  return new Date(year, month + 1, 0).getDate();
+}
+
+/** ISO dates (yyyy-mm-dd) that fall on Sunday in the given month. */
+export function getSundayDatesInMonth(year: number, month: number): string[] {
+  const last = getCalendarDaysInMonth(year, month);
+  const dates: string[] = [];
+  for (let d = 1; d <= last; d++) {
+    if (new Date(year, month, d).getDay() !== 0) continue;
+    dates.push(`${year}-${pad(month + 1)}-${pad(d)}`);
+  }
+  return dates;
+}
+
+/** Count Sundays in an inclusive ISO date range. */
+export function countSundaysInRange(fromDate: string, toDate: string): number {
+  return getDatesInRange(fromDate, toDate).filter((d) => isSunday(d)).length;
 }
 
 /** Get first and last day of month as ISO strings */

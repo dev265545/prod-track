@@ -1,12 +1,12 @@
 /**
  * ProdTrack Lite - Missing data warnings
- * Identifies working days without production or attendance data.
+ * Identifies working days without attendance (present/absent) recorded.
+ * Production is separate and does not clear these warnings.
  * Excludes: Sundays, factory holidays, days marked absent.
  * Respects employee start date (createdAt) - no warnings for days before start.
  */
 
 import { isSunday, yesterday } from "./date";
-import { getProductionsByEmployee } from "@/lib/services/productionService";
 import { getAttendanceByEmployeeInRange } from "@/lib/services/attendanceService";
 
 function pad(n: number): string {
@@ -37,7 +37,7 @@ export interface MissingDay {
 
 /**
  * Returns past dates within the given period that are working days but have
- * no production and no attendance (present/absent) recorded.
+ * no attendance (present/absent) recorded.
  * Only checks up to yesterday - today is not flagged (you see that warning tomorrow).
  * Excludes: Sundays, factory holidays, days marked absent.
  * Respects employee start date - no warnings for dates before employeeStartDate.
@@ -54,12 +54,12 @@ export async function getMissingDataDays(
   if (rangeStart > rangeEnd) return [];
 
   const holidaySet = new Set(factoryHolidays);
-  const [productions, attendance] = await Promise.all([
-    getProductionsByEmployee(employeeId, periodFrom, periodTo),
-    getAttendanceByEmployeeInRange(employeeId, periodFrom, periodTo),
-  ]);
+  const attendance = await getAttendanceByEmployeeInRange(
+    employeeId,
+    periodFrom,
+    periodTo,
+  );
 
-  const productionDates = new Set(productions.map((p) => p.date as string));
   const attendanceMap = new Map(
     attendance.map((a) => [a.date as string, a.status as string])
   );
@@ -71,7 +71,6 @@ export async function getMissingDataDays(
     if (isSunday(date)) continue;
     if (holidaySet.has(date)) continue;
     if (attendanceMap.get(date) === "absent") continue;
-    if (productionDates.has(date)) continue;
     if (attendanceMap.get(date) === "present") continue;
     missing.push({ date });
   }
