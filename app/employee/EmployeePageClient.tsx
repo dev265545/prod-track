@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams, useRouter } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
@@ -209,6 +209,8 @@ export function EmployeePageClient() {
   const now = new Date();
   const [calYear, setCalYear] = useState(now.getFullYear());
   const [calMonth, setCalMonth] = useState(now.getMonth());
+  /** Ignores stale results when the calendar month changes before fetch completes. */
+  const calendarLoadGen = useRef(0);
   const [selectedDate, setSelectedDate] = useState<string | null>(today());
   const [hoursReducedInput, setHoursReducedInput] = useState("");
   const [hoursExtraInput, setHoursExtraInput] = useState("");
@@ -290,6 +292,7 @@ export function EmployeePageClient() {
 
   const loadCalendarMonth = useCallback(async () => {
     if (!id) return;
+    const gen = ++calendarLoadGen.current;
     const padM = String(calMonth + 1).padStart(2, "0");
     const monthStart = `${calYear}-${padM}-01`;
     const lastDay = new Date(calYear, calMonth + 1, 0).getDate();
@@ -299,13 +302,16 @@ export function EmployeePageClient() {
       getProductionsByEmployee(id, monthStart, monthEnd),
       getAttendanceByEmployeeInRange(id, monthStart, monthEnd),
     ]);
+    if (gen !== calendarLoadGen.current) return;
     setFactoryHolidays(holidays.map((h) => h.date as string));
     setCalendarProductions(prods);
     setCalendarAttendance(att);
   }, [id, calYear, calMonth]);
 
   useEffect(() => {
-    loadCalendarMonth();
+    setCalendarAttendance([]);
+    setCalendarProductions([]);
+    void loadCalendarMonth();
   }, [loadCalendarMonth]);
 
   const refreshMissingData = () => {
@@ -447,7 +453,12 @@ export function EmployeePageClient() {
     totalPaidDays,
     totalHoursWorked: monthHours,
   } = attendanceStats;
-  const calculatedSalary = totalPaidDays * ratePerDay;
+  /** Until at least one day is marked present (weekday or Sunday), show 0 so a new month does not display paid-rest-Sunday rupees alone. */
+  const hasMarkedAttendanceInMonth =
+    daysPresent > 0 || sundayPresentBonusDays > 0;
+  const cardTotalPaidDays = hasMarkedAttendanceInMonth ? totalPaidDays : 0;
+  const cardSalary =
+    Math.round(cardTotalPaidDays * ratePerDay * 100) / 100;
 
   const monthSheetOptions = monthPickerOptions(36);
 
@@ -735,7 +746,7 @@ export function EmployeePageClient() {
                       Paid days
                     </p>
                     <p className="font-bold tabular-nums text-foreground text-sm">
-                      {totalPaidDays}
+                      {cardTotalPaidDays}
                     </p>
                   </div>
                   <div className="col-span-2 rounded-lg border-2 border-primary/30 bg-primary/10 px-2 py-2">
@@ -743,7 +754,7 @@ export function EmployeePageClient() {
                       Salary
                     </p>
                     <p className="text-base font-bold tabular-nums text-foreground">
-                      {currency(calculatedSalary)}
+                      {currency(cardSalary)}
                     </p>
                   </div>
                 </div>
