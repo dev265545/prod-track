@@ -2,8 +2,9 @@
  * Attendance stats calculation shared between employee page and salary sheet.
  * Logic: no entry = absent on working days. Production is tracked separately and does
  * not affect attendance salary.
- * Daily rate uses full calendar days in the month. Each Sunday is paid as a rest day;
- * marking present on a Sunday adds one extra daily rate.
+ * Daily rate = monthly salary ÷ calendar days in the month.
+ * Earned “Sunday pay” units: floor(present working-day equivalents ÷ 5) — not automatic
+ * for every calendar Sunday. Each Sunday explicitly marked present adds one extra daily rate.
  * Hours: hoursReduced (-) and hoursExtra (+) adjust salary via rate per hour.
  */
 import {
@@ -11,8 +12,13 @@ import {
   getDatesInRange,
   isSunday,
   getSundayDatesInMonth,
-  countSundaysInRange,
 } from "./date";
+
+/** One paid Sunday unit per 5 present working-day equivalents (fractional days count toward the total before flooring). */
+export function getEarnedSundayPayUnits(paidWorkingDays: number): number {
+  if (paidWorkingDays <= 0) return 0;
+  return Math.floor(paidWorkingDays / 5);
+}
 
 export interface AttendanceRecord {
   date: string;
@@ -33,9 +39,9 @@ export interface AttendanceStatsInput {
 export interface AttendanceStats {
   presentDays: number;
   absentDays: number;
-  /** Sundays in the month — each counts as one paid rest day at the daily rate */
-  restSundaysInMonth: number;
-  /** Sundays marked present — each adds an extra daily rate */
+  /** Paid Sunday units from the 5 working-days → 1 Sunday pay rule */
+  earnedSundayPayDays: number;
+  /** Sundays marked present — each adds an extra daily rate on top of earned units */
   sundayPresentBonusDays: number;
   totalPaidDays: number;
   totalHoursWorked: number;
@@ -96,7 +102,6 @@ export function computeAttendanceStats(input: AttendanceStatsInput): AttendanceS
     }
   }
 
-  const restSundaysInMonth = getSundayDatesInMonth(year, month).length;
   let sundayPresentBonusDays = 0;
   for (const dateStr of getSundayDatesInMonth(year, month)) {
     const att = attByDate.get(dateStr);
@@ -104,13 +109,14 @@ export function computeAttendanceStats(input: AttendanceStatsInput): AttendanceS
   }
 
   const paidRounded = Math.round(paidWorkingDays * 100) / 100;
+  const earnedSundayPayDays = getEarnedSundayPayUnits(paidWorkingDays);
   const totalPaidDays =
-    paidRounded + restSundaysInMonth + sundayPresentBonusDays;
+    paidRounded + earnedSundayPayDays + sundayPresentBonusDays;
 
   return {
     presentDays: paidRounded,
     absentDays: absentCount,
-    restSundaysInMonth,
+    earnedSundayPayDays,
     sundayPresentBonusDays,
     totalPaidDays,
     totalHoursWorked,
@@ -154,11 +160,12 @@ export interface MonthSalaryBreakdown {
   days: MonthSalaryDayRow[];
   paidWorkingDays: number;
   absentDays: number;
-  restSundaysInMonth: number;
+  earnedSundayPayDays: number;
+  earnedSundayPoolPay: number;
   sundayPresentBonusDays: number;
   totalPaidDays: number;
   totalBaseSalary: number;
-  sundayBonusPay: number;
+  sundayMarkBonusPay: number;
   sumHoursExtra: number;
   sumHoursReduced: number;
 }
@@ -227,9 +234,9 @@ export function buildMonthSalaryBreakdown(input: {
       const att = attByDate.get(dateStr);
       const sundayPresent = att?.status === "present";
       if (sundayPresent) sundayPresentBonusDays += 1;
-      const restPay = Math.round(ratePerDay * 100) / 100;
-      const bonusPay = sundayPresent ? restPay : 0;
-      const basePay = Math.round((restPay + bonusPay) * 100) / 100;
+      const bonusPay = sundayPresent
+        ? Math.round(ratePerDay * 100) / 100
+        : 0;
       if (sundayPresent) {
         const ex = att.hoursExtra ?? 0;
         const red = att.hoursReduced ?? 0;
@@ -241,8 +248,8 @@ export function buildMonthSalaryBreakdown(input: {
         weekdayShort,
         rowKind: "sunday",
         statusLabel: sundayPresent
-          ? "Sunday (paid rest + marked present)"
-          : "Sunday (paid rest)",
+          ? "Sunday (marked present — bonus day)"
+          : "Sunday",
         hoursWorked:
           sundayPresent &&
           att.hoursWorked != null &&
@@ -261,8 +268,8 @@ export function buildMonthSalaryBreakdown(input: {
                 (att.hoursExtra ?? 0) -
                 (att.hoursReduced ?? 0)
             : null,
-        paidFraction: sundayPresent ? 2 : 1,
-        basePay,
+        paidFraction: sundayPresent ? 1 : 0,
+        basePay: bonusPay,
         productionPay: prodPay,
       });
       continue;
@@ -374,26 +381,31 @@ export function buildMonthSalaryBreakdown(input: {
     }
   }
 
-  const restSundaysInMonth = getSundayDatesInMonth(year, month).length;
-  const sundayBonusPay =
+  const paidRounded = Math.round(paidWorkingDays * 100) / 100;
+  const earnedSundayPayDays = getEarnedSundayPayUnits(paidWorkingDays);
+  const earnedSundayPoolPay =
+    Math.round(earnedSundayPayDays * ratePerDay * 100) / 100;
+  const sundayMarkBonusPay =
     Math.round(sundayPresentBonusDays * ratePerDay * 100) / 100;
-  const totalBaseSalary =
+  const rowPaySum =
     Math.round(
       days.reduce((s, r) => s + r.basePay, 0) * 100
     ) / 100;
-  const paidRounded = Math.round(paidWorkingDays * 100) / 100;
+  const totalBaseSalary =
+    Math.round((rowPaySum + earnedSundayPoolPay) * 100) / 100;
   const totalPaidDays =
-    paidRounded + restSundaysInMonth + sundayPresentBonusDays;
+    paidRounded + earnedSundayPayDays + sundayPresentBonusDays;
 
   return {
     days,
     paidWorkingDays: paidRounded,
     absentDays: absentCount,
-    restSundaysInMonth,
+    earnedSundayPayDays,
+    earnedSundayPoolPay,
     sundayPresentBonusDays,
     totalPaidDays,
     totalBaseSalary,
-    sundayBonusPay,
+    sundayMarkBonusPay,
     sumHoursExtra,
     sumHoursReduced,
   };
@@ -451,7 +463,6 @@ export function computeAttendanceStatsForRange(input: {
     }
   }
 
-  const restSundaysInRange = countSundaysInRange(fromDate, toDate);
   let sundayPresentBonusDays = 0;
   for (const dateStr of rangeDates) {
     if (!isSunday(dateStr)) continue;
@@ -460,13 +471,14 @@ export function computeAttendanceStatsForRange(input: {
   }
 
   const paidRounded = Math.round(paidWorkingDays * 100) / 100;
+  const earnedSundayPayDays = getEarnedSundayPayUnits(paidWorkingDays);
   const totalPaidDays =
-    paidRounded + restSundaysInRange + sundayPresentBonusDays;
+    paidRounded + earnedSundayPayDays + sundayPresentBonusDays;
 
   return {
     presentDays: paidRounded,
     absentDays: absentCount,
-    restSundaysInMonth: restSundaysInRange,
+    earnedSundayPayDays,
     sundayPresentBonusDays,
     totalPaidDays,
     totalHoursWorked,

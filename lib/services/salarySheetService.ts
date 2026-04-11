@@ -13,14 +13,19 @@ import {
   getDatesInRange,
   getSundayDatesInMonth,
 } from "@/lib/utils/date";
-import { computeDayPayFraction } from "@/lib/utils/attendanceStats";
+import {
+  computeDayPayFraction,
+  getEarnedSundayPayUnits,
+} from "@/lib/utils/attendanceStats";
 
 export interface SalarySheetRow {
   id: string;
   name: string;
   presentDays: number;
   absentDays: number;
-  /** Sundays marked present — extra pay on top of paid rest Sundays */
+  /** floor(present working days ÷ 5) — Sunday pay units from attendance */
+  earnedSundayPayDays: number;
+  /** Sundays marked present — one extra daily rate each */
   sundayPresentBonusDays: number;
   totalPaidDays: number;
   monthlySalary: number;
@@ -40,7 +45,6 @@ export async function getSalarySheetForMonth(
   to: string;
   holidayDates: string[];
   calendarDaysInMonth: number;
-  restSundaysInMonth: number;
 }> {
   const { from, to } = getMonthRange(year, month);
   const [employees, attendance, holidays, shifts] = await Promise.all([
@@ -56,7 +60,6 @@ export async function getSalarySheetForMonth(
 
   const holidayDates = holidays.map((h) => h.date as string);
   const calendarDaysInMonth = getCalendarDaysInMonth(year, month);
-  const restSundaysInMonth = getSundayDatesInMonth(year, month).length;
   const workingDayDates = getWorkingDayDates(year, month, holidayDates);
   const monthDateList = getDatesInRange(from, to);
   const holidayDatesInMonth = monthDateList.filter((d) =>
@@ -137,8 +140,9 @@ export async function getSalarySheetForMonth(
     }
 
     const paidRounded = Math.round(paidWorkingDays * 100) / 100;
+    const earnedSundayPayDays = getEarnedSundayPayUnits(paidWorkingDays);
     const totalPaidDays =
-      paidRounded + restSundaysInMonth + sundayPresentBonusDays;
+      paidRounded + earnedSundayPayDays + sundayPresentBonusDays;
     const calculatedSalary =
       Math.round(totalPaidDays * ratePerDay * 100) / 100;
 
@@ -147,6 +151,7 @@ export async function getSalarySheetForMonth(
       name: (emp.name as string) || "Unknown",
       presentDays: paidRounded,
       absentDays: absentCount,
+      earnedSundayPayDays,
       sundayPresentBonusDays,
       totalPaidDays,
       monthlySalary,
@@ -164,6 +169,5 @@ export async function getSalarySheetForMonth(
     to,
     holidayDates,
     calendarDaysInMonth,
-    restSundaysInMonth,
   };
 }

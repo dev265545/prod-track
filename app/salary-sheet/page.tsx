@@ -76,7 +76,7 @@ function buildPrintableHtml(
   const printStyles =
     "body{margin:0;font-family:system-ui,sans-serif;font-size:12px;color:#0a0a0a;background:#fff;padding:16px}.mb-4{margin-bottom:12px}.mb-6{margin-bottom:20px}.text-2xl{font-size:1.5rem;font-weight:700}.text-sm{font-size:0.75rem}.text-gray-600{color:#52525b}.border{border:1px solid #e4e4e7}.w-full{width:100%}.table{width:100%;font-size:10px;border-collapse:collapse}.table th,.table td{padding:5px 6px;text-align:left;border:1px solid #e4e4e7}.table th{background:#f4f4f5;font-weight:600}.text-right{text-align:right}.no-print{display:none!important}";
 
-  const colCount = 11;
+  const colCount = 12;
   const rowsHtml =
     rows.length === 0
       ? `<tr><td colspan="${colCount}" class="border" style="padding:12px;color:#71717a;text-align:center">No employees for this month.</td></tr>`
@@ -87,6 +87,7 @@ function buildPrintableHtml(
                 <td class="border" style="padding:5px 6px">${r.name}</td>
                 <td class="border text-right" style="padding:5px 6px">${number(r.presentDays)}</td>
                 <td class="border text-right" style="padding:5px 6px">${number(r.absentDays)}</td>
+                <td class="border text-right" style="padding:5px 6px">${number(r.earnedSundayPayDays)}</td>
                 <td class="border text-right" style="padding:5px 6px">${number(r.sundayPresentBonusDays)}</td>
                 <td class="border text-right" style="padding:5px 6px">${number(r.totalPaidDays)}</td>
                 <td class="border text-right" style="padding:5px 6px">${currency(r.monthlySalary)}</td>
@@ -109,7 +110,7 @@ function buildPrintableHtml(
         </tr>`
       : "";
 
-  const head = `<tr class="border"><th class="border" style="padding:5px 6px">Employee</th><th class="border text-right" style="padding:5px 6px">Present</th><th class="border text-right" style="padding:5px 6px">Absent</th><th class="border text-right" style="padding:5px 6px">Sun. +</th><th class="border text-right" style="padding:5px 6px">Paid days</th><th class="border text-right" style="padding:5px 6px">Mo. salary</th><th class="border text-right" style="padding:5px 6px">/ day</th><th class="border text-right" style="padding:5px 6px">/ hr</th><th class="border text-right" style="padding:5px 6px">+ hrs</th><th class="border text-right" style="padding:5px 6px">− hrs</th><th class="border text-right" style="padding:5px 6px">Salary</th></tr>`;
+  const head = `<tr class="border"><th class="border" style="padding:5px 6px">Employee</th><th class="border text-right" style="padding:5px 6px">Present</th><th class="border text-right" style="padding:5px 6px">Absent</th><th class="border text-right" style="padding:5px 6px">Earned (5d)</th><th class="border text-right" style="padding:5px 6px">Sun. +</th><th class="border text-right" style="padding:5px 6px">Paid days</th><th class="border text-right" style="padding:5px 6px">Mo. salary</th><th class="border text-right" style="padding:5px 6px">/ day</th><th class="border text-right" style="padding:5px 6px">/ hr</th><th class="border text-right" style="padding:5px 6px">+ hrs</th><th class="border text-right" style="padding:5px 6px">− hrs</th><th class="border text-right" style="padding:5px 6px">Salary</th></tr>`;
 
   return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Salary sheet – ${monthLabel}</title><style>${printStyles}</style></head><body id="printArea"><div style="max-width:100%;margin:0 auto"><div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px"><div><h1 class="text-2xl">ProdTrack Lite</h1><p class="text-sm text-gray-600">Salary sheet – ${monthLabel}</p></div><div class="text-sm text-right"><p><strong>Month:</strong> ${monthLabel}</p><p><strong>Period:</strong> ${from} – ${to}</p></div></div><table class="table w-full"><thead>${head}</thead><tbody>${rowsHtml}${totalRow}</tbody></table></div></body></html>`;
 }
@@ -266,6 +267,7 @@ export default function SalarySheetPage() {
                       <TableHead>Employee</TableHead>
                       <TableHead className="text-right tabular-nums">Present</TableHead>
                       <TableHead className="text-right tabular-nums">Absent</TableHead>
+                      <TableHead className="text-right tabular-nums whitespace-nowrap">Earned (5d)</TableHead>
                       <TableHead className="text-right tabular-nums">Sun. +</TableHead>
                       <TableHead className="text-right tabular-nums">Paid days</TableHead>
                       <TableHead className="text-right tabular-nums whitespace-nowrap">Monthly</TableHead>
@@ -297,6 +299,7 @@ export default function SalarySheetPage() {
                         <TableCell className="font-medium">{r.name}</TableCell>
                         <TableCell className="text-right tabular-nums">{number(r.presentDays)}</TableCell>
                         <TableCell className="text-right tabular-nums">{number(r.absentDays)}</TableCell>
+                        <TableCell className="text-right tabular-nums">{number(r.earnedSundayPayDays)}</TableCell>
                         <TableCell className="text-right tabular-nums">{number(r.sundayPresentBonusDays)}</TableCell>
                         <TableCell className="text-right tabular-nums">{number(r.totalPaidDays)}</TableCell>
                         <TableCell className="text-right tabular-nums text-muted-foreground">{currency(r.monthlySalary)}</TableCell>

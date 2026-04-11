@@ -431,7 +431,7 @@ export function EmployeePageClient() {
     return sum + ((p.quantity as number) || 0) * rate;
   }, 0);
 
-  // Monthly attendance summary (no entry = absent on working days; Sundays paid per calendar rules)
+  // Monthly attendance summary (5 working presents → 1 earned Sunday pay unit; Sunday present = +1 day rate)
   const attendanceStats = computeAttendanceStats({
     year: calYear,
     month: calMonth,
@@ -448,17 +448,13 @@ export function EmployeePageClient() {
   const {
     presentDays: daysPresent,
     absentDays: daysAbsent,
-    restSundaysInMonth,
+    earnedSundayPayDays,
     sundayPresentBonusDays,
     totalPaidDays,
     totalHoursWorked: monthHours,
   } = attendanceStats;
-  /** Until at least one day is marked present (weekday or Sunday), show 0 so a new month does not display paid-rest-Sunday rupees alone. */
-  const hasMarkedAttendanceInMonth =
-    daysPresent > 0 || sundayPresentBonusDays > 0;
-  const cardTotalPaidDays = hasMarkedAttendanceInMonth ? totalPaidDays : 0;
-  const cardSalary =
-    Math.round(cardTotalPaidDays * ratePerDay * 100) / 100;
+  const calculatedSalary =
+    Math.round(totalPaidDays * ratePerDay * 100) / 100;
 
   const monthSheetOptions = monthPickerOptions(36);
 
@@ -735,10 +731,10 @@ export function EmployeePageClient() {
                   </div>
                   <div className="rounded-lg border bg-muted/40 px-2 py-1.5 text-xs">
                     <p className="text-muted-foreground text-[10px] font-medium">
-                      Sun. rest / Sun. +
+                      Earned Sun. / Sun. +
                     </p>
                     <p className="font-bold tabular-nums text-foreground text-sm">
-                      {restSundaysInMonth} / {sundayPresentBonusDays}
+                      {earnedSundayPayDays} / {sundayPresentBonusDays}
                     </p>
                   </div>
                   <div className="rounded-lg border bg-muted/40 px-2 py-1.5 text-xs">
@@ -746,7 +742,7 @@ export function EmployeePageClient() {
                       Paid days
                     </p>
                     <p className="font-bold tabular-nums text-foreground text-sm">
-                      {cardTotalPaidDays}
+                      {totalPaidDays}
                     </p>
                   </div>
                   <div className="col-span-2 rounded-lg border-2 border-primary/30 bg-primary/10 px-2 py-2">
@@ -754,7 +750,7 @@ export function EmployeePageClient() {
                       Salary
                     </p>
                     <p className="text-base font-bold tabular-nums text-foreground">
-                      {currency(cardSalary)}
+                      {currency(calculatedSalary)}
                     </p>
                   </div>
                 </div>

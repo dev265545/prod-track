@@ -5,9 +5,20 @@ import {
   computeAttendanceStatsForRange,
   computeDayPayFraction,
   computeHoursInRange,
+  getEarnedSundayPayUnits,
   sumHoursAdjustmentsInRange,
 } from "./attendanceStats";
 import { getSundayDatesInMonth } from "./date";
+
+describe("getEarnedSundayPayUnits", () => {
+  it("floors present working days divided by 5", () => {
+    expect(getEarnedSundayPayUnits(0)).toBe(0);
+    expect(getEarnedSundayPayUnits(4.9)).toBe(0);
+    expect(getEarnedSundayPayUnits(5)).toBe(1);
+    expect(getEarnedSundayPayUnits(24)).toBe(4);
+    expect(getEarnedSundayPayUnits(25)).toBe(5);
+  });
+});
 
 describe("computeDayPayFraction", () => {
   it("uses hoursWorked / fullDay when set", () => {
@@ -34,7 +45,7 @@ describe("computeDayPayFraction", () => {
 });
 
 describe("computeAttendanceStats", () => {
-  it("counts present and absent only — production does not infer attendance", () => {
+  it("counts present and absent; no earned Sundays until 5 working presents", () => {
     const stats = computeAttendanceStats({
       year: 2026,
       month: 3,
@@ -47,23 +58,20 @@ describe("computeAttendanceStats", () => {
     });
     expect(stats.presentDays).toBeCloseTo(1, 5);
     expect(stats.absentDays).toBe(25);
-    expect(stats.restSundaysInMonth).toBe(4);
+    expect(stats.earnedSundayPayDays).toBe(0);
     expect(stats.sundayPresentBonusDays).toBe(0);
-    expect(stats.totalPaidDays).toBeCloseTo(5, 5);
+    expect(stats.totalPaidDays).toBeCloseTo(1, 5);
     expect(stats.totalHoursWorked).toBe(8);
   });
 
-  it("full working month present yields full calendar paid days plus Sunday bonus when marked", () => {
-    // March 2026: 31 days, 5 Sundays
+  it("25 working presents in a 31-day month: 5 earned Sunday units, full 31 paid days without Sunday marks", () => {
     const nonSunDates: string[] = [];
     for (let d = 1; d <= 31; d++) {
       const dt = new Date(2026, 2, d);
       if (dt.getDay() === 0) continue;
-      nonSunDates.push(
-        `2026-03-${String(d).padStart(2, "0")}`,
-      );
+      nonSunDates.push(`2026-03-${String(d).padStart(2, "0")}`);
     }
-    const statsNoSunMark = computeAttendanceStats({
+    const stats = computeAttendanceStats({
       year: 2026,
       month: 2,
       holidayDates: [],
@@ -73,13 +81,21 @@ describe("computeAttendanceStats", () => {
       })),
       hoursPerDay: 8,
     });
-    expect(statsNoSunMark.presentDays).toBe(26);
-    expect(statsNoSunMark.restSundaysInMonth).toBe(5);
-    expect(statsNoSunMark.sundayPresentBonusDays).toBe(0);
-    expect(statsNoSunMark.totalPaidDays).toBe(31);
+    expect(stats.presentDays).toBe(26);
+    expect(stats.earnedSundayPayDays).toBe(5);
+    expect(stats.sundayPresentBonusDays).toBe(0);
+    expect(stats.totalPaidDays).toBe(31);
+  });
 
+  it("26 working + 5 Sunday marks: 5 earned + 5 bonus = 36 paid days", () => {
+    const nonSunDates: string[] = [];
+    for (let d = 1; d <= 31; d++) {
+      const dt = new Date(2026, 2, d);
+      if (dt.getDay() === 0) continue;
+      nonSunDates.push(`2026-03-${String(d).padStart(2, "0")}`);
+    }
     const sunDates = getSundayDatesInMonth(2026, 2);
-    const statsAllSun = computeAttendanceStats({
+    const stats = computeAttendanceStats({
       year: 2026,
       month: 2,
       holidayDates: [],
@@ -92,8 +108,9 @@ describe("computeAttendanceStats", () => {
       ],
       hoursPerDay: 8,
     });
-    expect(statsAllSun.sundayPresentBonusDays).toBe(5);
-    expect(statsAllSun.totalPaidDays).toBe(36);
+    expect(stats.earnedSundayPayDays).toBe(5);
+    expect(stats.sundayPresentBonusDays).toBe(5);
+    expect(stats.totalPaidDays).toBe(36);
   });
 });
 
@@ -129,7 +146,7 @@ describe("computeAttendanceStatsForRange", () => {
     });
     expect(range.presentDays).toBe(month.presentDays);
     expect(range.absentDays).toBe(month.absentDays);
-    expect(range.restSundaysInMonth).toBe(month.restSundaysInMonth);
+    expect(range.earnedSundayPayDays).toBe(month.earnedSundayPayDays);
     expect(range.sundayPresentBonusDays).toBe(month.sundayPresentBonusDays);
     expect(range.totalPaidDays).toBe(month.totalPaidDays);
     expect(range.totalHoursWorked).toBe(month.totalHoursWorked);
@@ -153,7 +170,7 @@ describe("sumHoursAdjustmentsInRange", () => {
 });
 
 describe("buildMonthSalaryBreakdown", () => {
-  it("totals attendance pay including paid Sundays and respects includeProductionPay", () => {
+  it("totals working pay, earned Sunday pool, Sunday mark bonus; respects includeProductionPay", () => {
     const ratePerDay = 1000;
     const withProd = buildMonthSalaryBreakdown({
       year: 2026,
@@ -181,8 +198,8 @@ describe("buildMonthSalaryBreakdown", () => {
     });
     const row1b = noProd.days.find((d) => d.date === "2026-04-01");
     expect(row1b?.productionPay).toBe(0);
-    // April 2026: one working present + four paid rest Sundays
-    expect(noProd.restSundaysInMonth).toBe(4);
-    expect(noProd.totalBaseSalary).toBe(5000);
+    expect(noProd.earnedSundayPayDays).toBe(0);
+    expect(noProd.earnedSundayPoolPay).toBe(0);
+    expect(noProd.totalBaseSalary).toBe(1000);
   });
 });
