@@ -11,18 +11,20 @@ import {
 import { getSundayDatesInMonth } from "./date";
 
 describe("getEarnedSundayPayUnits", () => {
-  it("uses step table: 0 until 10, then 2 at 10+, +1 at 15, 25, 30, then +1 per 5", () => {
+  it("uses step table: 0 until 10, then +2 at 10; +1 at 15, 20, 25, 30; then +1 per 5", () => {
     expect(getEarnedSundayPayUnits(0)).toBe(0);
     expect(getEarnedSundayPayUnits(9.9)).toBe(0);
     expect(getEarnedSundayPayUnits(10)).toBe(2);
     expect(getEarnedSundayPayUnits(14)).toBe(2);
     expect(getEarnedSundayPayUnits(15)).toBe(3);
-    expect(getEarnedSundayPayUnits(24)).toBe(3);
-    expect(getEarnedSundayPayUnits(25)).toBe(4);
-    expect(getEarnedSundayPayUnits(29)).toBe(4);
-    expect(getEarnedSundayPayUnits(30)).toBe(5);
-    expect(getEarnedSundayPayUnits(34)).toBe(5);
-    expect(getEarnedSundayPayUnits(35)).toBe(6);
+    expect(getEarnedSundayPayUnits(19)).toBe(3);
+    expect(getEarnedSundayPayUnits(20)).toBe(4);
+    expect(getEarnedSundayPayUnits(24)).toBe(4);
+    expect(getEarnedSundayPayUnits(25)).toBe(5);
+    expect(getEarnedSundayPayUnits(29)).toBe(5);
+    expect(getEarnedSundayPayUnits(30)).toBe(6);
+    expect(getEarnedSundayPayUnits(34)).toBe(6);
+    expect(getEarnedSundayPayUnits(35)).toBe(7);
   });
 });
 
@@ -70,7 +72,7 @@ describe("computeAttendanceStats", () => {
     expect(stats.totalHoursWorked).toBe(8);
   });
 
-  it("26 working presents in March: 4 earned units (25–29 tier), 30 paid days without Sunday marks", () => {
+  it("26 working presents in March: 5 earned units (25–29 tier), 31 paid days without Sunday marks", () => {
     const nonSunDates: string[] = [];
     for (let d = 1; d <= 31; d++) {
       const dt = new Date(2026, 2, d);
@@ -88,12 +90,12 @@ describe("computeAttendanceStats", () => {
       hoursPerDay: 8,
     });
     expect(stats.presentDays).toBe(26);
-    expect(stats.earnedSundayPayDays).toBe(4);
+    expect(stats.earnedSundayPayDays).toBe(5);
     expect(stats.sundayPresentBonusDays).toBe(0);
-    expect(stats.totalPaidDays).toBe(30);
+    expect(stats.totalPaidDays).toBe(31);
   });
 
-  it("26 working + 5 Sunday marks: 4 earned + 5 bonus = 35 paid days", () => {
+  it("26 working + 5 Sunday marks: 5 earned + 5 bonus = 36 paid days", () => {
     const nonSunDates: string[] = [];
     for (let d = 1; d <= 31; d++) {
       const dt = new Date(2026, 2, d);
@@ -114,9 +116,9 @@ describe("computeAttendanceStats", () => {
       ],
       hoursPerDay: 8,
     });
-    expect(stats.earnedSundayPayDays).toBe(4);
+    expect(stats.earnedSundayPayDays).toBe(5);
     expect(stats.sundayPresentBonusDays).toBe(5);
-    expect(stats.totalPaidDays).toBe(35);
+    expect(stats.totalPaidDays).toBe(36);
   });
 });
 

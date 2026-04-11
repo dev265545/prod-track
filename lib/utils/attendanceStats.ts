@@ -16,16 +16,17 @@ import {
 
 /**
  * Earned Sunday pay units from working-day attendance (piecewise).
- * First grant at ≥10 presents: **2** units; then +1 at ≥15, +1 at ≥25, +1 at ≥30;
- * after 30: +1 per additional 5 full presents.
+ * 0 until 10 presents; then **+2** at 10; then +1 each at 15, 20, 25, 30;
+ * after 30: +1 per additional 5 full presents (cumulative 6 at 30, 7 at 35, …).
  */
 export function getEarnedSundayPayUnits(paidWorkingDays: number): number {
   const p = paidWorkingDays;
   if (p < 10) return 0;
   if (p < 15) return 2;
-  if (p < 25) return 3;
-  if (p < 30) return 4;
-  return 5 + Math.floor((p - 30) / 5);
+  if (p < 20) return 3;
+  if (p < 25) return 4;
+  if (p < 30) return 5;
+  return 6 + Math.floor((p - 30) / 5);
 }
 
 export interface AttendanceRecord {
