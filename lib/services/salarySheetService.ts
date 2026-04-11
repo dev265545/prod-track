@@ -23,7 +23,7 @@ export interface SalarySheetRow {
   name: string;
   presentDays: number;
   absentDays: number;
-  /** floor(present working days ÷ 5) — Sunday pay units from attendance */
+  /** Earned Sunday pay units (10/15/25/30-day step table on working presents) */
   earnedSundayPayDays: number;
   /** Sundays marked present — one extra daily rate each */
   sundayPresentBonusDays: number;

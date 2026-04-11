@@ -3,8 +3,8 @@
  * Logic: no entry = absent on working days. Production is tracked separately and does
  * not affect attendance salary.
  * Daily rate = monthly salary ÷ calendar days in the month.
- * Earned “Sunday pay” units: floor(present working-day equivalents ÷ 5) — not automatic
- * for every calendar Sunday. Each Sunday explicitly marked present adds one extra daily rate.
+ * Earned “Sunday pay” units follow a step table on present working-day equivalents (see
+ * `getEarnedSundayPayUnits`). Each Sunday explicitly marked present adds one extra daily rate.
  * Hours: hoursReduced (-) and hoursExtra (+) adjust salary via rate per hour.
  */
 import {
@@ -14,10 +14,18 @@ import {
   getSundayDatesInMonth,
 } from "./date";
 
-/** One paid Sunday unit per 5 present working-day equivalents (fractional days count toward the total before flooring). */
+/**
+ * Earned Sunday pay units from working-day attendance (piecewise).
+ * First grant at ≥10 presents: **2** units; then +1 at ≥15, +1 at ≥25, +1 at ≥30;
+ * after 30: +1 per additional 5 full presents.
+ */
 export function getEarnedSundayPayUnits(paidWorkingDays: number): number {
-  if (paidWorkingDays <= 0) return 0;
-  return Math.floor(paidWorkingDays / 5);
+  const p = paidWorkingDays;
+  if (p < 10) return 0;
+  if (p < 15) return 2;
+  if (p < 25) return 3;
+  if (p < 30) return 4;
+  return 5 + Math.floor((p - 30) / 5);
 }
 
 export interface AttendanceRecord {
@@ -39,7 +47,7 @@ export interface AttendanceStatsInput {
 export interface AttendanceStats {
   presentDays: number;
   absentDays: number;
-  /** Paid Sunday units from the 5 working-days → 1 Sunday pay rule */
+  /** Paid Sunday units from the earned-Sunday step table on working presents */
   earnedSundayPayDays: number;
   /** Sundays marked present — each adds an extra daily rate on top of earned units */
   sundayPresentBonusDays: number;
