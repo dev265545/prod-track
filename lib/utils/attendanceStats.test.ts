@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildMonthSalaryBreakdown,
+  capEarnedSundayPayUnits,
   computeAttendanceStats,
   computeAttendanceStatsForRange,
   computeDayPayFraction,
@@ -25,6 +26,15 @@ describe("getEarnedSundayPayUnits", () => {
     expect(getEarnedSundayPayUnits(30)).toBe(6);
     expect(getEarnedSundayPayUnits(34)).toBe(6);
     expect(getEarnedSundayPayUnits(35)).toBe(7);
+  });
+});
+
+describe("capEarnedSundayPayUnits", () => {
+  it("limits step-table earned units to Sundays in that month or range", () => {
+    expect(capEarnedSundayPayUnits(5, 4)).toBe(4);
+    expect(capEarnedSundayPayUnits(5, 5)).toBe(5);
+    expect(capEarnedSundayPayUnits(6, 4)).toBe(4);
+    expect(capEarnedSundayPayUnits(3, 0)).toBe(0);
   });
 });
 
@@ -93,6 +103,29 @@ describe("computeAttendanceStats", () => {
     expect(stats.earnedSundayPayDays).toBe(5);
     expect(stats.sundayPresentBonusDays).toBe(0);
     expect(stats.totalPaidDays).toBe(31);
+  });
+
+  it("26 working presents in June: step grants 5 but earned caps at 4 Sundays in month, 30 paid days", () => {
+    const nonSunDates: string[] = [];
+    for (let d = 1; d <= 30; d++) {
+      const dt = new Date(2026, 5, d);
+      if (dt.getDay() === 0) continue;
+      nonSunDates.push(`2026-06-${String(d).padStart(2, "0")}`);
+    }
+    const stats = computeAttendanceStats({
+      year: 2026,
+      month: 5,
+      holidayDates: [],
+      attendance: nonSunDates.map((date) => ({
+        date,
+        status: "present" as const,
+      })),
+      hoursPerDay: 8,
+    });
+    expect(stats.presentDays).toBe(26);
+    expect(stats.earnedSundayPayDays).toBe(4);
+    expect(stats.sundayPresentBonusDays).toBe(0);
+    expect(stats.totalPaidDays).toBe(30);
   });
 
   it("26 working + 5 Sunday marks: 5 earned + 5 bonus = 36 paid days", () => {

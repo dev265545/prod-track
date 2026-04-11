@@ -4,7 +4,8 @@
  * not affect attendance salary.
  * Daily rate = monthly salary ÷ calendar days in the month.
  * Earned “Sunday pay” units follow a step table on present working-day equivalents (see
- * `getEarnedSundayPayUnits`). Each Sunday explicitly marked present adds one extra daily rate.
+ * `getEarnedSundayPayUnits`). Those earned units are capped at how many Sundays fall in that
+ * month (or date range). Each Sunday explicitly marked present adds one extra daily rate on top.
  * Hours: hoursReduced (-) and hoursExtra (+) adjust salary via rate per hour.
  */
 import {
@@ -12,12 +13,15 @@ import {
   getDatesInRange,
   isSunday,
   getSundayDatesInMonth,
+  countSundaysInRange,
 } from "./date";
 
 /**
  * Earned Sunday pay units from working-day attendance (piecewise).
  * 0 until 10 presents; then **+2** at 10; then +1 each at 15, 20, 25, 30;
  * after 30: +1 per additional 5 full presents (cumulative 6 at 30, 7 at 35, …).
+ * When composing pay, earned units are capped at the number of Sundays in that month or range
+ * (Sunday mark bonuses still add on top, each capped by the same Sunday count).
  */
 export function getEarnedSundayPayUnits(paidWorkingDays: number): number {
   const p = paidWorkingDays;
@@ -27,6 +31,15 @@ export function getEarnedSundayPayUnits(paidWorkingDays: number): number {
   if (p < 25) return 4;
   if (p < 30) return 5;
   return 6 + Math.floor((p - 30) / 5);
+}
+
+/** Caps step-table earned units at how many Sundays exist in the month or range. */
+export function capEarnedSundayPayUnits(
+  stepEarned: number,
+  sundaysInSpan: number
+): number {
+  if (sundaysInSpan <= 0) return 0;
+  return Math.min(stepEarned, sundaysInSpan);
 }
 
 export interface AttendanceRecord {
@@ -118,7 +131,11 @@ export function computeAttendanceStats(input: AttendanceStatsInput): AttendanceS
   }
 
   const paidRounded = Math.round(paidWorkingDays * 100) / 100;
-  const earnedSundayPayDays = getEarnedSundayPayUnits(paidWorkingDays);
+  const sundaysInMonth = getSundayDatesInMonth(year, month).length;
+  const stepEarned = getEarnedSundayPayUnits(paidWorkingDays);
+  const earnedSundayPayDays =
+    Math.round(capEarnedSundayPayUnits(stepEarned, sundaysInMonth) * 100) /
+    100;
   const totalPaidDays =
     paidRounded + earnedSundayPayDays + sundayPresentBonusDays;
 
@@ -391,7 +408,11 @@ export function buildMonthSalaryBreakdown(input: {
   }
 
   const paidRounded = Math.round(paidWorkingDays * 100) / 100;
-  const earnedSundayPayDays = getEarnedSundayPayUnits(paidWorkingDays);
+  const sundaysInMonth = getSundayDatesInMonth(year, month).length;
+  const stepEarned = getEarnedSundayPayUnits(paidWorkingDays);
+  const earnedSundayPayDays =
+    Math.round(capEarnedSundayPayUnits(stepEarned, sundaysInMonth) * 100) /
+    100;
   const earnedSundayPoolPay =
     Math.round(earnedSundayPayDays * ratePerDay * 100) / 100;
   const sundayMarkBonusPay =
@@ -480,7 +501,11 @@ export function computeAttendanceStatsForRange(input: {
   }
 
   const paidRounded = Math.round(paidWorkingDays * 100) / 100;
-  const earnedSundayPayDays = getEarnedSundayPayUnits(paidWorkingDays);
+  const sundaysInRange = countSundaysInRange(fromDate, toDate);
+  const stepEarned = getEarnedSundayPayUnits(paidWorkingDays);
+  const earnedSundayPayDays =
+    Math.round(capEarnedSundayPayUnits(stepEarned, sundaysInRange) * 100) /
+    100;
   const totalPaidDays =
     paidRounded + earnedSundayPayDays + sundayPresentBonusDays;
 

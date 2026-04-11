@@ -14,6 +14,7 @@ import {
   getSundayDatesInMonth,
 } from "@/lib/utils/date";
 import {
+  capEarnedSundayPayUnits,
   computeDayPayFraction,
   getEarnedSundayPayUnits,
 } from "@/lib/utils/attendanceStats";
@@ -140,7 +141,11 @@ export async function getSalarySheetForMonth(
     }
 
     const paidRounded = Math.round(paidWorkingDays * 100) / 100;
-    const earnedSundayPayDays = getEarnedSundayPayUnits(paidWorkingDays);
+    const sundaysInMonth = getSundayDatesInMonth(year, month).length;
+    const stepEarned = getEarnedSundayPayUnits(paidWorkingDays);
+    const earnedSundayPayDays =
+      Math.round(capEarnedSundayPayUnits(stepEarned, sundaysInMonth) * 100) /
+      100;
     const totalPaidDays =
       paidRounded + earnedSundayPayDays + sundayPresentBonusDays;
     const calculatedSalary =
