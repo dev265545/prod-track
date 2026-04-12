@@ -1,40 +1,97 @@
 import { describe, expect, it } from "vitest";
 import {
   buildMonthSalaryBreakdown,
-  capEarnedSundayPayUnits,
   computeAttendanceStats,
   computeAttendanceStatsForRange,
   computeDayPayFraction,
+  computeEarnedExtraPayDaysForCalendarScope,
   computeHoursInRange,
-  getEarnedSundayPayUnits,
+  MAX_EXTRA_PAY_DAYS_PER_MONTH,
   sumHoursAdjustmentsInRange,
 } from "./attendanceStats";
 import { getSundayDatesInMonth } from "./date";
 
-describe("getEarnedSundayPayUnits", () => {
-  it("uses step table: 0 until 10, then +2 at 10; +1 at 15, 20, 25, 30; then +1 per 5", () => {
-    expect(getEarnedSundayPayUnits(0)).toBe(0);
-    expect(getEarnedSundayPayUnits(9.9)).toBe(0);
-    expect(getEarnedSundayPayUnits(10)).toBe(2);
-    expect(getEarnedSundayPayUnits(14)).toBe(2);
-    expect(getEarnedSundayPayUnits(15)).toBe(3);
-    expect(getEarnedSundayPayUnits(19)).toBe(3);
-    expect(getEarnedSundayPayUnits(20)).toBe(4);
-    expect(getEarnedSundayPayUnits(24)).toBe(4);
-    expect(getEarnedSundayPayUnits(25)).toBe(5);
-    expect(getEarnedSundayPayUnits(29)).toBe(5);
-    expect(getEarnedSundayPayUnits(30)).toBe(6);
-    expect(getEarnedSundayPayUnits(34)).toBe(6);
-    expect(getEarnedSundayPayUnits(35)).toBe(7);
+describe("computeEarnedExtraPayDaysForCalendarScope", () => {
+  it("grants 2 per qualifying 15-day block (≥12 working presents), max 4 per month", () => {
+    const nonSunDates: string[] = [];
+    for (let d = 1; d <= 31; d++) {
+      const dt = new Date(2026, 2, d);
+      if (dt.getDay() === 0) continue;
+      nonSunDates.push(`2026-03-${String(d).padStart(2, "0")}`);
+    }
+    const att = new Map(
+      nonSunDates.map((date) => [
+        date,
+        { status: "present" as const },
+      ]),
+    );
+    const earned = computeEarnedExtraPayDaysForCalendarScope(
+      "2026-03-01",
+      "2026-03-31",
+      [],
+      att,
+      8,
+    );
+    expect(earned).toBe(MAX_EXTRA_PAY_DAYS_PER_MONTH);
   });
-});
 
-describe("capEarnedSundayPayUnits", () => {
-  it("limits step-table earned units to Sundays in that month or range", () => {
-    expect(capEarnedSundayPayUnits(5, 4)).toBe(4);
-    expect(capEarnedSundayPayUnits(5, 5)).toBe(5);
-    expect(capEarnedSundayPayUnits(6, 4)).toBe(4);
-    expect(capEarnedSundayPayUnits(3, 0)).toBe(0);
+  it("June 2026 full working attendance: two qualifying half-months → 4 earned", () => {
+    const nonSunDates: string[] = [];
+    for (let d = 1; d <= 30; d++) {
+      const dt = new Date(2026, 5, d);
+      if (dt.getDay() === 0) continue;
+      nonSunDates.push(`2026-06-${String(d).padStart(2, "0")}`);
+    }
+    const att = new Map(
+      nonSunDates.map((date) => [
+        date,
+        { status: "present" as const },
+      ]),
+    );
+    expect(
+      computeEarnedExtraPayDaysForCalendarScope(
+        "2026-06-01",
+        "2026-06-30",
+        [],
+        att,
+        8,
+      ),
+    ).toBe(4);
+  });
+
+  it("returns 0 when no 15-day block reaches present threshold", () => {
+    const earned = computeEarnedExtraPayDaysForCalendarScope(
+      "2026-04-01",
+      "2026-04-30",
+      [],
+      new Map([["2026-04-01", { status: "present" as const }]]),
+      8,
+    );
+    expect(earned).toBe(0);
+  });
+
+  it("respects factory holidays in the 15-day window count", () => {
+    // March 1–15 2026: if we treat one key working day as holiday, sum of presents drops
+    const nonSunDates: string[] = [];
+    for (let d = 1; d <= 15; d++) {
+      const dt = new Date(2026, 2, d);
+      if (dt.getDay() === 0) continue;
+      nonSunDates.push(`2026-03-${String(d).padStart(2, "0")}`);
+    }
+    const att = new Map(
+      nonSunDates.map((date) => [
+        date,
+        { status: "present" as const },
+      ]),
+    );
+    const withHoliday = computeEarnedExtraPayDaysForCalendarScope(
+      "2026-03-01",
+      "2026-03-15",
+      ["2026-03-02"],
+      att,
+      8,
+    );
+    expect(withHoliday).toBe(0);
   });
 });
 
@@ -63,7 +120,7 @@ describe("computeDayPayFraction", () => {
 });
 
 describe("computeAttendanceStats", () => {
-  it("counts present and absent; no earned Sundays until 10 working presents", () => {
+  it("counts present and absent; no cycle bonus without a qualifying 15-day block", () => {
     const stats = computeAttendanceStats({
       year: 2026,
       month: 3,
@@ -82,7 +139,7 @@ describe("computeAttendanceStats", () => {
     expect(stats.totalHoursWorked).toBe(8);
   });
 
-  it("26 working presents in March: 5 earned units (25–29 tier), 31 paid days without Sunday marks", () => {
+  it("26 working presents in March: 4 cycle-based extra days, 30 paid without Sunday marks", () => {
     const nonSunDates: string[] = [];
     for (let d = 1; d <= 31; d++) {
       const dt = new Date(2026, 2, d);
@@ -100,12 +157,12 @@ describe("computeAttendanceStats", () => {
       hoursPerDay: 8,
     });
     expect(stats.presentDays).toBe(26);
-    expect(stats.earnedSundayPayDays).toBe(5);
+    expect(stats.earnedSundayPayDays).toBe(4);
     expect(stats.sundayPresentBonusDays).toBe(0);
-    expect(stats.totalPaidDays).toBe(31);
+    expect(stats.totalPaidDays).toBe(30);
   });
 
-  it("26 working presents in June: step grants 5 but earned caps at 4 Sundays in month, 30 paid days", () => {
+  it("26 working presents in June: 4 cycle-based extra days, 30 paid without Sunday marks", () => {
     const nonSunDates: string[] = [];
     for (let d = 1; d <= 30; d++) {
       const dt = new Date(2026, 5, d);
@@ -128,7 +185,7 @@ describe("computeAttendanceStats", () => {
     expect(stats.totalPaidDays).toBe(30);
   });
 
-  it("26 working + 5 Sunday marks: 5 earned + 5 bonus = 36 paid days", () => {
+  it("26 working + 5 Sunday marks: 4 earned + 5 bonus = 35 paid days", () => {
     const nonSunDates: string[] = [];
     for (let d = 1; d <= 31; d++) {
       const dt = new Date(2026, 2, d);
@@ -149,9 +206,9 @@ describe("computeAttendanceStats", () => {
       ],
       hoursPerDay: 8,
     });
-    expect(stats.earnedSundayPayDays).toBe(5);
+    expect(stats.earnedSundayPayDays).toBe(4);
     expect(stats.sundayPresentBonusDays).toBe(5);
-    expect(stats.totalPaidDays).toBe(36);
+    expect(stats.totalPaidDays).toBe(35);
   });
 });
 

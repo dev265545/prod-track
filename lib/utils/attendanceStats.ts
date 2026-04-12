@@ -3,9 +3,10 @@
  * Logic: no entry = absent on working days. Production is tracked separately and does
  * not affect attendance salary.
  * Daily rate = monthly salary ÷ calendar days in the month.
- * Earned “Sunday pay” units follow a step table on present working-day equivalents (see
- * `getEarnedSundayPayUnits`). Those earned units are capped at how many Sundays fall in that
- * month (or date range). Each Sunday explicitly marked present adds one extra daily rate on top.
+ * Extra pay days (earned pool): each **full 15 calendar days** of the month starting at day 1
+ * (1–15, 16–30, …) counts **working-day** present equivalents (fractions). If that sum is **≥12**,
+ * the block earns **+2** extra pay days. **At most 4** such extra days apply **per calendar month**
+ * (range logic sums each overlapped month). Sunday marked present still adds separately.
  * Hours: hoursReduced (-) and hoursExtra (+) adjust salary via rate per hour.
  */
 import {
@@ -13,33 +14,116 @@ import {
   getDatesInRange,
   isSunday,
   getSundayDatesInMonth,
-  countSundaysInRange,
+  getMonthRange,
+  getCalendarDaysInMonth,
 } from "./date";
 
-/**
- * Earned Sunday pay units from working-day attendance (piecewise).
- * 0 until 10 presents; then **+2** at 10; then +1 each at 15, 20, 25, 30;
- * after 30: +1 per additional 5 full presents (cumulative 6 at 30, 7 at 35, …).
- * When composing pay, earned units are capped at the number of Sundays in that month or range
- * (Sunday mark bonuses still add on top, each capped by the same Sunday count).
- */
-export function getEarnedSundayPayUnits(paidWorkingDays: number): number {
-  const p = paidWorkingDays;
-  if (p < 10) return 0;
-  if (p < 15) return 2;
-  if (p < 20) return 3;
-  if (p < 25) return 4;
-  if (p < 30) return 5;
-  return 6 + Math.floor((p - 30) / 5);
+/** Length of each pay cycle window (calendar days within a month). */
+export const EXTRA_PAY_CYCLE_DAYS = 15;
+/** Minimum working-day present **equivalents** in a cycle to qualify. */
+export const EXTRA_PAY_CYCLE_PRESENT_THRESHOLD = 12;
+/** Extra pay days granted per qualifying cycle (before monthly cap). */
+export const EXTRA_PAY_DAYS_PER_QUALIFIED_CYCLE = 2;
+/** Hard cap on cycle-based extra pay days per calendar month. */
+export const MAX_EXTRA_PAY_DAYS_PER_MONTH = 4;
+
+function pad2(n: number): string {
+  return String(n).padStart(2, "0");
 }
 
-/** Caps step-table earned units at how many Sundays exist in the month or range. */
-export function capEarnedSundayPayUnits(
-  stepEarned: number,
-  sundaysInSpan: number
+type AttendanceMap = Map<
+  string,
+  {
+    status: string;
+    hoursWorked?: number;
+    hoursReduced?: number;
+    hoursExtra?: number;
+  }
+>;
+
+function sumPresentFractionOnWorkingDaysInMonthWindow(
+  year: number,
+  month: number,
+  dayStart: number,
+  dayEnd: number,
+  holidaySet: Set<string>,
+  attByDate: AttendanceMap,
+  hoursPerDay: number
 ): number {
-  if (sundaysInSpan <= 0) return 0;
-  return Math.min(stepEarned, sundaysInSpan);
+  let sum = 0;
+  for (let d = dayStart; d <= dayEnd; d++) {
+    const dateStr = `${year}-${pad2(month + 1)}-${pad2(d)}`;
+    if (isSunday(dateStr) || holidaySet.has(dateStr)) continue;
+    const att = attByDate.get(dateStr);
+    if (att?.status === "present") {
+      sum += computeDayPayFraction(att, hoursPerDay);
+    }
+  }
+  return sum;
+}
+
+function forEachCalendarMonthOverlappingRange(
+  fromDate: string,
+  toDate: string,
+  visit: (year: number, monthIndex: number) => void
+): void {
+  let y = +fromDate.slice(0, 4);
+  let m = +fromDate.slice(5, 7) - 1;
+  const endY = +toDate.slice(0, 4);
+  const endM = +toDate.slice(5, 7) - 1;
+  while (y < endY || (y === endY && m <= endM)) {
+    visit(y, m);
+    m += 1;
+    if (m > 11) {
+      m = 0;
+      y += 1;
+    }
+  }
+}
+
+/**
+ * Cycle-based extra pay days for every calendar month that overlaps `[fromDate, toDate]`.
+ * Only **full** in-month 15-day blocks (starting at calendar day 1) that lie entirely inside the
+ * range are evaluated. Each qualifying block adds {@link EXTRA_PAY_DAYS_PER_QUALIFIED_CYCLE};
+ * each month’s total is capped at {@link MAX_EXTRA_PAY_DAYS_PER_MONTH}.
+ */
+export function computeEarnedExtraPayDaysForCalendarScope(
+  fromDate: string,
+  toDate: string,
+  holidayDates: string[],
+  attByDate: AttendanceMap,
+  hoursPerDay: number
+): number {
+  const holidaySet = new Set(holidayDates);
+  let total = 0;
+  forEachCalendarMonthOverlappingRange(fromDate, toDate, (year, monthIndex) => {
+    const lastDay = getCalendarDaysInMonth(year, monthIndex);
+    let monthRaw = 0;
+    for (
+      let start = 1;
+      start + EXTRA_PAY_CYCLE_DAYS - 1 <= lastDay;
+      start += EXTRA_PAY_CYCLE_DAYS
+    ) {
+      const end = start + EXTRA_PAY_CYCLE_DAYS - 1;
+      const windowStart = `${year}-${pad2(monthIndex + 1)}-${pad2(start)}`;
+      const windowEnd = `${year}-${pad2(monthIndex + 1)}-${pad2(end)}`;
+      if (windowStart < fromDate || windowEnd > toDate) continue;
+      const frac = sumPresentFractionOnWorkingDaysInMonthWindow(
+        year,
+        monthIndex,
+        start,
+        end,
+        holidaySet,
+        attByDate,
+        hoursPerDay
+      );
+      if (frac >= EXTRA_PAY_CYCLE_PRESENT_THRESHOLD) {
+        monthRaw += EXTRA_PAY_DAYS_PER_QUALIFIED_CYCLE;
+      }
+    }
+    total += Math.min(MAX_EXTRA_PAY_DAYS_PER_MONTH, monthRaw);
+  });
+  return total;
 }
 
 export interface AttendanceRecord {
@@ -61,7 +145,7 @@ export interface AttendanceStatsInput {
 export interface AttendanceStats {
   presentDays: number;
   absentDays: number;
-  /** Paid Sunday units from the earned-Sunday step table on working presents */
+  /** Extra pay days from 15-day in-month cycles (capped per calendar month) */
   earnedSundayPayDays: number;
   /** Sundays marked present — each adds an extra daily rate on top of earned units */
   sundayPresentBonusDays: number;
@@ -131,11 +215,17 @@ export function computeAttendanceStats(input: AttendanceStatsInput): AttendanceS
   }
 
   const paidRounded = Math.round(paidWorkingDays * 100) / 100;
-  const sundaysInMonth = getSundayDatesInMonth(year, month).length;
-  const stepEarned = getEarnedSundayPayUnits(paidWorkingDays);
+  const { from: monthFrom, to: monthTo } = getMonthRange(year, month);
   const earnedSundayPayDays =
-    Math.round(capEarnedSundayPayUnits(stepEarned, sundaysInMonth) * 100) /
-    100;
+    Math.round(
+      computeEarnedExtraPayDaysForCalendarScope(
+        monthFrom,
+        monthTo,
+        holidayDates,
+        attByDate,
+        hoursPerDay,
+      ) * 100,
+    ) / 100;
   const totalPaidDays =
     paidRounded + earnedSundayPayDays + sundayPresentBonusDays;
 
@@ -194,10 +284,6 @@ export interface MonthSalaryBreakdown {
   sundayMarkBonusPay: number;
   sumHoursExtra: number;
   sumHoursReduced: number;
-}
-
-function pad2(n: number): string {
-  return String(n).padStart(2, "0");
 }
 
 /**
@@ -408,11 +494,17 @@ export function buildMonthSalaryBreakdown(input: {
   }
 
   const paidRounded = Math.round(paidWorkingDays * 100) / 100;
-  const sundaysInMonth = getSundayDatesInMonth(year, month).length;
-  const stepEarned = getEarnedSundayPayUnits(paidWorkingDays);
+  const { from: monthFrom, to: monthTo } = getMonthRange(year, month);
   const earnedSundayPayDays =
-    Math.round(capEarnedSundayPayUnits(stepEarned, sundaysInMonth) * 100) /
-    100;
+    Math.round(
+      computeEarnedExtraPayDaysForCalendarScope(
+        monthFrom,
+        monthTo,
+        holidayDates,
+        attByDate,
+        hoursPerDay,
+      ) * 100,
+    ) / 100;
   const earnedSundayPoolPay =
     Math.round(earnedSundayPayDays * ratePerDay * 100) / 100;
   const sundayMarkBonusPay =
@@ -501,11 +593,16 @@ export function computeAttendanceStatsForRange(input: {
   }
 
   const paidRounded = Math.round(paidWorkingDays * 100) / 100;
-  const sundaysInRange = countSundaysInRange(fromDate, toDate);
-  const stepEarned = getEarnedSundayPayUnits(paidWorkingDays);
   const earnedSundayPayDays =
-    Math.round(capEarnedSundayPayUnits(stepEarned, sundaysInRange) * 100) /
-    100;
+    Math.round(
+      computeEarnedExtraPayDaysForCalendarScope(
+        fromDate,
+        toDate,
+        holidayDates,
+        attByDate,
+        hoursPerDay,
+      ) * 100,
+    ) / 100;
   const totalPaidDays =
     paidRounded + earnedSundayPayDays + sundayPresentBonusDays;
 

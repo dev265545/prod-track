@@ -431,7 +431,7 @@ export function EmployeePageClient() {
     return sum + ((p.quantity as number) || 0) * rate;
   }, 0);
 
-  // Monthly attendance: earned Sunday units (steps at 10/15/20/25/30…); Sunday present = +1 day rate
+  // Monthly attendance: up to 4 extra pay days from 15-day cycles (≥12 working presents each); Sunday present = +1 day rate
   const attendanceStats = computeAttendanceStats({
     year: calYear,
     month: calMonth,
