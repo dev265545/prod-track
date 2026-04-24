@@ -55,6 +55,9 @@ function createSchema(db: IDBDatabase) {
   if (!db.objectStoreNames.contains(STORES.ATTENDANCE)) {
     db.createObjectStore(STORES.ATTENDANCE, { keyPath: "id" });
   }
+  if (!db.objectStoreNames.contains(STORES.SUNDAY_CATEGORIES)) {
+    db.createObjectStore(STORES.SUNDAY_CATEGORIES, { keyPath: "id" });
+  }
 }
 
 function getStore(

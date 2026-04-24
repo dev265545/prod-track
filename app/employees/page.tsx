@@ -36,6 +36,10 @@ import {
   deleteEmployee,
 } from "@/lib/services/employeeService";
 import { getShifts } from "@/lib/services/shiftService";
+import {
+  getSundayCategories,
+  type SundayCategory,
+} from "@/lib/services/sundayCategoryService";
 import { toast } from "sonner";
 import { Trash2 } from "lucide-react";
 import {
@@ -58,16 +62,21 @@ export default function EmployeesPage() {
   const [ready, setReady] = useState(false);
   const [employees, setEmployees] = useState<Record<string, unknown>[]>([]);
   const [shifts, setShifts] = useState<Record<string, unknown>[]>([]);
+  const [sundayCategories, setSundayCategories] = useState<SundayCategory[]>(
+    [],
+  );
   const [employeeName, setEmployeeName] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   const load = async () => {
-    const [list, shiftList] = await Promise.all([
+    const [list, shiftList, sundayCategoryList] = await Promise.all([
       getEmployees(false),
       getShifts(),
+      getSundayCategories(),
     ]);
     setEmployees(list);
     setShifts(shiftList);
+    setSundayCategories(sundayCategoryList);
   };
 
   useEffect(() => {
@@ -119,6 +128,9 @@ export default function EmployeesPage() {
   const shiftMap = Object.fromEntries(
     shifts.map((s) => [s.id as string, s])
   ) as Record<string, Record<string, unknown>>;
+  const sundayCategoryMap = Object.fromEntries(
+    sundayCategories.map((c) => [c.id as string, c]),
+  ) as Record<string, SundayCategory>;
 
   return (
     <AppShell>
@@ -148,6 +160,7 @@ export default function EmployeesPage() {
                   <TableRow>
                     <TableHead scope="col">Name</TableHead>
                     <TableHead scope="col">Shift</TableHead>
+                    <TableHead scope="col">Sunday category</TableHead>
                     <TableHead scope="col">Status</TableHead>
                     <TableHead className="w-[52px]" scope="col">
                       <span className="sr-only">Actions</span>
@@ -183,6 +196,12 @@ export default function EmployeesPage() {
                         {(e.shiftId as string)
                           ? (shiftMap[e.shiftId as string]?.name as string) ?? "—"
                           : "—"}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {(e.sundayCategoryId as string)
+                          ? (sundayCategoryMap[e.sundayCategoryId as string]
+                              ?.name as string) ?? "Default (12 → 2)"
+                          : "Default (12 → 2)"}
                       </TableCell>
                       <TableCell className="text-muted-foreground">
                         {(e.isActive as boolean) !== false

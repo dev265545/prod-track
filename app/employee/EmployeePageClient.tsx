@@ -45,6 +45,11 @@ import {
 } from "@/lib/services/advanceDeductionService";
 import { getItems } from "@/lib/services/itemService";
 import { getShifts } from "@/lib/services/shiftService";
+import {
+  getSundayCategories,
+  resolveSundayCategoryRule,
+  type SundayCategory,
+} from "@/lib/services/sundayCategoryService";
 import { saveEmployee } from "@/lib/services/employeeService";
 import { getSalaryRecordsByEmployee } from "@/lib/services/salaryRecordService";
 import {
@@ -196,6 +201,9 @@ export function EmployeePageClient() {
     Record<string, unknown>[]
   >([]);
   const [shifts, setShifts] = useState<Record<string, unknown>[]>([]);
+  const [sundayCategories, setSundayCategories] = useState<SundayCategory[]>(
+    [],
+  );
   const [factoryHolidays, setFactoryHolidays] = useState<string[]>([]);
   const [calendarProductions, setCalendarProductions] = useState<
     Record<string, unknown>[]
@@ -222,7 +230,15 @@ export function EmployeePageClient() {
       return;
     }
     setEmployee(emp);
-    const [allProds, allAdvs, itemsList, salaryRecs, shiftList, deductionsList] =
+    const [
+      allProds,
+      allAdvs,
+      itemsList,
+      salaryRecs,
+      shiftList,
+      deductionsList,
+      sundayCategoryList,
+    ] =
       await Promise.all([
         getProductionsByEmployee(id, "2000-01-01", "2100-12-31"),
         getAdvancesByEmployee(id, "2000-01-01", "2100-12-31"),
@@ -230,10 +246,12 @@ export function EmployeePageClient() {
         getSalaryRecordsByEmployee(id),
         getShifts(),
         getDeductionsByEmployee(id),
+        getSundayCategories(),
       ]);
     setItems(itemsList);
     setStoredSalaryRecords(salaryRecs);
     setShifts(shiftList);
+    setSundayCategories(sundayCategoryList);
     setAllAdvances(allAdvs);
     setDeductions(deductionsList);
     const periodsWithData = getPeriodsWithData([...allProds, ...allAdvs]);
@@ -392,12 +410,20 @@ export function EmployeePageClient() {
   const shiftMap = Object.fromEntries(
     shifts.map((s) => [s.id as string, s]),
   ) as Record<string, Record<string, unknown>>;
+  const sundayCategoryMap = Object.fromEntries(
+    sundayCategories.map((c) => [c.id as string, c]),
+  ) as Record<string, SundayCategory>;
 
   const workingDays = getWorkingDaysInMonth(calYear, calMonth, factoryHolidays);
   const calendarDaysInMonth = getCalendarDaysInMonth(calYear, calMonth);
   const monthlySalary = (employee.monthlySalary as number) ?? 0;
   const shiftId = employee.shiftId as string | undefined;
   const selectedShift = shiftId ? shiftMap[shiftId] : null;
+  const sundayCategoryId = employee.sundayCategoryId as string | undefined;
+  const selectedSundayCategory = sundayCategoryId
+    ? sundayCategoryMap[sundayCategoryId]
+    : null;
+  const sundayCategoryRule = resolveSundayCategoryRule(selectedSundayCategory);
   const hoursPerDay = selectedShift
     ? ((selectedShift.hoursPerDay as number) ?? 8)
     : 8;
@@ -444,6 +470,7 @@ export function EmployeePageClient() {
       hoursExtra: a.hoursExtra as number | undefined,
     })),
     hoursPerDay,
+    sundayCategoryRule,
   });
   const {
     presentDays: daysPresent,
@@ -549,7 +576,7 @@ export function EmployeePageClient() {
             </Popover>
           )}
         </div>
-        <div className="grid grid-cols-4 gap-4 xl:flex-1 xl:min-w-0 animate-fade-in animate-stagger-1">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5 xl:flex-1 xl:min-w-0 animate-fade-in animate-stagger-1">
           <Card className="p-5 sm:p-6">
             <CardHeader className="p-0 pb-2">
               <div className="flex items-center gap-2">
@@ -577,6 +604,39 @@ export function EmployeePageClient() {
                   {shifts.map((s) => (
                     <SelectItem key={s.id as string} value={s.id as string}>
                       {s.name as string}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </CardContent>
+          </Card>
+          <Card className="p-5 sm:p-6">
+            <CardHeader className="p-0 pb-2">
+              <div className="flex items-center gap-2">
+                <CalendarDays className="size-4 text-primary" />
+                <CardTitle className="text-sm font-medium text-muted-foreground">
+                  Sunday category
+                </CardTitle>
+              </div>
+            </CardHeader>
+            <CardContent className="p-0">
+              <Select
+                value={(employee.sundayCategoryId as string) ?? "_default"}
+                onValueChange={async (v) => {
+                  const sundayCategoryId = v === "_default" ? undefined : v;
+                  const updated = { ...employee, sundayCategoryId };
+                  await saveEmployee(updated);
+                  setEmployee(updated);
+                }}
+              >
+                <SelectTrigger id="emp-sunday-category" className="w-full min-h-10">
+                  <SelectValue placeholder="Default (12 => 2)" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="_default">Default (12 present → 2)</SelectItem>
+                  {sundayCategories.map((c) => (
+                    <SelectItem key={c.id as string} value={c.id as string}>
+                      {c.name as string}
                     </SelectItem>
                   ))}
                 </SelectContent>

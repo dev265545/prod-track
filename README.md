@@ -14,7 +14,7 @@ TypeScript app with one React UI, shipped in two main ways:
 ## Architecture notes
 
 - **Runtime-aware data access** — One adapter API over **IndexedDB**, **sqlite-file** (`NEXT_PUBLIC_DB_BACKEND=sqlite-file`), and **Tauri/SQLite**, so app code does not depend on a specific store.
-- **Static export** — `next.config.js` sets `output: "export"` in production so the UI is static assets (`out/`). The **GitHub Release** workflow builds the **sqlite-file** variant and packs `portable/` for Windows (local HTTP server + browser).
+- **Static export** — `next.config.js` sets `output: "export"` in production so the UI is static assets (`out/`). The **GitHub Release** workflow builds the **sqlite-file** variant and packs `portable/` for Windows/Linux launcher scripts (local HTTP server + browser).
 - **Tauri without tying the web bundle to Rust** — `lib/tauriBridge.ts` uses `window.__TAURI__?.core?.invoke` so the exported JS is not forced through `@tauri-apps/*` graphs. DB, dialogs, opener, and printing use that path when `__TAURI__` is present.
 - **Rust / SQLite (desktop only)** — `src-tauri` uses **rusqlite**, **serde** / **serde_json**, Tauri v2 plugins (dialog, log, opener, printer). Backup/import file UI uses the **dialog** plugin from Rust when running in Tauri.
 - **Browser SQLite (web, sqlite-file build)** — `lib/db/sqliteFileAdapter.ts` + **sql.js** WASM; persistence is a user-selected `.db` file. `lib/db/sqliteBrowser.ts` still handles import/export buffers in the same **table-per-store** shape as Rust/Tauri.
@@ -51,7 +51,7 @@ TypeScript app with one React UI, shipped in two main ways:
 Workflow: `.github/workflows/release.yml`
 
 - **Portable web** — `npm ci`, `npm test`, `npm run build:web-sqlite`, `npm run pack-portable`, verify `portable/web/wasm/sql-wasm.wasm`, zip `portable/` as `ProdTrack-portable-<version>.zip`, publish with **softprops/action-gh-release**.
-- Intended use: unzip, run **`Start-ProdTrack.cmd`** (local server + Chrome or compatible browser), pick a `.db` file for SQLite-in-the-browser mode.
+- Intended use: unzip, then run **`Start-ProdTrack.cmd`** (Windows) or **`Start-ProdTrack.sh`** (Linux/Ubuntu), and pick a `.db` file for SQLite-in-the-browser mode.
 
 Tauri desktop builds are **not** part of that workflow; build them locally with `npm run tauri:build` when needed.
 
@@ -76,7 +76,7 @@ Tauri desktop builds are **not** part of that workflow; build them locally with 
 | `npm run generate:legacy-css` | Regenerate **legacy Chrome** rgba fallbacks (`app/generated/legacy-opacity-fallbacks.css`)                  |
 | `npm run build`            | Runs `generate:legacy-css`, then production Next build → static **`out/`** (**IndexedDB** in client bundle) |
 | `npm run build:web-sqlite` | `copy-sql-wasm` + `generate:legacy-css` + production build with **sqlite-file** backend baked in           |
-| `npm run pack-portable`    | Assemble **`portable/`** folder for the Windows portable bundle (after `build:web-sqlite`)                 |
+| `npm run pack-portable`    | Assemble **`portable/`** folder for the Windows/Linux portable bundle (after `build:web-sqlite`)           |
 | `npm run start`            | Next production server (if you use non-export mode in dev)                                                   |
 | `npm run lint`             | ESLint                                                                                                       |
 | `npm run test`             | Vitest                                                                                                       |

@@ -6,6 +6,10 @@ import { getEmployee } from "./employeeService";
 import { getHolidaysInRange } from "./factoryHolidayService";
 import { getAttendanceByEmployeeInRange } from "./attendanceService";
 import { getShifts } from "./shiftService";
+import {
+  getSundayCategories,
+  resolveSundayCategoryRule,
+} from "./sundayCategoryService";
 import { getPeriodForDate, getMonthRange, formatMonthYear } from "@/lib/utils/date";
 import { currency, dateDisplay, number } from "@/lib/utils/formatter";
 import {
@@ -161,11 +165,12 @@ export async function getPrintableMonthlyAttendanceSheetHtml(
   month: number
 ): Promise<{ html: string; employeeName: string }> {
   const { from, to } = getMonthRange(year, month);
-  const [employee, holidays, att, shifts] = await Promise.all([
+  const [employee, holidays, att, shifts, sundayCategories] = await Promise.all([
     getEmployee(employeeId),
     getHolidaysInRange(from, to),
     getAttendanceByEmployeeInRange(employeeId, from, to),
     getShifts(),
+    getSundayCategories(),
   ]);
   const name = (employee?.name as string) || "Unknown";
   const printStyles =
@@ -186,6 +191,14 @@ export async function getPrintableMonthlyAttendanceSheetHtml(
   );
   const shiftId = employee.shiftId as string | undefined;
   const hoursPerDay = shiftId ? (shiftMap[shiftId] ?? 8) : 8;
+  const sundayCategoryMap = Object.fromEntries(
+    sundayCategories.map((c) => [c.id, c]),
+  );
+  const sundayCategoryId = employee.sundayCategoryId as string | undefined;
+  const sundayCategory = sundayCategoryId
+    ? sundayCategoryMap[sundayCategoryId]
+    : undefined;
+  const sundayCategoryRule = resolveSundayCategoryRule(sundayCategory);
   const ratePerDay = getRatePerDay(monthlySalary, calendarDaysInMonth);
   const ratePerHour = getRatePerHour(
     monthlySalary,
@@ -204,11 +217,12 @@ export async function getPrintableMonthlyAttendanceSheetHtml(
       hoursReduced: a.hoursReduced as number | undefined,
       hoursExtra: a.hoursExtra as number | undefined,
     })),
-    productionPayByDate: new Map(),
-    hoursPerDay,
-    ratePerDay,
-    includeProductionPay: false,
-  });
+      productionPayByDate: new Map(),
+      hoursPerDay,
+      ratePerDay,
+      includeProductionPay: false,
+      sundayCategoryRule,
+    });
 
   const monthTitle = formatMonthYear(from);
   const dayRows = breakdown.days

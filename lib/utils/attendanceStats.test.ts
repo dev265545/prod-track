@@ -7,6 +7,8 @@ import {
   computeEarnedExtraPayDaysForCalendarScope,
   computeHoursInRange,
   MAX_EXTRA_PAY_DAYS_PER_MONTH,
+  MAX_EXTRA_PAY_DAYS_PER_CYCLE,
+  type SundayCategoryRule,
   sumHoursAdjustmentsInRange,
 } from "./attendanceStats";
 import { getSundayDatesInMonth } from "./date";
@@ -92,6 +94,60 @@ describe("computeEarnedExtraPayDaysForCalendarScope", () => {
       8,
     );
     expect(withHoliday).toBe(0);
+  });
+
+  it("supports threshold categories per 15-day cycle", () => {
+    const nonSunDates: string[] = [];
+    for (let d = 1; d <= 15; d++) {
+      const dt = new Date(2026, 2, d);
+      if (dt.getDay() === 0) continue;
+      nonSunDates.push(`2026-03-${String(d).padStart(2, "0")}`);
+    }
+    const att = new Map(
+      nonSunDates.map((date) => [date, { status: "present" as const }]),
+    );
+    const rule: SundayCategoryRule = {
+      mode: "threshold",
+      requiredPresent: 12,
+      earnedSundays: 2,
+    };
+    expect(
+      computeEarnedExtraPayDaysForCalendarScope(
+        "2026-03-01",
+        "2026-03-15",
+        [],
+        att,
+        8,
+        rule,
+      ),
+    ).toBe(2);
+  });
+
+  it("supports step categories and applies max 2 per 15-day cycle cap", () => {
+    const nonSunDates: string[] = [];
+    for (let d = 1; d <= 15; d++) {
+      const dt = new Date(2026, 2, d);
+      if (dt.getDay() === 0) continue;
+      nonSunDates.push(`2026-03-${String(d).padStart(2, "0")}`);
+    }
+    const att = new Map(
+      nonSunDates.map((date) => [date, { status: "present" as const }]),
+    );
+    const rule: SundayCategoryRule = {
+      mode: "step",
+      everyPresentDays: 6,
+      earnedPerStep: 1,
+    };
+    expect(
+      computeEarnedExtraPayDaysForCalendarScope(
+        "2026-03-01",
+        "2026-03-15",
+        [],
+        att,
+        8,
+        rule,
+      ),
+    ).toBe(MAX_EXTRA_PAY_DAYS_PER_CYCLE);
   });
 });
 

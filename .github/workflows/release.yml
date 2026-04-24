@@ -51,6 +51,9 @@ jobs:
       - name: Verify wasm bundled
         run: test -f portable/web/wasm/sql-wasm.wasm
 
+      - name: Ensure Linux launcher is executable
+        run: chmod +x portable/Start-ProdTrack.sh
+
       - name: Zip portable bundle
         id: zip
         run: |
@@ -68,7 +71,7 @@ jobs:
           tag_name: v${{ steps.bump.outputs.version }}
           name: ProdTrack v${{ steps.bump.outputs.version }}
           body: |
-            **Portable bundle** — static web app plus the Windows folder in `portable/` (run `Start-ProdTrack.cmd`).
+            **Portable bundle** — static web app plus Windows/Linux launchers in `portable/` (`Start-ProdTrack.cmd` or `Start-ProdTrack.sh`).
 
             - Unzip, keep the `portable` folder intact (must include `portable/web/` with `wasm/sql-wasm.wasm`).
             - Uses a local HTTP server and the browser (Chrome or compatible) with File System Access for your `.db` file.

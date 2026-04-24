@@ -8,7 +8,7 @@ use tauri::{AppHandle, State};
 use tauri_plugin_dialog::DialogExt;
 
 /// Must match lib/db/schema.ts DB_VERSION. Bump when adding migrations.
-const CURRENT_SCHEMA_VERSION: u32 = 5;
+const CURRENT_SCHEMA_VERSION: u32 = 6;
 
 const TABLES: &[&str] = &[
     "_metadata",
@@ -21,6 +21,7 @@ const TABLES: &[&str] = &[
     "salary_records",
     "factory_holidays",
     "attendance",
+    "sunday_categories",
 ];
 
 fn get_schema_version(conn: &Connection) -> Result<u32, String> {
@@ -53,6 +54,9 @@ fn run_migration(_conn: &Connection, to_version: u32) -> Result<(), String> {
         5 => {
             // Reserved: app metadata row `_app` (password hash, onboarding) lives in `_metadata`.
             // Older DBs only had `_schema`; no ALTER needed.
+        }
+        6 => {
+            // Reserved: sunday_categories table is auto-created via TABLES list.
         }
         _ => {}
     }

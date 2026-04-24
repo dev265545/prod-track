@@ -20,12 +20,32 @@ import {
 
 /** Length of each pay cycle window (calendar days within a month). */
 export const EXTRA_PAY_CYCLE_DAYS = 15;
+/** Hard cap on earned Sunday pay days per 15-day cycle, regardless of category. */
+export const MAX_EXTRA_PAY_DAYS_PER_CYCLE = 2;
 /** Minimum working-day present **equivalents** in a cycle to qualify. */
 export const EXTRA_PAY_CYCLE_PRESENT_THRESHOLD = 12;
 /** Extra pay days granted per qualifying cycle (before monthly cap). */
 export const EXTRA_PAY_DAYS_PER_QUALIFIED_CYCLE = 2;
 /** Hard cap on cycle-based extra pay days per calendar month. */
 export const MAX_EXTRA_PAY_DAYS_PER_MONTH = 4;
+
+export type SundayCategoryRule =
+  | {
+      mode: "threshold";
+      requiredPresent: number;
+      earnedSundays: number;
+    }
+  | {
+      mode: "step";
+      everyPresentDays: number;
+      earnedPerStep: number;
+    };
+
+export const DEFAULT_SUNDAY_CATEGORY_RULE: SundayCategoryRule = {
+  mode: "threshold",
+  requiredPresent: EXTRA_PAY_CYCLE_PRESENT_THRESHOLD,
+  earnedSundays: EXTRA_PAY_DAYS_PER_QUALIFIED_CYCLE,
+};
 
 function pad2(n: number): string {
   return String(n).padStart(2, "0");
@@ -92,7 +112,8 @@ export function computeEarnedExtraPayDaysForCalendarScope(
   toDate: string,
   holidayDates: string[],
   attByDate: AttendanceMap,
-  hoursPerDay: number
+  hoursPerDay: number,
+  categoryRule: SundayCategoryRule = DEFAULT_SUNDAY_CATEGORY_RULE,
 ): number {
   const holidaySet = new Set(holidayDates);
   let total = 0;
@@ -117,9 +138,17 @@ export function computeEarnedExtraPayDaysForCalendarScope(
         attByDate,
         hoursPerDay
       );
-      if (frac >= EXTRA_PAY_CYCLE_PRESENT_THRESHOLD) {
-        monthRaw += EXTRA_PAY_DAYS_PER_QUALIFIED_CYCLE;
+      let earnedForCycle = 0;
+      if (categoryRule.mode === "threshold") {
+        if (frac >= categoryRule.requiredPresent) {
+          earnedForCycle = categoryRule.earnedSundays;
+        }
+      } else if (categoryRule.everyPresentDays > 0) {
+        earnedForCycle =
+          Math.floor(frac / categoryRule.everyPresentDays) *
+          categoryRule.earnedPerStep;
       }
+      monthRaw += Math.min(MAX_EXTRA_PAY_DAYS_PER_CYCLE, earnedForCycle);
     }
     total += Math.min(MAX_EXTRA_PAY_DAYS_PER_MONTH, monthRaw);
   });
@@ -140,6 +169,7 @@ export interface AttendanceStatsInput {
   holidayDates: string[];
   attendance: AttendanceRecord[];
   hoursPerDay?: number;
+  sundayCategoryRule?: SundayCategoryRule;
 }
 
 export interface AttendanceStats {
@@ -175,6 +205,7 @@ export function computeAttendanceStats(input: AttendanceStatsInput): AttendanceS
     holidayDates,
     attendance,
     hoursPerDay = 8,
+    sundayCategoryRule = DEFAULT_SUNDAY_CATEGORY_RULE,
   } = input;
 
   const workingDayDates = getWorkingDayDates(year, month, holidayDates);
@@ -224,6 +255,7 @@ export function computeAttendanceStats(input: AttendanceStatsInput): AttendanceS
         holidayDates,
         attByDate,
         hoursPerDay,
+        sundayCategoryRule,
       ) * 100,
     ) / 100;
   const totalPaidDays =
@@ -302,6 +334,7 @@ export function buildMonthSalaryBreakdown(input: {
   ratePerDay: number;
   /** When false, per-day production earnings are omitted (attendance sheet only). Default true. */
   includeProductionPay?: boolean;
+  sundayCategoryRule?: SundayCategoryRule;
 }): MonthSalaryBreakdown {
   const {
     year,
@@ -312,6 +345,7 @@ export function buildMonthSalaryBreakdown(input: {
     hoursPerDay,
     ratePerDay,
     includeProductionPay = true,
+    sundayCategoryRule = DEFAULT_SUNDAY_CATEGORY_RULE,
   } = input;
 
   const holidaySet = new Set(holidayDates);
@@ -503,6 +537,7 @@ export function buildMonthSalaryBreakdown(input: {
         holidayDates,
         attByDate,
         hoursPerDay,
+        sundayCategoryRule,
       ) * 100,
     ) / 100;
   const earnedSundayPoolPay =
@@ -540,6 +575,7 @@ export function computeAttendanceStatsForRange(input: {
   holidayDates: string[];
   attendance: AttendanceRecord[];
   hoursPerDay?: number;
+  sundayCategoryRule?: SundayCategoryRule;
 }): AttendanceStats {
   const {
     fromDate,
@@ -547,6 +583,7 @@ export function computeAttendanceStatsForRange(input: {
     holidayDates,
     attendance,
     hoursPerDay = 8,
+    sundayCategoryRule = DEFAULT_SUNDAY_CATEGORY_RULE,
   } = input;
 
   const holidaySet = new Set(holidayDates);
@@ -601,6 +638,7 @@ export function computeAttendanceStatsForRange(input: {
         holidayDates,
         attByDate,
         hoursPerDay,
+        sundayCategoryRule,
       ) * 100,
     ) / 100;
   const totalPaidDays =

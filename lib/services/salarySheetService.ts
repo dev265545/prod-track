@@ -3,6 +3,10 @@ import { getAttendanceInRange } from "./attendanceService";
 import { getHolidaysInRange } from "./factoryHolidayService";
 import { getShifts } from "./shiftService";
 import {
+  getSundayCategories,
+  resolveSundayCategoryRule,
+} from "./sundayCategoryService";
+import {
   getCalendarDaysInMonth,
   getRatePerDay,
   getRatePerHour,
@@ -47,15 +51,19 @@ export async function getSalarySheetForMonth(
   calendarDaysInMonth: number;
 }> {
   const { from, to } = getMonthRange(year, month);
-  const [employees, attendance, holidays, shifts] = await Promise.all([
+  const [employees, attendance, holidays, shifts, sundayCategories] = await Promise.all([
     getEmployees(true),
     getAttendanceInRange(from, to),
     getHolidaysInRange(from, to),
     getShifts(),
+    getSundayCategories(),
   ]);
 
   const shiftMap = Object.fromEntries(
     shifts.map((s) => [s.id as string, (s.hoursPerDay as number) ?? 8])
+  );
+  const sundayCategoryMap = Object.fromEntries(
+    sundayCategories.map((c) => [c.id, c]),
   );
 
   const holidayDates = holidays.map((h) => h.date as string);
@@ -89,6 +97,11 @@ export async function getSalarySheetForMonth(
     const ratePerDay = getRatePerDay(monthlySalary, calendarDaysInMonth);
     const shiftId = emp.shiftId as string | undefined;
     const hoursPerDay = shiftId ? (shiftMap[shiftId] ?? 8) : 8;
+    const sundayCategoryId = emp.sundayCategoryId as string | undefined;
+    const sundayCategory = sundayCategoryId
+      ? sundayCategoryMap[sundayCategoryId]
+      : undefined;
+    const sundayCategoryRule = resolveSundayCategoryRule(sundayCategory);
     const ratePerHour = getRatePerHour(
       monthlySalary,
       calendarDaysInMonth,
@@ -148,6 +161,7 @@ export async function getSalarySheetForMonth(
           holidayDates,
           empAtt,
           hoursPerDay,
+          sundayCategoryRule,
         ) * 100,
       ) / 100;
     const totalPaidDays =
