@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { Printer, FileSpreadsheet } from "lucide-react";
+import { ArrowDown, ArrowUp, FileSpreadsheet, GripVertical, Printer } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -38,6 +38,7 @@ import {
 import { Spinner } from "@/components/ui/spinner";
 import { openDB } from "@/lib/db/adapter";
 import { isLoggedIn, checkExpiry } from "@/lib/auth";
+import { saveEmployeeSortOrder } from "@/lib/services/employeeService";
 import { getSalarySheetForRange } from "@/lib/services/salarySheetService";
 import type { SalarySheetRow } from "@/lib/services/salarySheetService";
 import {
@@ -51,6 +52,7 @@ import {
 import { currency, number } from "@/lib/utils/formatter";
 import { printHtml } from "@/lib/utils/print";
 import { DatePicker } from "@/components/ui/date-picker";
+import { toast } from "sonner";
 
 const MONTH_NAMES = [
   "January", "February", "March", "April", "May", "June",
@@ -137,6 +139,8 @@ export default function SalarySheetPage() {
   const [rows, setRows] = useState<SalarySheetRow[]>([]);
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
+  const [reorderMode, setReorderMode] = useState(false);
+  const [savingOrder, setSavingOrder] = useState(false);
 
   const monthOptions = getMonthOptions(24);
   const monthBounds = getMonthRange(year, month);
@@ -238,6 +242,26 @@ export default function SalarySheetPage() {
     printHtml(html);
   };
 
+  const moveRow = async (index: number, direction: -1 | 1) => {
+    const nextIndex = index + direction;
+    if (nextIndex < 0 || nextIndex >= rows.length || savingOrder) return;
+
+    const nextRows = [...rows];
+    const [moved] = nextRows.splice(index, 1);
+    nextRows.splice(nextIndex, 0, moved);
+    const previousRows = rows;
+    setRows(nextRows);
+    setSavingOrder(true);
+    try {
+      await saveEmployeeSortOrder(nextRows.map((row) => row.id));
+    } catch {
+      setRows(previousRows);
+      toast.error("Failed to save employee order");
+    } finally {
+      setSavingOrder(false);
+    }
+  };
+
   if (!ready) {
     return (
       <div className="flex min-h-svh items-center justify-center">
@@ -257,9 +281,14 @@ export default function SalarySheetPage() {
     <AppShell>
       <main className="flex flex-col gap-8 animate-fade-in">
         <div className="flex flex-wrap items-end justify-between gap-4">
-          <h1 className="text-3xl font-bold text-foreground font-heading">
-            Salary sheet
-          </h1>
+          <div className="space-y-1">
+            <h1 className="text-3xl font-bold text-foreground font-heading">
+              Salary sheet
+            </h1>
+            <p className="text-sm text-muted-foreground">
+              Keep employee rows in the exact order you want for this sheet.
+            </p>
+          </div>
           <div className="flex flex-wrap items-end gap-4">
             <div className="flex flex-col gap-2">
               <Label htmlFor="salary-month">Month</Label>
@@ -332,6 +361,15 @@ export default function SalarySheetPage() {
             )}
             <Button
               type="button"
+              variant={reorderMode ? "secondary" : "outline"}
+              onClick={() => setReorderMode((value) => !value)}
+              className="min-h-12 px-6"
+            >
+              <GripVertical data-icon="inline-start" className="size-4" />
+              {reorderMode ? "Done ordering" : "Arrange order"}
+            </Button>
+            <Button
+              type="button"
               onClick={handlePrint}
               className="min-h-12 px-6"
             >
@@ -350,6 +388,11 @@ export default function SalarySheetPage() {
             <p className="text-sm text-muted-foreground mt-1">
               Attendance, hourly adjustments (extra / less), monthly and effective rates, and calculated salary for the selected range.
             </p>
+            {reorderMode && (
+              <p className="text-sm text-muted-foreground mt-2">
+                Use the arrow buttons to move employees. The order is saved immediately and stays fixed until you change it again.
+              </p>
+            )}
           </CardHeader>
           <CardContent className="p-0">
             {loading ? (
@@ -374,6 +417,9 @@ export default function SalarySheetPage() {
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      {reorderMode && (
+                        <TableHead className="w-[88px]">Order</TableHead>
+                      )}
                       <TableHead>Employee</TableHead>
                       <TableHead className="text-right tabular-nums">Present</TableHead>
                       <TableHead className="text-right tabular-nums">Absent</TableHead>
@@ -406,6 +452,36 @@ export default function SalarySheetPage() {
                         role="button"
                         aria-label={`View ${r.name}`}
                       >
+                        {reorderMode && (
+                          <TableCell
+                            className="w-[88px]"
+                            onClick={(event) => event.stopPropagation()}
+                            onKeyDown={(event) => event.stopPropagation()}
+                          >
+                            <div className="flex items-center gap-1">
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon-sm"
+                                disabled={savingOrder || rows[0]?.id === r.id}
+                                onClick={() => void moveRow(rows.findIndex((row) => row.id === r.id), -1)}
+                                aria-label={`Move ${r.name} up`}
+                              >
+                                <ArrowUp className="size-4" />
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon-sm"
+                                disabled={savingOrder || rows[rows.length - 1]?.id === r.id}
+                                onClick={() => void moveRow(rows.findIndex((row) => row.id === r.id), 1)}
+                                aria-label={`Move ${r.name} down`}
+                              >
+                                <ArrowDown className="size-4" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        )}
                         <TableCell className="font-medium">{r.name}</TableCell>
                         <TableCell className="text-right tabular-nums">{number(r.presentDays)}</TableCell>
                         <TableCell className="text-right tabular-nums">{number(r.absentDays)}</TableCell>
