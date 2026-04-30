@@ -10,6 +10,21 @@ import { Calendar } from "@/components/ui/calendar";
 
 const DATE_FORMAT = "yyyy-MM-dd";
 
+type ContainsTarget = {
+  contains: (target: Node | null) => boolean;
+};
+
+export function isDatePickerInteractionOutside(input: {
+  target: Node | null;
+  container: ContainsTarget | null;
+  popup: ContainsTarget | null;
+}): boolean {
+  const { target, container, popup } = input;
+  const insideContainer = container?.contains(target) ?? false;
+  const insidePopup = popup?.contains(target) ?? false;
+  return !insideContainer && !insidePopup;
+}
+
 function formatDateForDisplay(dateStr: string): string {
   if (!dateStr) return "Pick a date";
   const d = parse(dateStr, DATE_FORMAT, new Date());
@@ -53,6 +68,7 @@ export function DatePicker({
 }: DatePickerProps) {
   const [open, setOpen] = React.useState(false);
   const containerRef = React.useRef<HTMLDivElement>(null);
+  const popupRef = React.useRef<HTMLDivElement>(null);
   const [mounted, setMounted] = React.useState(false);
   const [popupStyle, setPopupStyle] = React.useState<React.CSSProperties>({});
   const selected = toDate(value);
@@ -87,7 +103,13 @@ export function DatePicker({
     if (!open) return;
     updatePopupPosition();
     function handleClickOutside(e: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+      if (
+        isDatePickerInteractionOutside({
+          target: e.target as Node | null,
+          container: containerRef.current,
+          popup: popupRef.current,
+        })
+      ) {
         setOpen(false);
       }
     }
@@ -125,6 +147,7 @@ export function DatePicker({
         mounted &&
         createPortal(
           <div
+            ref={popupRef}
             className="rounded-xl border border-border bg-popover p-0 shadow-xl"
             style={popupStyle}
           >
