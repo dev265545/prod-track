@@ -183,6 +183,12 @@ export interface AttendanceStats {
   totalHoursWorked: number;
 }
 
+export interface AttendanceSalarySummaryForRange extends AttendanceStats {
+  hoursExtraTotal: number;
+  hoursReducedTotal: number;
+  calculatedSalary: number;
+}
+
 /** Paid-day fraction for a present working day (hours worked or extra/less adjust). */
 export function computeDayPayFraction(
   att: { hoursWorked?: number; hoursReduced?: number; hoursExtra?: number },
@@ -651,6 +657,47 @@ export function computeAttendanceStatsForRange(input: {
     sundayPresentBonusDays,
     totalPaidDays,
     totalHoursWorked,
+  };
+}
+
+export function buildAttendanceSalarySummaryForRange(input: {
+  fromDate: string;
+  toDate: string;
+  holidayDates: string[];
+  attendance: AttendanceRecord[];
+  hoursPerDay?: number;
+  ratePerDay: number;
+  sundayCategoryRule?: SundayCategoryRule;
+}): AttendanceSalarySummaryForRange {
+  const {
+    fromDate,
+    toDate,
+    holidayDates,
+    attendance,
+    hoursPerDay = 8,
+    ratePerDay,
+    sundayCategoryRule = DEFAULT_SUNDAY_CATEGORY_RULE,
+  } = input;
+
+  const stats = computeAttendanceStatsForRange({
+    fromDate,
+    toDate,
+    holidayDates,
+    attendance,
+    hoursPerDay,
+    sundayCategoryRule,
+  });
+  const { hoursExtraSum, hoursReducedSum } = sumHoursAdjustmentsInRange(
+    attendance,
+    fromDate,
+    toDate,
+  );
+
+  return {
+    ...stats,
+    hoursExtraTotal: hoursExtraSum,
+    hoursReducedTotal: hoursReducedSum,
+    calculatedSalary: Math.round(stats.totalPaidDays * ratePerDay * 100) / 100,
   };
 }
 

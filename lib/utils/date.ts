@@ -62,6 +62,19 @@ export interface Period {
   month: number;
 }
 
+export type MonthRangeMode =
+  | "full-month"
+  | "first-half"
+  | "second-half"
+  | "custom";
+
+export interface MonthRangePreset {
+  mode: Exclude<MonthRangeMode, "custom">;
+  from: string;
+  to: string;
+  label: string;
+}
+
 export function getPeriodForDate(date: string | Date): Period {
   const d =
     typeof date === "string" ? new Date(date + "T12:00:00") : new Date(date);
@@ -85,6 +98,63 @@ export function getPeriodForDate(date: string | Date): Period {
   }
 
   return { from, to, label, year: y, month: m };
+}
+
+export function getMonthRangeLabel(fromDate: string, toDate: string): string {
+  const from = new Date(fromDate + "T12:00:00");
+  const to = new Date(toDate + "T12:00:00");
+  const sameDay = fromDate === toDate;
+  const sameMonth =
+    from.getFullYear() === to.getFullYear() &&
+    from.getMonth() === to.getMonth();
+
+  if (sameDay) {
+    return `${from.getDate()} ${monthNames[from.getMonth()]} ${from.getFullYear()}`;
+  }
+  if (sameMonth) {
+    return `${from.getDate()}-${to.getDate()} ${monthNames[from.getMonth()]} ${from.getFullYear()}`;
+  }
+  return `${formatDisplayDate(fromDate)} - ${formatDisplayDate(toDate)}`;
+}
+
+export function getMonthRangePresets(
+  year: number,
+  month: number,
+): MonthRangePreset[] {
+  const fullMonth = getMonthRange(year, month);
+  const lastDay = getCalendarDaysInMonth(year, month);
+  return [
+    {
+      mode: "full-month",
+      from: fullMonth.from,
+      to: fullMonth.to,
+      label: getMonthRangeLabel(fullMonth.from, fullMonth.to),
+    },
+    {
+      mode: "first-half",
+      from: `${year}-${pad(month + 1)}-01`,
+      to: `${year}-${pad(month + 1)}-15`,
+      label: `1-15 ${monthNames[month]} ${year}`,
+    },
+    {
+      mode: "second-half",
+      from: `${year}-${pad(month + 1)}-16`,
+      to: `${year}-${pad(month + 1)}-${pad(lastDay)}`,
+      label: `16-${lastDay} ${monthNames[month]} ${year}`,
+    },
+  ];
+}
+
+export function clampDateToMonth(
+  dateStr: string,
+  year: number,
+  month: number,
+): string {
+  const { from, to } = getMonthRange(year, month);
+  if (!dateStr) return from;
+  if (dateStr < from) return from;
+  if (dateStr > to) return to;
+  return dateStr;
 }
 
 export function getPeriods(count = 24): { from: string; to: string; label: string }[] {

@@ -18,6 +18,7 @@ import {
   getRatePerHour,
 } from "@/lib/utils/salaryRates";
 import { buildMonthSalaryBreakdown } from "@/lib/utils/attendanceStats";
+import type { AttendanceSalarySummaryForRange } from "@/lib/utils/attendanceStats";
 
 export interface ProductionRow {
   date: string;
@@ -252,4 +253,32 @@ export async function getPrintableMonthlyAttendanceSheetHtml(
   const html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Monthly attendance — ${name}</title><style>${printStyles}</style></head><body id="printArea"><div style="margin:0 auto"><div style="display:flex;justify-content:space-between;margin-bottom:12px"><div><h1 class="text-2xl">ProdTrack Lite</h1><p class="text-sm text-gray-600">Monthly attendance &amp; salary</p></div><div class="text-sm text-right"><p><strong>Employee:</strong> ${name}</p><p><strong>Month:</strong> ${monthTitle}</p></div></div>${summary}<table class="table"><thead><tr><th class="border">Date</th><th class="border">Day</th><th class="border">Status</th><th class="border text-right">Hrs worked</th><th class="border text-right">Extra hrs</th><th class="border text-right">Less hrs</th><th class="border text-right">Equiv. hrs</th><th class="border text-right">Paid day %</th><th class="border text-right">Day pay</th></tr></thead><tbody>${dayRows}</tbody></table></div></body></html>`;
 
   return { html, employeeName: name };
+}
+
+export function buildPrintableAttendanceSalaryRangeHtml(input: {
+  employeeName: string;
+  monthLabel: string;
+  rangeLabel: string;
+  fromDate: string;
+  toDate: string;
+  monthlySalary: number;
+  ratePerDay: number;
+  ratePerHour: number;
+  summary: AttendanceSalarySummaryForRange;
+}): string {
+  const {
+    employeeName,
+    monthLabel,
+    rangeLabel,
+    fromDate,
+    toDate,
+    monthlySalary,
+    ratePerDay,
+    ratePerHour,
+    summary,
+  } = input;
+  const printStyles =
+    "body{margin:0;font-family:system-ui,sans-serif;font-size:12px;color:#0a0a0a;background:#fff;padding:16px}.text-2xl{font-size:1.25rem;font-weight:700}.text-sm{font-size:0.75rem}.text-gray-600{color:#52525b}.border{border:1px solid #e4e4e7}.table{width:100%;font-size:11px;border-collapse:collapse}.table th,.table td{padding:5px 6px;text-align:left;border:1px solid #e4e4e7}.table th{background:#f4f4f5;font-weight:600}.text-right{text-align:right}";
+
+  return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Attendance salary — ${employeeName}</title><style>${printStyles}</style></head><body id="printArea"><div style="margin:0 auto;max-width:42rem"><div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px"><div><h1 class="text-2xl">ProdTrack Lite</h1><p class="text-sm text-gray-600">Attendance salary contribution</p></div><div class="text-sm text-right"><p><strong>Employee:</strong> ${employeeName}</p><p><strong>Month:</strong> ${monthLabel}</p><p><strong>Range:</strong> ${rangeLabel}</p></div></div><div class="border" style="padding:10px;margin-bottom:12px"><p style="margin:0 0 4px"><strong>Period:</strong> ${dateDisplay(fromDate)} – ${dateDisplay(toDate)}</p><p style="margin:0 0 4px"><strong>Monthly salary:</strong> ${currency(monthlySalary)} · <strong>Rate / day:</strong> ${currency(ratePerDay)} · <strong>Rate / hour:</strong> ${currency(ratePerHour)}</p><p style="margin:0"><strong>Salary contribution:</strong> ${currency(summary.calculatedSalary)}</p></div><table class="table"><thead><tr><th class="border">Metric</th><th class="border text-right">Value</th></tr></thead><tbody><tr><td class="border">Present</td><td class="border text-right">${number(summary.presentDays)}</td></tr><tr><td class="border">Absent</td><td class="border text-right">${number(summary.absentDays)}</td></tr><tr><td class="border">Earned Sun.</td><td class="border text-right">${number(summary.earnedSundayPayDays)}</td></tr><tr><td class="border">Sun. +</td><td class="border text-right">${number(summary.sundayPresentBonusDays)}</td></tr><tr><td class="border">Paid days</td><td class="border text-right">${number(summary.totalPaidDays)}</td></tr><tr><td class="border">+ hrs</td><td class="border text-right">${number(summary.hoursExtraTotal)}</td></tr><tr><td class="border">− hrs</td><td class="border text-right">${number(summary.hoursReducedTotal)}</td></tr><tr><td class="border" style="font-weight:700">Salary</td><td class="border text-right" style="font-weight:700">${currency(summary.calculatedSalary)}</td></tr></tbody></table></div></body></html>`;
 }

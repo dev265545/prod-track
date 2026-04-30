@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  clampDateToMonth,
   getDatesInRange,
+  getMonthRangeLabel,
   getMonthRange,
+  getMonthRangePresets,
   getWorkingDaysInRange,
   getWorkingDayDates,
   isSunday,
@@ -17,6 +20,58 @@ describe("getMonthRange", () => {
       from: "2026-04-01",
       to: "2026-04-30",
     });
+  });
+});
+
+describe("month range helpers", () => {
+  it("builds full/first/second-half presets for 31-day months", () => {
+    expect(getMonthRangePresets(2026, 2)).toEqual([
+      {
+        mode: "full-month",
+        from: "2026-03-01",
+        to: "2026-03-31",
+        label: "1-31 Mar 2026",
+      },
+      {
+        mode: "first-half",
+        from: "2026-03-01",
+        to: "2026-03-15",
+        label: "1-15 Mar 2026",
+      },
+      {
+        mode: "second-half",
+        from: "2026-03-16",
+        to: "2026-03-31",
+        label: "16-31 Mar 2026",
+      },
+    ]);
+  });
+
+  it("builds second-half presets correctly for leap-year February", () => {
+    const secondHalf = getMonthRangePresets(2028, 1).find(
+      (preset) => preset.mode === "second-half",
+    );
+    expect(secondHalf).toEqual({
+      mode: "second-half",
+      from: "2028-02-16",
+      to: "2028-02-29",
+      label: "16-29 Feb 2028",
+    });
+  });
+
+  it("clamps custom dates into the selected month", () => {
+    expect(clampDateToMonth("2026-03-29", 2026, 3)).toBe("2026-04-01");
+    expect(clampDateToMonth("2026-05-02", 2026, 3)).toBe("2026-04-30");
+    expect(clampDateToMonth("2026-04-12", 2026, 3)).toBe("2026-04-12");
+  });
+
+  it("formats range labels for a single day and a span", () => {
+    expect(getMonthRangeLabel("2026-04-10", "2026-04-10")).toBe(
+      "10 Apr 2026",
+    );
+    expect(getMonthRangeLabel("2026-04-10", "2026-04-19")).toBe(
+      "10-19 Apr 2026",
+    );
   });
 });
 

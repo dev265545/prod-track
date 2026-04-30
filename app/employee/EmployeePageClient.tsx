@@ -54,6 +54,7 @@ import { saveEmployee } from "@/lib/services/employeeService";
 import { getSalaryRecordsByEmployee } from "@/lib/services/salaryRecordService";
 import {
   calculateSalary,
+  buildPrintableAttendanceSalaryRangeHtml,
   getPrintableSalaryHtml,
   getPrintableMonthlyAttendanceSheetHtml,
 } from "@/lib/services/salaryService";
@@ -71,16 +72,22 @@ import {
   getRatePerHour,
 } from "@/lib/utils/salaryRates";
 import {
+  buildAttendanceSalarySummaryForRange,
   computeAttendanceStats,
   computeHoursInRange,
 } from "@/lib/utils/attendanceStats";
 import {
+  clampDateToMonth,
+  getMonthRange,
+  getMonthRangeLabel,
+  getMonthRangePresets,
   getPeriodForDate,
   getPeriodsWithData,
   today,
   isRestrictedForEntry,
   formatMonthYear,
   toISODate,
+  type MonthRangeMode,
 } from "@/lib/utils/date";
 import { getMissingDataDays } from "@/lib/utils/missingDataWarnings";
 import { getHolidayByDate } from "@/lib/services/factoryHolidayService";
@@ -217,6 +224,10 @@ export function EmployeePageClient() {
   const now = new Date();
   const [calYear, setCalYear] = useState(now.getFullYear());
   const [calMonth, setCalMonth] = useState(now.getMonth());
+  const [salaryRangeMode, setSalaryRangeMode] =
+    useState<MonthRangeMode>("full-month");
+  const [salaryCustomFrom, setSalaryCustomFrom] = useState("");
+  const [salaryCustomTo, setSalaryCustomTo] = useState("");
   /** Ignores stale results when the calendar month changes before fetch completes. */
   const calendarLoadGen = useRef(0);
   const [selectedDate, setSelectedDate] = useState<string | null>(today());
@@ -484,6 +495,59 @@ export function EmployeePageClient() {
     Math.round(totalPaidDays * ratePerDay * 100) / 100;
 
   const monthSheetOptions = monthPickerOptions(36);
+  const monthBounds = getMonthRange(calYear, calMonth);
+  const salaryRangePresets = getMonthRangePresets(calYear, calMonth);
+  const resolvedSalaryCustomFrom = clampDateToMonth(
+    salaryCustomFrom || monthBounds.from,
+    calYear,
+    calMonth,
+  );
+  const resolvedSalaryCustomTo = clampDateToMonth(
+    salaryCustomTo || monthBounds.to,
+    calYear,
+    calMonth,
+  );
+  const salaryRange =
+    salaryRangeMode === "custom"
+      ? {
+          from:
+            resolvedSalaryCustomFrom <= resolvedSalaryCustomTo
+              ? resolvedSalaryCustomFrom
+              : resolvedSalaryCustomTo,
+          to:
+            resolvedSalaryCustomFrom <= resolvedSalaryCustomTo
+              ? resolvedSalaryCustomTo
+              : resolvedSalaryCustomFrom,
+          label: getMonthRangeLabel(
+            resolvedSalaryCustomFrom <= resolvedSalaryCustomTo
+              ? resolvedSalaryCustomFrom
+              : resolvedSalaryCustomTo,
+            resolvedSalaryCustomFrom <= resolvedSalaryCustomTo
+              ? resolvedSalaryCustomTo
+              : resolvedSalaryCustomFrom,
+          ),
+        }
+      : salaryRangePresets.find((preset) => preset.mode === salaryRangeMode) ??
+        salaryRangePresets[0];
+  const salaryRangeSummary = buildAttendanceSalarySummaryForRange({
+    fromDate: salaryRange.from,
+    toDate: salaryRange.to,
+    holidayDates: factoryHolidays,
+    attendance: calendarAttendance.map((a) => ({
+      date: a.date as string,
+      status: a.status as string,
+      hoursWorked: a.hoursWorked as number | undefined,
+      hoursReduced: a.hoursReduced as number | undefined,
+      hoursExtra: a.hoursExtra as number | undefined,
+    })),
+    hoursPerDay,
+    ratePerDay,
+    sundayCategoryRule,
+  });
+  const salaryRangeLabel =
+    salaryRangeMode === "full-month"
+      ? formatMonthYear(monthBounds.from)
+      : salaryRange.label;
 
   const periodProdQty = productions.reduce(
     (sum, p) => sum + ((p.quantity as number) || 0),
@@ -521,6 +585,28 @@ export function EmployeePageClient() {
         return (rec.hoursWorked as number) ?? hoursPerDay + extra;
       })()
     : 0;
+
+  const handleSalaryCustomFromChange = (value: string) => {
+    const nextFrom = clampDateToMonth(value, calYear, calMonth);
+    const nextTo = clampDateToMonth(
+      salaryCustomTo || monthBounds.to,
+      calYear,
+      calMonth,
+    );
+    setSalaryCustomFrom(nextFrom);
+    if (nextTo < nextFrom) setSalaryCustomTo(nextFrom);
+  };
+
+  const handleSalaryCustomToChange = (value: string) => {
+    const nextTo = clampDateToMonth(value, calYear, calMonth);
+    const nextFrom = clampDateToMonth(
+      salaryCustomFrom || monthBounds.from,
+      calYear,
+      calMonth,
+    );
+    setSalaryCustomTo(nextTo);
+    if (nextTo < nextFrom) setSalaryCustomFrom(nextTo);
+  };
 
   return (
     <AppShell>
@@ -1328,8 +1414,163 @@ export function EmployeePageClient() {
 
         <Card className="p-6 sm:p-8 transition-all duration-300 ease-out animate-fade-in animate-stagger-4">
           <CardHeader className="p-0 mb-5">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <CardTitle className="text-xl font-semibold font-heading">
+                  Salary (attendance range)
+                </CardTitle>
+                <p className="text-sm text-muted-foreground mt-1 max-w-2xl">
+                  View how much of the monthly attendance salary belongs to the selected range. Production and advances stay separate.
+                </p>
+              </div>
+              <div className="flex flex-wrap items-end gap-3 shrink-0">
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor="attendance-salary-month">Month</Label>
+                  <Select
+                    value={`${calYear}-${calMonth}`}
+                    onValueChange={(v) => {
+                      const [y, m] = v.split("-").map(Number);
+                      setCalYear(y);
+                      setCalMonth(m);
+                    }}
+                  >
+                    <SelectTrigger
+                      id="attendance-salary-month"
+                      className="min-w-[200px] w-56 min-h-12"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {monthSheetOptions.map((opt) => (
+                        <SelectItem key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor="attendance-salary-range-mode">Range</Label>
+                  <Select
+                    value={salaryRangeMode}
+                    onValueChange={(value) =>
+                      setSalaryRangeMode(value as MonthRangeMode)
+                    }
+                  >
+                    <SelectTrigger
+                      id="attendance-salary-range-mode"
+                      className="min-w-[180px] min-h-12"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="full-month">Full month</SelectItem>
+                      <SelectItem value="first-half">1-15</SelectItem>
+                      <SelectItem value="second-half">
+                        {`16-${new Date(calYear, calMonth + 1, 0).getDate()}`}
+                      </SelectItem>
+                      <SelectItem value="custom">Custom range</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                {salaryRangeMode === "custom" && (
+                  <>
+                    <div className="flex flex-col gap-2">
+                      <Label htmlFor="attendance-salary-from">From</Label>
+                      <DatePicker
+                        id="attendance-salary-from"
+                        value={salaryRange.from}
+                        onChange={handleSalaryCustomFromChange}
+                        min={monthBounds.from}
+                        max={monthBounds.to}
+                        className="min-w-[180px] min-h-12"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-2">
+                      <Label htmlFor="attendance-salary-to">To</Label>
+                      <DatePicker
+                        id="attendance-salary-to"
+                        value={salaryRange.to}
+                        onChange={handleSalaryCustomToChange}
+                        min={monthBounds.from}
+                        max={monthBounds.to}
+                        className="min-w-[180px] min-h-12"
+                      />
+                    </div>
+                  </>
+                )}
+                <Button
+                  type="button"
+                  className="min-h-12 px-6"
+                  onClick={async () => {
+                    const html = buildPrintableAttendanceSalaryRangeHtml({
+                      employeeName: (employee.name as string) ?? "Unknown",
+                      monthLabel: formatMonthYear(monthBounds.from),
+                      rangeLabel: salaryRangeLabel,
+                      fromDate: salaryRange.from,
+                      toDate: salaryRange.to,
+                      monthlySalary,
+                      ratePerDay,
+                      ratePerHour,
+                      summary: salaryRangeSummary,
+                    });
+                    await printHtml(html);
+                  }}
+                >
+                  <Printer data-icon="inline-start" className="size-4" />
+                  Print attendance salary
+                </Button>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="p-0">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="rounded-xl border bg-muted/30 p-4">
+                <p className="text-xs font-medium text-muted-foreground">
+                  Range
+                </p>
+                <p className="mt-1 text-sm font-semibold text-foreground">
+                  {salaryRangeLabel}
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {dateDisplay(salaryRange.from)} – {dateDisplay(salaryRange.to)}
+                </p>
+              </div>
+              <div className="rounded-xl border bg-muted/30 p-4">
+                <p className="text-xs font-medium text-muted-foreground">
+                  Present / Absent
+                </p>
+                <p className="mt-1 text-sm font-semibold tabular-nums text-foreground">
+                  {number(salaryRangeSummary.presentDays)} / {number(salaryRangeSummary.absentDays)}
+                </p>
+              </div>
+              <div className="rounded-xl border bg-muted/30 p-4">
+                <p className="text-xs font-medium text-muted-foreground">
+                  Earned Sun. / Sun. +
+                </p>
+                <p className="mt-1 text-sm font-semibold tabular-nums text-foreground">
+                  {number(salaryRangeSummary.earnedSundayPayDays)} / {number(salaryRangeSummary.sundayPresentBonusDays)}
+                </p>
+              </div>
+              <div className="rounded-xl border-2 border-primary/25 bg-primary/10 p-4">
+                <p className="text-xs font-medium text-muted-foreground">
+                  Salary contribution
+                </p>
+                <p className="mt-1 text-lg font-bold tabular-nums text-foreground">
+                  {currency(salaryRangeSummary.calculatedSalary)}
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Paid days {number(salaryRangeSummary.totalPaidDays)} · +hrs {number(salaryRangeSummary.hoursExtraTotal)} · -hrs {number(salaryRangeSummary.hoursReducedTotal)}
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="p-6 sm:p-8 transition-all duration-300 ease-out animate-fade-in animate-stagger-4">
+          <CardHeader className="p-0 mb-5">
             <CardTitle className="text-xl font-semibold font-heading">
-              Salary (15-day periods)
+              Production & advances (15-day periods)
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
@@ -1401,7 +1642,7 @@ export function EmployeePageClient() {
         <Card className="p-6 sm:p-8 transition-all duration-300 ease-out animate-fade-in animate-stagger-5">
           <CardHeader className="p-0 mb-4">
             <CardTitle className="text-xl font-semibold font-heading">
-              Salary for this period
+              Settlement for this period
             </CardTitle>
             <p className="text-sm text-muted-foreground mt-1">
               Set how much advance to cut this 15-day cycle. Net = Gross − Advance to cut. Submit to save.

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildAttendanceSalarySummaryForRange,
   buildMonthSalaryBreakdown,
   computeAttendanceStats,
   computeAttendanceStatsForRange,
@@ -304,6 +305,48 @@ describe("computeAttendanceStatsForRange", () => {
     expect(range.sundayPresentBonusDays).toBe(month.sundayPresentBonusDays);
     expect(range.totalPaidDays).toBe(month.totalPaidDays);
     expect(range.totalHoursWorked).toBe(month.totalHoursWorked);
+  });
+});
+
+describe("buildAttendanceSalarySummaryForRange", () => {
+  it("matches full-month salary totals when the selected range covers the month", () => {
+    const summary = buildAttendanceSalarySummaryForRange({
+      fromDate: "2026-04-01",
+      toDate: "2026-04-30",
+      holidayDates: [],
+      attendance: [{ date: "2026-04-01", status: "present" }],
+      hoursPerDay: 8,
+      ratePerDay: 1000,
+    });
+    expect(summary.presentDays).toBe(1);
+    expect(summary.absentDays).toBe(25);
+    expect(summary.totalPaidDays).toBe(1);
+    expect(summary.hoursExtraTotal).toBe(0);
+    expect(summary.hoursReducedTotal).toBe(0);
+    expect(summary.calculatedSalary).toBe(1000);
+  });
+
+  it("calculates salary contribution and hour adjustments for a custom in-month range", () => {
+    const summary = buildAttendanceSalarySummaryForRange({
+      fromDate: "2026-04-10",
+      toDate: "2026-04-15",
+      holidayDates: [],
+      attendance: [
+        { date: "2026-04-10", status: "present", hoursExtra: 2 },
+        { date: "2026-04-11", status: "present", hoursReduced: 4 },
+        { date: "2026-04-13", status: "absent" },
+      ],
+      hoursPerDay: 8,
+      ratePerDay: 300,
+    });
+    expect(summary.presentDays).toBe(1.75);
+    expect(summary.absentDays).toBe(3);
+    expect(summary.earnedSundayPayDays).toBe(0);
+    expect(summary.sundayPresentBonusDays).toBe(0);
+    expect(summary.totalPaidDays).toBe(1.75);
+    expect(summary.hoursExtraTotal).toBe(2);
+    expect(summary.hoursReducedTotal).toBe(4);
+    expect(summary.calculatedSalary).toBe(525);
   });
 });
 

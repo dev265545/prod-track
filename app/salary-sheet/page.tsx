@@ -38,15 +38,19 @@ import {
 import { Spinner } from "@/components/ui/spinner";
 import { openDB } from "@/lib/db/adapter";
 import { isLoggedIn, checkExpiry } from "@/lib/auth";
-import { getSalarySheetForMonth } from "@/lib/services/salarySheetService";
+import { getSalarySheetForRange } from "@/lib/services/salarySheetService";
 import type { SalarySheetRow } from "@/lib/services/salarySheetService";
 import {
+  clampDateToMonth,
   getMonthRange,
+  getMonthRangePresets,
+  getMonthRangeLabel,
+  type MonthRangeMode,
   formatMonthYear,
-  today,
 } from "@/lib/utils/date";
 import { currency, number } from "@/lib/utils/formatter";
 import { printHtml } from "@/lib/utils/print";
+import { DatePicker } from "@/components/ui/date-picker";
 
 const MONTH_NAMES = [
   "January", "February", "March", "April", "May", "June",
@@ -127,23 +131,64 @@ export default function SalarySheetPage() {
     const t = new Date();
     return t.getMonth();
   });
+  const [rangeMode, setRangeMode] = useState<MonthRangeMode>("full-month");
+  const [customFrom, setCustomFrom] = useState("");
+  const [customTo, setCustomTo] = useState("");
   const [rows, setRows] = useState<SalarySheetRow[]>([]);
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
 
   const monthOptions = getMonthOptions(24);
+  const monthBounds = getMonthRange(year, month);
+  const rangePresets = getMonthRangePresets(year, month);
+  const resolvedCustomFrom = clampDateToMonth(
+    customFrom || monthBounds.from,
+    year,
+    month,
+  );
+  const resolvedCustomTo = clampDateToMonth(
+    customTo || monthBounds.to,
+    year,
+    month,
+  );
+  const selectedRange =
+    rangeMode === "custom"
+      ? {
+          from:
+            resolvedCustomFrom <= resolvedCustomTo
+              ? resolvedCustomFrom
+              : resolvedCustomTo,
+          to:
+            resolvedCustomFrom <= resolvedCustomTo
+              ? resolvedCustomTo
+              : resolvedCustomFrom,
+          label: getMonthRangeLabel(
+            resolvedCustomFrom <= resolvedCustomTo
+              ? resolvedCustomFrom
+              : resolvedCustomTo,
+            resolvedCustomFrom <= resolvedCustomTo
+              ? resolvedCustomTo
+              : resolvedCustomFrom,
+          ),
+        }
+      : rangePresets.find((preset) => preset.mode === rangeMode) ?? rangePresets[0];
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const result = await getSalarySheetForMonth(year, month);
+      const result = await getSalarySheetForRange(
+        year,
+        month,
+        selectedRange.from,
+        selectedRange.to,
+      );
       setRows(result.rows);
       setFrom(result.from);
       setTo(result.to);
     } finally {
       setLoading(false);
     }
-  }, [year, month]);
+  }, [year, month, selectedRange.from, selectedRange.to]);
 
   useEffect(() => {
     openDB()
@@ -168,10 +213,27 @@ export default function SalarySheetPage() {
     setMonth(m);
   };
 
+  const handleCustomFromChange = (value: string) => {
+    const nextFrom = clampDateToMonth(value, year, month);
+    const nextTo = clampDateToMonth(customTo || monthBounds.to, year, month);
+    setCustomFrom(nextFrom);
+    if (nextTo < nextFrom) setCustomTo(nextFrom);
+  };
+
+  const handleCustomToChange = (value: string) => {
+    const nextTo = clampDateToMonth(value, year, month);
+    const nextFrom = clampDateToMonth(customFrom || monthBounds.from, year, month);
+    setCustomTo(nextTo);
+    if (nextTo < nextFrom) setCustomFrom(nextTo);
+  };
+
   const handlePrint = () => {
     console.log("[print] Print button clicked (salary sheet)");
-    const monthLabel = formatMonthYear(`${year}-${String(month + 1).padStart(2, "0")}-01`);
-    const html = buildPrintableHtml(rows, monthLabel, from, to);
+    const titleLabel =
+      rangeMode === "full-month"
+        ? formatMonthYear(`${year}-${String(month + 1).padStart(2, "0")}-01`)
+        : selectedRange.label;
+    const html = buildPrintableHtml(rows, titleLabel, from, to);
     console.log("[print] Got HTML, length:", html?.length ?? 0);
     printHtml(html);
   };
@@ -220,6 +282,54 @@ export default function SalarySheetPage() {
                 </SelectContent>
               </Select>
             </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="salary-range-mode">Range</Label>
+              <Select
+                value={rangeMode}
+                onValueChange={(value) => setRangeMode(value as MonthRangeMode)}
+              >
+                <SelectTrigger
+                  id="salary-range-mode"
+                  className="min-w-[200px] min-h-12"
+                >
+                  <SelectValue placeholder="Select range" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="full-month">Full month</SelectItem>
+                  <SelectItem value="first-half">1-15</SelectItem>
+                  <SelectItem value="second-half">
+                    {`16-${new Date(year, month + 1, 0).getDate()}`}
+                  </SelectItem>
+                  <SelectItem value="custom">Custom range</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {rangeMode === "custom" && (
+              <>
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor="salary-range-from">From</Label>
+                  <DatePicker
+                    id="salary-range-from"
+                    value={selectedRange.from}
+                    onChange={handleCustomFromChange}
+                    min={monthBounds.from}
+                    max={monthBounds.to}
+                    className="min-w-[180px] min-h-12"
+                  />
+                </div>
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor="salary-range-to">To</Label>
+                  <DatePicker
+                    id="salary-range-to"
+                    value={selectedRange.to}
+                    onChange={handleCustomToChange}
+                    min={monthBounds.from}
+                    max={monthBounds.to}
+                    className="min-w-[180px] min-h-12"
+                  />
+                </div>
+              </>
+            )}
             <Button
               type="button"
               onClick={handlePrint}
@@ -235,10 +345,10 @@ export default function SalarySheetPage() {
           <CardHeader className="p-0 mb-5">
             <CardTitle className="text-xl font-semibold font-heading flex items-center gap-2">
               <FileSpreadsheet className="size-5 text-primary" />
-              {monthLabel}
+              {rangeMode === "full-month" ? monthLabel : selectedRange.label}
             </CardTitle>
             <p className="text-sm text-muted-foreground mt-1">
-              Attendance, hourly adjustments (extra / less), monthly and effective rates, and calculated salary for the selected month.
+              Attendance, hourly adjustments (extra / less), monthly and effective rates, and calculated salary for the selected range.
             </p>
           </CardHeader>
           <CardContent className="p-0">
