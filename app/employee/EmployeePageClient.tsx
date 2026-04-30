@@ -73,6 +73,7 @@ import {
 } from "@/lib/utils/salaryRates";
 import {
   buildAttendanceSalarySummaryForRange,
+  buildMonthSalaryBreakdown,
   computeAttendanceStats,
   computeHoursInRange,
 } from "@/lib/utils/attendanceStats";
@@ -548,6 +549,26 @@ export function EmployeePageClient() {
     salaryRangeMode === "full-month"
       ? formatMonthYear(monthBounds.from)
       : salaryRange.label;
+  const monthAttendanceBreakdown = buildMonthSalaryBreakdown({
+    year: calYear,
+    month: calMonth,
+    holidayDates: factoryHolidays,
+    attendance: calendarAttendance.map((a) => ({
+      date: a.date as string,
+      status: a.status as string,
+      hoursWorked: a.hoursWorked as number | undefined,
+      hoursReduced: a.hoursReduced as number | undefined,
+      hoursExtra: a.hoursExtra as number | undefined,
+    })),
+    productionPayByDate: new Map(),
+    hoursPerDay,
+    ratePerDay,
+    includeProductionPay: false,
+    sundayCategoryRule,
+  });
+  const salaryRangeDayRows = monthAttendanceBreakdown.days.filter(
+    (row) => row.date >= salaryRange.from && row.date <= salaryRange.to,
+  );
 
   const periodProdQty = productions.reduce(
     (sum, p) => sum + ((p.quantity as number) || 0),
@@ -1513,6 +1534,7 @@ export function EmployeePageClient() {
                       ratePerDay,
                       ratePerHour,
                       summary: salaryRangeSummary,
+                      dayRows: salaryRangeDayRows,
                     });
                     await printHtml(html);
                   }}
