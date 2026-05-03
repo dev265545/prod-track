@@ -85,11 +85,8 @@ const DRIVER_FIELDS: Array<{
   label: string;
 }> = [
   { key: "presentDays", label: "Present days" },
-  { key: "holidayPresentDays", label: "Holiday present" },
   { key: "earnedSundayPayDays", label: "Extra days earned" },
   { key: "sundayPresentBonusDays", label: "Sunday present bonus" },
-  { key: "hoursExtraTotal", label: "Extra hours" },
-  { key: "hoursReducedTotal", label: "Less hours" },
 ];
 
 function formatCalculatedValue(
@@ -641,9 +638,9 @@ export default function SalarySheetPage() {
                         Blank fields stay automatic. Filled fields are saved permanently for this exact period from {from} to {to}.
                       </DialogDescription>
                     </div>
-                    <Card className="min-w-[220px] rounded-2xl border-primary/20 bg-primary/5 shadow-none">
+                    <Card className="min-w-[220px] rounded-2xl border-chart-1/30 bg-chart-1/10 shadow-none">
                       <CardContent className="px-4 py-4">
-                        <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+                        <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-chart-4">
                           Current salary
                         </p>
                         <p className="mt-1 text-2xl font-semibold tabular-nums text-foreground">
@@ -659,15 +656,15 @@ export default function SalarySheetPage() {
 
                 <div className="max-h-[82vh] overflow-y-auto">
                   <div className="space-y-6 px-5 py-5 sm:px-7 sm:py-6">
-                    <Card className="rounded-2xl border-border/80 bg-muted/20 shadow-none">
+                    <Card className="rounded-2xl border-chart-1/20 bg-chart-1/5 shadow-none">
                       <CardContent className="grid gap-4 px-5 py-5 lg:grid-cols-[minmax(0,1fr)_280px]">
                         <div className="space-y-2 text-sm text-muted-foreground">
                           <p className="font-medium text-foreground">How this editor works</p>
                           <p>
-                            The sheet still calculates everything automatically. Only fields you fill here become permanent corrections for this employee and this exact salary-sheet range.
+                            Adjust only the 3 payroll drivers here. Absent days, paid days, and salary react automatically for this employee and this exact salary-sheet range.
                           </p>
                         </div>
-                        <div className="grid gap-3 rounded-xl border bg-background p-4 text-sm">
+                        <div className="grid gap-3 rounded-xl border border-chart-1/20 bg-background/95 p-4 text-sm">
                           <div className="flex items-center justify-between gap-3">
                             <span className="text-muted-foreground">Override status</span>
                             <span className="font-medium text-foreground">
@@ -690,7 +687,7 @@ export default function SalarySheetPage() {
                         DRIVER_FIELDS.map((field) => (
                         <Card
                           key={field.key}
-                          className="rounded-2xl border-border/80 bg-card shadow-none"
+                          className="rounded-2xl border-chart-1/20 bg-gradient-to-br from-card to-chart-1/5 shadow-none"
                         >
                           <CardHeader className="px-5 pb-3 pt-5">
                             <div className="flex items-start justify-between gap-3">
@@ -709,7 +706,7 @@ export default function SalarySheetPage() {
                                 type="button"
                                 variant="ghost"
                                 size="sm"
-                                className="h-8 shrink-0 px-2.5 text-xs"
+                                className="h-8 shrink-0 px-2.5 text-xs text-chart-4 hover:text-chart-5"
                                 onClick={() => resetDraftField(field.key)}
                               >
                                 Auto
@@ -722,6 +719,7 @@ export default function SalarySheetPage() {
                                 type="button"
                                 variant="outline"
                                 size="icon-sm"
+                                className="border-chart-1/30 bg-chart-1/5 hover:bg-chart-1/15"
                                 onClick={() =>
                                   setDraftDrivers((current) =>
                                     current
@@ -743,7 +741,7 @@ export default function SalarySheetPage() {
                                 type="number"
                                 step="1"
                                 inputMode="numeric"
-                                className="h-11 text-center text-base tabular-nums"
+                                className="h-11 border-chart-1/30 bg-background text-center text-base tabular-nums"
                                 value={String(draftState.drivers[field.key])}
                                 onChange={(event) => {
                                   const next = Number(event.target.value);
@@ -762,6 +760,7 @@ export default function SalarySheetPage() {
                                 type="button"
                                 variant="outline"
                                 size="icon-sm"
+                                className="border-chart-1/30 bg-chart-1/5 hover:bg-chart-1/15"
                                 onClick={() =>
                                   setDraftDrivers((current) =>
                                     current
@@ -785,7 +784,7 @@ export default function SalarySheetPage() {
                     </div>
 
                     {draftState && (
-                      <Card className="rounded-2xl border-primary/20 bg-primary/5 shadow-none">
+                      <Card className="rounded-2xl border-chart-2/20 bg-chart-1/10 shadow-none">
                         <CardHeader className="px-5 pb-3 pt-5">
                           <CardTitle className="text-base font-semibold">
                             Auto-calculated results
@@ -808,8 +807,8 @@ export default function SalarySheetPage() {
                                 key={key}
                                 className={`rounded-xl border p-4 transition-colors ${
                                   isChanged
-                                    ? "border-primary bg-primary/10"
-                                    : "border-border bg-background"
+                                    ? "border-chart-2/35 bg-chart-1/15 shadow-[inset_0_0_0_1px_color-mix(in_oklab,var(--color-chart-2)_18%,white)]"
+                                    : "border-chart-1/15 bg-background"
                                 }`}
                               >
                                 <div className="flex items-center justify-between gap-3">
@@ -817,7 +816,7 @@ export default function SalarySheetPage() {
                                     {label}
                                   </p>
                                   {isChanged ? (
-                                    <span className="rounded-full bg-primary/15 px-2 py-0.5 text-[11px] font-medium text-primary">
+                                    <span className="rounded-full bg-chart-2/10 px-2 py-0.5 text-[11px] font-medium text-chart-4">
                                       Auto updated
                                     </span>
                                   ) : null}
@@ -835,7 +834,7 @@ export default function SalarySheetPage() {
                       </Card>
                     )}
 
-                    <Card className="rounded-2xl border-border/80 shadow-none">
+                    <Card className="rounded-2xl border-chart-1/20 shadow-none">
                       <CardHeader className="px-5 pb-3 pt-5">
                         <CardTitle className="text-base font-semibold">Correction notes</CardTitle>
                         <p className="text-sm text-muted-foreground">
