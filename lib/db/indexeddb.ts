@@ -49,6 +49,9 @@ function createSchema(db: IDBDatabase) {
     salStore.createIndex("by_employee", "employeeId", { unique: false });
     salStore.createIndex("by_month", "month", { unique: false });
   }
+  if (!db.objectStoreNames.contains(STORES.SALARY_SHEET_OVERRIDES)) {
+    db.createObjectStore(STORES.SALARY_SHEET_OVERRIDES, { keyPath: "id" });
+  }
   if (!db.objectStoreNames.contains(STORES.FACTORY_HOLIDAYS)) {
     db.createObjectStore(STORES.FACTORY_HOLIDAYS, { keyPath: "id" });
   }

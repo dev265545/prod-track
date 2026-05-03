@@ -4,7 +4,7 @@
  * not affect attendance salary.
  * Daily rate = monthly salary ÷ calendar days in the month.
  * Extra pay days (earned pool): each **full 15 calendar days** of the month starting at day 1
- * (1–15, 16–30, …) counts **working-day** present equivalents (fractions). If that sum is **≥12**,
+ * (1–15, 16–30, …) counts **working-day** present dates. If that count is **≥12**,
  * the block earns **+2** extra pay days. **At most 4** such extra days apply **per calendar month**
  * (range logic sums each overlapped month). Sunday marked present still adds separately.
  * Hours: hoursReduced (-) and hoursExtra (+) adjust salary via rate per hour.
@@ -22,7 +22,7 @@ import {
 export const EXTRA_PAY_CYCLE_DAYS = 15;
 /** Hard cap on earned Sunday pay days per 15-day cycle, regardless of category. */
 export const MAX_EXTRA_PAY_DAYS_PER_CYCLE = 2;
-/** Minimum working-day present **equivalents** in a cycle to qualify. */
+/** Minimum working-day present dates in a cycle to qualify. */
 export const EXTRA_PAY_CYCLE_PRESENT_THRESHOLD = 12;
 /** Extra pay days granted per qualifying cycle (before monthly cap). */
 export const EXTRA_PAY_DAYS_PER_QUALIFIED_CYCLE = 2;
@@ -61,25 +61,24 @@ type AttendanceMap = Map<
   }
 >;
 
-function sumPresentFractionOnWorkingDaysInMonthWindow(
+function countPresentDaysOnWorkingDaysInMonthWindow(
   year: number,
   month: number,
   dayStart: number,
   dayEnd: number,
   holidaySet: Set<string>,
   attByDate: AttendanceMap,
-  hoursPerDay: number
 ): number {
-  let sum = 0;
+  let count = 0;
   for (let d = dayStart; d <= dayEnd; d++) {
     const dateStr = `${year}-${pad2(month + 1)}-${pad2(d)}`;
     if (isSunday(dateStr) || holidaySet.has(dateStr)) continue;
     const att = attByDate.get(dateStr);
     if (att?.status === "present") {
-      sum += computeDayPayFraction(att, hoursPerDay);
+      count += 1;
     }
   }
-  return sum;
+  return count;
 }
 
 function forEachCalendarMonthOverlappingRange(
@@ -129,23 +128,22 @@ export function computeEarnedExtraPayDaysForCalendarScope(
       const windowStart = `${year}-${pad2(monthIndex + 1)}-${pad2(start)}`;
       const windowEnd = `${year}-${pad2(monthIndex + 1)}-${pad2(end)}`;
       if (windowStart < fromDate || windowEnd > toDate) continue;
-      const frac = sumPresentFractionOnWorkingDaysInMonthWindow(
+      const presentCount = countPresentDaysOnWorkingDaysInMonthWindow(
         year,
         monthIndex,
         start,
         end,
         holidaySet,
         attByDate,
-        hoursPerDay
       );
       let earnedForCycle = 0;
       if (categoryRule.mode === "threshold") {
-        if (frac >= categoryRule.requiredPresent) {
+        if (presentCount >= categoryRule.requiredPresent) {
           earnedForCycle = categoryRule.earnedSundays;
         }
       } else if (categoryRule.everyPresentDays > 0) {
         earnedForCycle =
-          Math.floor(frac / categoryRule.everyPresentDays) *
+          Math.floor(presentCount / categoryRule.everyPresentDays) *
           categoryRule.earnedPerStep;
       }
       monthRaw += Math.min(MAX_EXTRA_PAY_DAYS_PER_CYCLE, earnedForCycle);
@@ -175,6 +173,7 @@ export interface AttendanceStatsInput {
 export interface AttendanceStats {
   presentDays: number;
   absentDays: number;
+  holidayPresentDays: number;
   /** Extra pay days from 15-day in-month cycles (capped per calendar month) */
   earnedSundayPayDays: number;
   /** Sundays marked present — each adds an extra daily rate on top of earned units */
@@ -229,6 +228,7 @@ export function computeAttendanceStats(input: AttendanceStatsInput): AttendanceS
 
   let paidWorkingDays = 0;
   let absentCount = 0;
+  let holidayPresentCount = 0;
   let totalHoursWorked = 0;
 
   for (const dateStr of workingDayDates) {
@@ -243,6 +243,16 @@ export function computeAttendanceStats(input: AttendanceStatsInput): AttendanceS
     } else {
       absentCount += 1;
     }
+  }
+
+  for (const dateStr of holidayDates) {
+    const att = attByDate.get(dateStr);
+    if (att?.status !== "present") continue;
+    const dayVal = computeDayPayFraction(att, hoursPerDay);
+    paidWorkingDays += dayVal;
+    holidayPresentCount += 1;
+    const extra = (att.hoursExtra ?? 0) - (att.hoursReduced ?? 0);
+    totalHoursWorked += att.hoursWorked != null ? att.hoursWorked : hoursPerDay + extra;
   }
 
   let sundayPresentBonusDays = 0;
@@ -270,6 +280,7 @@ export function computeAttendanceStats(input: AttendanceStatsInput): AttendanceS
   return {
     presentDays: paidRounded,
     absentDays: absentCount,
+    holidayPresentDays: holidayPresentCount,
     earnedSundayPayDays,
     sundayPresentBonusDays,
     totalPaidDays,
@@ -314,6 +325,7 @@ export interface MonthSalaryBreakdown {
   days: MonthSalaryDayRow[];
   paidWorkingDays: number;
   absentDays: number;
+  holidayPresentDays: number;
   earnedSundayPayDays: number;
   earnedSundayPoolPay: number;
   sundayPresentBonusDays: number;
@@ -371,6 +383,7 @@ export function buildMonthSalaryBreakdown(input: {
   const days: MonthSalaryDayRow[] = [];
   let paidWorkingDays = 0;
   let absentCount = 0;
+  let holidayPresentCount = 0;
   let sumHoursExtra = 0;
   let sumHoursReduced = 0;
   let sundayPresentBonusDays = 0;
@@ -430,15 +443,18 @@ export function buildMonthSalaryBreakdown(input: {
     if (holidaySet.has(dateStr)) {
       const att = attByDate.get(dateStr);
       if (att?.status === "present") {
+        const frac = computeDayPayFraction(att, hoursPerDay);
         const ex = att.hoursExtra ?? 0;
         const red = att.hoursReduced ?? 0;
+        paidWorkingDays += frac;
+        holidayPresentCount += 1;
         if (ex > 0) sumHoursExtra += ex;
         if (red > 0) sumHoursReduced += red;
         days.push({
           date: dateStr,
           weekdayShort,
           rowKind: "holiday",
-          statusLabel: "Present (holiday — no base pay)",
+          statusLabel: "Present (factory holiday)",
           hoursWorked:
             att.hoursWorked != null && att.hoursWorked >= 0
               ? att.hoursWorked
@@ -449,8 +465,8 @@ export function buildMonthSalaryBreakdown(input: {
             att.hoursWorked != null && att.hoursWorked >= 0
               ? att.hoursWorked
               : hoursPerDay + ex - red,
-          paidFraction: 0,
-          basePay: 0,
+          paidFraction: Math.round(frac * 100) / 100,
+          basePay: Math.round(frac * ratePerDay * 100) / 100,
           productionPay: prodPay,
         });
       } else {
@@ -563,6 +579,7 @@ export function buildMonthSalaryBreakdown(input: {
     days,
     paidWorkingDays: paidRounded,
     absentDays: absentCount,
+    holidayPresentDays: holidayPresentCount,
     earnedSundayPayDays,
     earnedSundayPoolPay,
     sundayPresentBonusDays,
@@ -612,6 +629,7 @@ export function computeAttendanceStatsForRange(input: {
 
   let paidWorkingDays = 0;
   let absentCount = 0;
+  let holidayPresentCount = 0;
   let totalHoursWorked = 0;
 
   for (const dateStr of workingDayDatesInRange) {
@@ -626,6 +644,17 @@ export function computeAttendanceStatsForRange(input: {
     } else {
       absentCount += 1;
     }
+  }
+
+  for (const dateStr of rangeDates) {
+    if (!holidaySet.has(dateStr)) continue;
+    const att = attByDate.get(dateStr);
+    if (att?.status !== "present") continue;
+    const dayVal = computeDayPayFraction(att, hoursPerDay);
+    paidWorkingDays += dayVal;
+    holidayPresentCount += 1;
+    const extra = (att.hoursExtra ?? 0) - (att.hoursReduced ?? 0);
+    totalHoursWorked += att.hoursWorked != null ? att.hoursWorked : hoursPerDay + extra;
   }
 
   let sundayPresentBonusDays = 0;
@@ -653,6 +682,7 @@ export function computeAttendanceStatsForRange(input: {
   return {
     presentDays: paidRounded,
     absentDays: absentCount,
+    holidayPresentDays: holidayPresentCount,
     earnedSundayPayDays,
     sundayPresentBonusDays,
     totalPaidDays,

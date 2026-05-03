@@ -15,6 +15,7 @@ describe("buildPrintableAttendanceSalaryRangeHtml", () => {
       summary: {
         presentDays: 1.75,
         absentDays: 3,
+        holidayPresentDays: 0,
         earnedSundayPayDays: 0,
         sundayPresentBonusDays: 0,
         totalPaidDays: 1.75,

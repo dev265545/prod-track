@@ -7,6 +7,11 @@ import {
   resolveSundayCategoryRule,
 } from "./sundayCategoryService";
 import {
+  getSalarySheetOverridesForRange,
+  type SalarySheetOverrideRecord,
+  type SalarySheetOverrideValues,
+} from "./salarySheetOverrideService";
+import {
   getCalendarDaysInMonth,
   getRatePerDay,
   getRatePerHour,
@@ -23,6 +28,7 @@ export interface SalarySheetRow {
   name: string;
   presentDays: number;
   absentDays: number;
+  holidayPresentDays: number;
   /** Extra pay days from 15-day in-month cycles (max 4 / month) */
   earnedSundayPayDays: number;
   /** Sundays marked present — one extra daily rate each */
@@ -33,7 +39,69 @@ export interface SalarySheetRow {
   ratePerHour: number;
   hoursExtraTotal: number;
   hoursReducedTotal: number;
+  baseCalculatedSalary: number;
   calculatedSalary: number;
+  hasOverrides: boolean;
+  overrideNotes: string;
+  overrideUpdatedAt: string;
+  overrideValues: SalarySheetOverrideValues;
+  calculatedValues: Required<SalarySheetOverrideValues>;
+}
+
+function round2(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+function hasPersistedOverrides(record: SalarySheetOverrideRecord | null): boolean {
+  if (!record) return false;
+  return (
+    Object.keys(record.overrides ?? {}).length > 0 ||
+    (record.notes?.trim().length ?? 0) > 0
+  );
+}
+
+export function applySalarySheetOverrides(
+  baseRow: SalarySheetRow,
+  overrideRecord: SalarySheetOverrideRecord | null,
+): SalarySheetRow {
+  const overrides = overrideRecord?.overrides ?? {};
+  const presentDays = overrides.presentDays ?? baseRow.presentDays;
+  const absentDays = overrides.absentDays ?? baseRow.absentDays;
+  const holidayPresentDays =
+    overrides.holidayPresentDays ?? baseRow.holidayPresentDays;
+  const earnedSundayPayDays =
+    overrides.earnedSundayPayDays ?? baseRow.earnedSundayPayDays;
+  const sundayPresentBonusDays =
+    overrides.sundayPresentBonusDays ?? baseRow.sundayPresentBonusDays;
+  const hoursExtraTotal = overrides.hoursExtraTotal ?? baseRow.hoursExtraTotal;
+  const hoursReducedTotal =
+    overrides.hoursReducedTotal ?? baseRow.hoursReducedTotal;
+  const totalPaidDays =
+    overrides.totalPaidDays ??
+    round2(presentDays + earnedSundayPayDays + sundayPresentBonusDays);
+  const baseCalculatedSalary =
+    baseRow.baseCalculatedSalary ?? baseRow.calculatedSalary;
+  const calculatedSalary =
+    overrides.calculatedSalary ?? round2(totalPaidDays * baseRow.ratePerDay);
+
+  return {
+    ...baseRow,
+    presentDays,
+    absentDays,
+    holidayPresentDays,
+    earnedSundayPayDays,
+    sundayPresentBonusDays,
+    totalPaidDays,
+    hoursExtraTotal,
+    hoursReducedTotal,
+    baseCalculatedSalary,
+    calculatedSalary,
+    hasOverrides: hasPersistedOverrides(overrideRecord),
+    overrideNotes: overrideRecord?.notes?.trim() ?? "",
+    overrideUpdatedAt: overrideRecord?.updatedAt ?? "",
+    overrideValues: { ...overrides },
+    calculatedValues: baseRow.calculatedValues,
+  };
 }
 
 export async function getSalarySheetForMonth(
@@ -62,12 +130,13 @@ export async function getSalarySheetForRange(
   holidayDates: string[];
   calendarDaysInMonth: number;
 }> {
-  const [employees, attendance, holidays, shifts, sundayCategories] = await Promise.all([
+  const [employees, attendance, holidays, shifts, sundayCategories, overrides] = await Promise.all([
     getEmployees(true),
     getAttendanceInRange(from, to),
     getHolidaysInRange(from, to),
     getShifts(),
     getSundayCategories(),
+    getSalarySheetOverridesForRange(year, month, from, to),
   ]);
 
   const shiftMap = Object.fromEntries(
@@ -79,6 +148,9 @@ export async function getSalarySheetForRange(
 
   const holidayDates = holidays.map((h) => h.date as string);
   const calendarDaysInMonth = getCalendarDaysInMonth(year, month);
+  const overrideByEmployeeId = new Map(
+    overrides.map((record) => [record.employeeId, record]),
+  );
 
   // Attendance by employee+date
   const attByEmpDate = new Map<
@@ -131,11 +203,12 @@ export async function getSalarySheetForRange(
       sundayCategoryRule,
     });
 
-    return {
+    const baseRow: SalarySheetRow = {
       id: empId,
       name: (emp.name as string) || "Unknown",
       presentDays: summary.presentDays,
       absentDays: summary.absentDays,
+      holidayPresentDays: summary.holidayPresentDays,
       earnedSundayPayDays: summary.earnedSundayPayDays,
       sundayPresentBonusDays: summary.sundayPresentBonusDays,
       totalPaidDays: summary.totalPaidDays,
@@ -144,8 +217,28 @@ export async function getSalarySheetForRange(
       ratePerHour,
       hoursExtraTotal: summary.hoursExtraTotal,
       hoursReducedTotal: summary.hoursReducedTotal,
+      baseCalculatedSalary: summary.calculatedSalary,
       calculatedSalary: summary.calculatedSalary,
+      hasOverrides: false,
+      overrideNotes: "",
+      overrideUpdatedAt: "",
+      overrideValues: {},
+      calculatedValues: {
+        presentDays: summary.presentDays,
+        absentDays: summary.absentDays,
+        holidayPresentDays: summary.holidayPresentDays,
+        earnedSundayPayDays: summary.earnedSundayPayDays,
+        sundayPresentBonusDays: summary.sundayPresentBonusDays,
+        totalPaidDays: summary.totalPaidDays,
+        hoursExtraTotal: summary.hoursExtraTotal,
+        hoursReducedTotal: summary.hoursReducedTotal,
+        calculatedSalary: summary.calculatedSalary,
+      },
     };
+    return applySalarySheetOverrides(
+      baseRow,
+      overrideByEmployeeId.get(empId) ?? null,
+    );
   });
 
   return {

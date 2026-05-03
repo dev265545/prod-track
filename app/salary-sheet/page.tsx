@@ -13,6 +13,15 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   Select,
   SelectContent,
@@ -42,6 +51,10 @@ import { saveEmployeeSortOrder } from "@/lib/services/employeeService";
 import { getSalarySheetForRange } from "@/lib/services/salarySheetService";
 import type { SalarySheetRow } from "@/lib/services/salarySheetService";
 import {
+  saveSalarySheetOverride,
+  type SalarySheetOverrideValues,
+} from "@/lib/services/salarySheetOverrideService";
+import {
   clampDateToMonth,
   getMonthRange,
   getMonthRangePresets,
@@ -58,6 +71,35 @@ const MONTH_NAMES = [
   "January", "February", "March", "April", "May", "June",
   "July", "August", "September", "October", "November", "December",
 ];
+
+type EditableOverrideField = keyof SalarySheetOverrideValues;
+
+const OVERRIDE_FIELDS: Array<{
+  key: EditableOverrideField;
+  label: string;
+}> = [
+  { key: "presentDays", label: "Present days" },
+  { key: "absentDays", label: "Absent days" },
+  { key: "holidayPresentDays", label: "Holiday present" },
+  { key: "earnedSundayPayDays", label: "Extra days earned" },
+  { key: "sundayPresentBonusDays", label: "Sunday present bonus" },
+  { key: "totalPaidDays", label: "Total paid days" },
+  { key: "hoursExtraTotal", label: "Extra hours" },
+  { key: "hoursReducedTotal", label: "Less hours" },
+  { key: "calculatedSalary", label: "Salary" },
+];
+
+function formatOverrideValue(value: number | undefined): string {
+  return value == null ? "" : String(value);
+}
+
+function parseOptionalNumber(value: string): number | undefined {
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  const parsed = Number(trimmed);
+  if (!Number.isFinite(parsed)) return undefined;
+  return Math.round(parsed * 100) / 100;
+}
 
 function getMonthOptions(count = 24): { year: number; month: number; label: string }[] {
   const now = new Date();
@@ -82,7 +124,7 @@ function buildPrintableHtml(
   const printStyles =
     "body{margin:0;font-family:system-ui,sans-serif;font-size:12px;color:#0a0a0a;background:#fff;padding:16px}.mb-4{margin-bottom:12px}.mb-6{margin-bottom:20px}.text-2xl{font-size:1.5rem;font-weight:700}.text-sm{font-size:0.75rem}.text-gray-600{color:#52525b}.border{border:1px solid #e4e4e7}.w-full{width:100%}.table{width:100%;font-size:10px;border-collapse:collapse}.table th,.table td{padding:5px 6px;text-align:left;border:1px solid #e4e4e7}.table th{background:#f4f4f5;font-weight:600}.text-right{text-align:right}.no-print{display:none!important}";
 
-  const colCount = 12;
+  const colCount = 13;
   const rowsHtml =
     rows.length === 0
       ? `<tr><td colspan="${colCount}" class="border" style="padding:12px;color:#71717a;text-align:center">No employees for this month.</td></tr>`
@@ -93,6 +135,7 @@ function buildPrintableHtml(
                 <td class="border" style="padding:5px 6px">${r.name}</td>
                 <td class="border text-right" style="padding:5px 6px">${number(r.presentDays)}</td>
                 <td class="border text-right" style="padding:5px 6px">${number(r.absentDays)}</td>
+                <td class="border text-right" style="padding:5px 6px">${number(r.holidayPresentDays)}</td>
                 <td class="border text-right" style="padding:5px 6px">${number(r.earnedSundayPayDays)}</td>
                 <td class="border text-right" style="padding:5px 6px">${number(r.sundayPresentBonusDays)}</td>
                 <td class="border text-right" style="padding:5px 6px">${number(r.totalPaidDays)}</td>
@@ -116,7 +159,7 @@ function buildPrintableHtml(
         </tr>`
       : "";
 
-  const head = `<tr class="border"><th class="border" style="padding:5px 6px">Employee</th><th class="border text-right" style="padding:5px 6px">Present</th><th class="border text-right" style="padding:5px 6px">Absent</th><th class="border text-right" style="padding:5px 6px">Earned Sun.</th><th class="border text-right" style="padding:5px 6px">Sun. +</th><th class="border text-right" style="padding:5px 6px">Paid days</th><th class="border text-right" style="padding:5px 6px">Mo. salary</th><th class="border text-right" style="padding:5px 6px">/ day</th><th class="border text-right" style="padding:5px 6px">/ hr</th><th class="border text-right" style="padding:5px 6px">+ hrs</th><th class="border text-right" style="padding:5px 6px">− hrs</th><th class="border text-right" style="padding:5px 6px">Salary</th></tr>`;
+  const head = `<tr class="border"><th class="border" style="padding:5px 6px">Employee</th><th class="border text-right" style="padding:5px 6px">Present</th><th class="border text-right" style="padding:5px 6px">Absent</th><th class="border text-right" style="padding:5px 6px">Holiday present</th><th class="border text-right" style="padding:5px 6px">Earned Sun.</th><th class="border text-right" style="padding:5px 6px">Sun. +</th><th class="border text-right" style="padding:5px 6px">Paid days</th><th class="border text-right" style="padding:5px 6px">Mo. salary</th><th class="border text-right" style="padding:5px 6px">/ day</th><th class="border text-right" style="padding:5px 6px">/ hr</th><th class="border text-right" style="padding:5px 6px">+ hrs</th><th class="border text-right" style="padding:5px 6px">− hrs</th><th class="border text-right" style="padding:5px 6px">Salary</th></tr>`;
 
   return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Salary sheet – ${monthLabel}</title><style>${printStyles}</style></head><body id="printArea"><div style="max-width:100%;margin:0 auto"><div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px"><div><h1 class="text-2xl">ProdTrack Lite</h1><p class="text-sm text-gray-600">Salary sheet – ${monthLabel}</p></div><div class="text-sm text-right"><p><strong>Month:</strong> ${monthLabel}</p><p><strong>Period:</strong> ${from} – ${to}</p></div></div><table class="table w-full"><thead>${head}</thead><tbody>${rowsHtml}${totalRow}</tbody></table></div></body></html>`;
 }
@@ -141,6 +184,12 @@ export default function SalarySheetPage() {
   const [to, setTo] = useState("");
   const [reorderMode, setReorderMode] = useState(false);
   const [savingOrder, setSavingOrder] = useState(false);
+  const [editingRow, setEditingRow] = useState<SalarySheetRow | null>(null);
+  const [draftOverrideValues, setDraftOverrideValues] = useState<
+    Partial<Record<EditableOverrideField, string>>
+  >({});
+  const [draftNotes, setDraftNotes] = useState("");
+  const [savingOverride, setSavingOverride] = useState(false);
 
   const monthOptions = getMonthOptions(24);
   const monthBounds = getMonthRange(year, month);
@@ -240,6 +289,78 @@ export default function SalarySheetPage() {
     const html = buildPrintableHtml(rows, titleLabel, from, to);
     console.log("[print] Got HTML, length:", html?.length ?? 0);
     printHtml(html);
+  };
+
+  const openAdjustModal = (row: SalarySheetRow) => {
+    setEditingRow(row);
+    setDraftOverrideValues(
+      OVERRIDE_FIELDS.reduce<Partial<Record<EditableOverrideField, string>>>(
+        (acc, field) => {
+          acc[field.key] = formatOverrideValue(row.overrideValues[field.key]);
+          return acc;
+        },
+        {},
+      ),
+    );
+    setDraftNotes(row.overrideNotes);
+  };
+
+  const closeAdjustModal = (force = false) => {
+    if (savingOverride && !force) return;
+    setEditingRow(null);
+    setDraftOverrideValues({});
+    setDraftNotes("");
+  };
+
+  const resetDraftField = (field: EditableOverrideField) => {
+    setDraftOverrideValues((current) => ({
+      ...current,
+      [field]: "",
+    }));
+  };
+
+  const resetAllDraftFields = () => {
+    setDraftOverrideValues(
+      OVERRIDE_FIELDS.reduce<Partial<Record<EditableOverrideField, string>>>(
+        (acc, field) => {
+          acc[field.key] = "";
+          return acc;
+        },
+        {},
+      ),
+    );
+    setDraftNotes("");
+  };
+
+  const saveAdjustments = async () => {
+    if (!editingRow) return;
+    const overrides: SalarySheetOverrideValues = {};
+    for (const field of OVERRIDE_FIELDS) {
+      const parsed = parseOptionalNumber(draftOverrideValues[field.key] ?? "");
+      if (parsed != null) {
+        overrides[field.key] = parsed;
+      }
+    }
+
+    setSavingOverride(true);
+    try {
+      await saveSalarySheetOverride({
+        employeeId: editingRow.id,
+        year,
+        month,
+        fromDate: from,
+        toDate: to,
+        notes: draftNotes,
+        overrides,
+      });
+      toast.success("Salary sheet adjustments saved");
+      closeAdjustModal(true);
+      await load();
+    } catch {
+      toast.error("Failed to save salary sheet adjustments");
+    } finally {
+      setSavingOverride(false);
+    }
   };
 
   const moveRow = async (index: number, direction: -1 | 1) => {
@@ -423,6 +544,7 @@ export default function SalarySheetPage() {
                       <TableHead>Employee</TableHead>
                       <TableHead className="text-right tabular-nums">Present</TableHead>
                       <TableHead className="text-right tabular-nums">Absent</TableHead>
+                      <TableHead className="text-right tabular-nums whitespace-nowrap">Holiday present</TableHead>
                       <TableHead className="text-right tabular-nums whitespace-nowrap">Earned Sun.</TableHead>
                       <TableHead className="text-right tabular-nums">Sun. +</TableHead>
                       <TableHead className="text-right tabular-nums">Paid days</TableHead>
@@ -432,6 +554,7 @@ export default function SalarySheetPage() {
                       <TableHead className="text-right tabular-nums">+ hrs</TableHead>
                       <TableHead className="text-right tabular-nums">− hrs</TableHead>
                       <TableHead className="text-right tabular-nums">Salary</TableHead>
+                      <TableHead className="text-right">Adjust</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -485,6 +608,7 @@ export default function SalarySheetPage() {
                         <TableCell className="font-medium">{r.name}</TableCell>
                         <TableCell className="text-right tabular-nums">{number(r.presentDays)}</TableCell>
                         <TableCell className="text-right tabular-nums">{number(r.absentDays)}</TableCell>
+                        <TableCell className="text-right tabular-nums">{number(r.holidayPresentDays)}</TableCell>
                         <TableCell className="text-right tabular-nums">{number(r.earnedSundayPayDays)}</TableCell>
                         <TableCell className="text-right tabular-nums">{number(r.sundayPresentBonusDays)}</TableCell>
                         <TableCell className="text-right tabular-nums">{number(r.totalPaidDays)}</TableCell>
@@ -494,6 +618,20 @@ export default function SalarySheetPage() {
                         <TableCell className="text-right tabular-nums">{number(r.hoursExtraTotal)}</TableCell>
                         <TableCell className="text-right tabular-nums">{number(r.hoursReducedTotal)}</TableCell>
                         <TableCell className="text-right tabular-nums font-semibold">{currency(r.calculatedSalary)}</TableCell>
+                        <TableCell
+                          className="text-right"
+                          onClick={(event) => event.stopPropagation()}
+                          onKeyDown={(event) => event.stopPropagation()}
+                        >
+                          <Button
+                            type="button"
+                            variant={r.hasOverrides ? "secondary" : "outline"}
+                            size="sm"
+                            onClick={() => openAdjustModal(r)}
+                          >
+                            {r.hasOverrides ? "Adjusted" : "Adjust"}
+                          </Button>
+                        </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -502,6 +640,106 @@ export default function SalarySheetPage() {
             )}
           </CardContent>
         </Card>
+
+        <Dialog open={!!editingRow} onOpenChange={(open) => !open && closeAdjustModal()}>
+          <DialogContent className="max-w-3xl">
+            <DialogHeader>
+              <DialogTitle>
+                Adjust payroll values{editingRow ? ` · ${editingRow.name}` : ""}
+              </DialogTitle>
+              <DialogDescription>
+                Blank fields stay automatic. Filled fields are saved permanently for this exact period: {from} to {to}.
+              </DialogDescription>
+            </DialogHeader>
+
+            {editingRow && (
+              <div className="grid gap-4">
+                <div className="rounded-xl border bg-muted/30 p-4 text-sm text-muted-foreground">
+                  <p>
+                    Effective values drive the salary sheet and print output. Calculated values stay visible here so manual corrections remain traceable.
+                  </p>
+                  {editingRow.overrideUpdatedAt ? (
+                    <p className="mt-2">
+                      Last adjusted: {editingRow.overrideUpdatedAt}
+                    </p>
+                  ) : null}
+                </div>
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  {OVERRIDE_FIELDS.map((field) => (
+                    <div key={field.key} className="rounded-xl border p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="space-y-1">
+                          <Label htmlFor={`override-${field.key}`}>{field.label}</Label>
+                          <p className="text-xs text-muted-foreground">
+                            Calculated: {field.key === "calculatedSalary"
+                              ? currency(editingRow.calculatedValues[field.key])
+                              : number(editingRow.calculatedValues[field.key])}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            Current sheet: {field.key === "calculatedSalary"
+                              ? currency(editingRow[field.key])
+                              : number(editingRow[field.key])}
+                          </p>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => resetDraftField(field.key)}
+                        >
+                          Auto
+                        </Button>
+                      </div>
+                      <Input
+                        id={`override-${field.key}`}
+                        type="number"
+                        step="0.01"
+                        inputMode="decimal"
+                        className="mt-3"
+                        placeholder={
+                          field.key === "calculatedSalary"
+                            ? String(editingRow.calculatedValues[field.key])
+                            : String(editingRow.calculatedValues[field.key])
+                        }
+                        value={draftOverrideValues[field.key] ?? ""}
+                        onChange={(event) =>
+                          setDraftOverrideValues((current) => ({
+                            ...current,
+                            [field.key]: event.target.value,
+                          }))
+                        }
+                      />
+                    </div>
+                  ))}
+                </div>
+
+                <div className="rounded-xl border p-4">
+                  <Label htmlFor="override-notes">Notes</Label>
+                  <textarea
+                    id="override-notes"
+                    className="mt-3 min-h-24 w-full rounded-xl border-2 border-input bg-card px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                    placeholder="Why was this corrected?"
+                    value={draftNotes}
+                    onChange={(event) => setDraftNotes(event.target.value)}
+                  />
+                </div>
+              </div>
+            )}
+
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => closeAdjustModal()} disabled={savingOverride}>
+                Cancel
+              </Button>
+              <Button type="button" variant="ghost" onClick={resetAllDraftFields} disabled={savingOverride}>
+                Reset all to auto
+              </Button>
+              <Button type="button" onClick={() => void saveAdjustments()} disabled={savingOverride}>
+                {savingOverride ? "Saving..." : "Save adjustments"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </main>
     </AppShell>
   );

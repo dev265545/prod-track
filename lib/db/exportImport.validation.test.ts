@@ -11,8 +11,10 @@ describe("validateExportData", () => {
     advance_deductions: [],
     shifts: [],
     salary_records: [],
+    salary_sheet_overrides: [],
     factory_holidays: [],
     attendance: [],
+    sunday_categories: [],
   };
 
   it("accepts a well-formed export at current schema", () => {

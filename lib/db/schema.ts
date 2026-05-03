@@ -5,7 +5,7 @@
 
 export const DB_NAME = "prodtrack-db";
 /** Bump when IndexedDB layout or SQLite migrations need to run (keep in sync with Tauri `CURRENT_SCHEMA_VERSION`). */
-export const DB_VERSION = 6;
+export const DB_VERSION = 7;
 
 /** SQLite / IndexedDB table for `_schema`, `_app`, and other internal rows (not part of JSON export stores). */
 export const METADATA_STORE = "_metadata";
@@ -18,6 +18,7 @@ export const STORES = {
   ADVANCE_DEDUCTIONS: "advance_deductions",
   SHIFTS: "shifts",
   SALARY_RECORDS: "salary_records",
+  SALARY_SHEET_OVERRIDES: "salary_sheet_overrides",
   FACTORY_HOLIDAYS: "factory_holidays",
   ATTENDANCE: "attendance",
   SUNDAY_CATEGORIES: "sunday_categories",

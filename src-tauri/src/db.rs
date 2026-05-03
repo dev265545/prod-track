@@ -8,7 +8,7 @@ use tauri::{AppHandle, State};
 use tauri_plugin_dialog::DialogExt;
 
 /// Must match lib/db/schema.ts DB_VERSION. Bump when adding migrations.
-const CURRENT_SCHEMA_VERSION: u32 = 6;
+const CURRENT_SCHEMA_VERSION: u32 = 7;
 
 const TABLES: &[&str] = &[
     "_metadata",
@@ -19,6 +19,7 @@ const TABLES: &[&str] = &[
     "advance_deductions",
     "shifts",
     "salary_records",
+    "salary_sheet_overrides",
     "factory_holidays",
     "attendance",
     "sunday_categories",
@@ -57,6 +58,9 @@ fn run_migration(_conn: &Connection, to_version: u32) -> Result<(), String> {
         }
         6 => {
             // Reserved: sunday_categories table is auto-created via TABLES list.
+        }
+        7 => {
+            // Reserved: salary_sheet_overrides table is auto-created via TABLES list.
         }
         _ => {}
     }

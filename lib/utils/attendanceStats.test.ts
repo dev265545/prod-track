@@ -150,6 +150,28 @@ describe("computeEarnedExtraPayDaysForCalendarScope", () => {
       ),
     ).toBe(MAX_EXTRA_PAY_DAYS_PER_CYCLE);
   });
+
+  it("qualifies by present dates even when one present day is fractional", () => {
+    const att = new Map<string, { status: "present"; hoursReduced?: number }>();
+    for (let d = 1; d <= 15; d++) {
+      const dt = new Date(2026, 2, d);
+      if (dt.getDay() === 0) continue;
+      const date = `2026-03-${String(d).padStart(2, "0")}`;
+      att.set(
+        date,
+        d === 2 ? { status: "present", hoursReduced: 1 } : { status: "present" },
+      );
+    }
+    expect(
+      computeEarnedExtraPayDaysForCalendarScope(
+        "2026-03-01",
+        "2026-03-15",
+        [],
+        att,
+        8,
+      ),
+    ).toBe(2);
+  });
 });
 
 describe("computeDayPayFraction", () => {
@@ -348,6 +370,22 @@ describe("buildAttendanceSalarySummaryForRange", () => {
     expect(summary.hoursReducedTotal).toBe(4);
     expect(summary.calculatedSalary).toBe(525);
   });
+
+  it("pays a present employee on a factory holiday", () => {
+    const summary = buildAttendanceSalarySummaryForRange({
+      fromDate: "2026-04-01",
+      toDate: "2026-04-30",
+      holidayDates: ["2026-04-02"],
+      attendance: [{ date: "2026-04-02", status: "present" }],
+      hoursPerDay: 8,
+      ratePerDay: 1000,
+    });
+    expect(summary.presentDays).toBe(1);
+    expect(summary.absentDays).toBe(25);
+    expect(summary.holidayPresentDays).toBe(1);
+    expect(summary.totalPaidDays).toBe(1);
+    expect(summary.calculatedSalary).toBe(1000);
+  });
 });
 
 describe("sumHoursAdjustmentsInRange", () => {
@@ -398,5 +436,22 @@ describe("buildMonthSalaryBreakdown", () => {
     expect(noProd.earnedSundayPayDays).toBe(0);
     expect(noProd.earnedSundayPoolPay).toBe(0);
     expect(noProd.totalBaseSalary).toBe(1000);
+  });
+
+  it("labels holiday-present rows as paid holiday presence", () => {
+    const breakdown = buildMonthSalaryBreakdown({
+      year: 2026,
+      month: 3,
+      holidayDates: ["2026-04-02"],
+      attendance: [{ date: "2026-04-02", status: "present" }],
+      productionPayByDate: new Map(),
+      hoursPerDay: 8,
+      ratePerDay: 1000,
+      includeProductionPay: false,
+    });
+    const row = breakdown.days.find((day) => day.date === "2026-04-02");
+    expect(row?.statusLabel).toBe("Present (factory holiday)");
+    expect(row?.paidFraction).toBe(1);
+    expect(row?.basePay).toBe(1000);
   });
 });
