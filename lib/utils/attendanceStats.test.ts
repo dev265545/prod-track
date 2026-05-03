@@ -73,28 +73,21 @@ describe("computeEarnedExtraPayDaysForCalendarScope", () => {
     expect(earned).toBe(0);
   });
 
-  it("respects factory holidays in the 15-day window count", () => {
-    // March 1–15 2026: if we treat one key working day as holiday, sum of presents drops
-    const nonSunDates: string[] = [];
-    for (let d = 1; d <= 15; d++) {
-      const dt = new Date(2026, 2, d);
-      if (dt.getDay() === 0) continue;
-      nonSunDates.push(`2026-03-${String(d).padStart(2, "0")}`);
+  it("counts holiday-present days toward the 15-day threshold", () => {
+    const att = new Map<string, { status: "present" }>();
+    for (const d of [1, 2, 4, 5, 6, 7, 8, 9, 11, 12, 13]) {
+      const date = `2026-05-${String(d).padStart(2, "0")}`;
+      att.set(date, { status: "present" });
     }
-    const att = new Map(
-      nonSunDates.map((date) => [
-        date,
-        { status: "present" as const },
-      ]),
-    );
-    const withHoliday = computeEarnedExtraPayDaysForCalendarScope(
-      "2026-03-01",
-      "2026-03-15",
-      ["2026-03-02"],
+    att.set("2026-05-14", { status: "present" });
+    const earned = computeEarnedExtraPayDaysForCalendarScope(
+      "2026-05-01",
+      "2026-05-15",
+      ["2026-05-14"],
       att,
       8,
     );
-    expect(withHoliday).toBe(0);
+    expect(earned).toBe(2);
   });
 
   it("supports threshold categories per 15-day cycle", () => {

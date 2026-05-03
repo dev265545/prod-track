@@ -61,18 +61,17 @@ type AttendanceMap = Map<
   }
 >;
 
-function countPresentDaysOnWorkingDaysInMonthWindow(
+function countPresentDaysInMonthWindow(
   year: number,
   month: number,
   dayStart: number,
   dayEnd: number,
-  holidaySet: Set<string>,
   attByDate: AttendanceMap,
 ): number {
   let count = 0;
   for (let d = dayStart; d <= dayEnd; d++) {
     const dateStr = `${year}-${pad2(month + 1)}-${pad2(d)}`;
-    if (isSunday(dateStr) || holidaySet.has(dateStr)) continue;
+    if (isSunday(dateStr)) continue;
     const att = attByDate.get(dateStr);
     if (att?.status === "present") {
       count += 1;
@@ -114,7 +113,6 @@ export function computeEarnedExtraPayDaysForCalendarScope(
   hoursPerDay: number,
   categoryRule: SundayCategoryRule = DEFAULT_SUNDAY_CATEGORY_RULE,
 ): number {
-  const holidaySet = new Set(holidayDates);
   let total = 0;
   forEachCalendarMonthOverlappingRange(fromDate, toDate, (year, monthIndex) => {
     const lastDay = getCalendarDaysInMonth(year, monthIndex);
@@ -128,12 +126,11 @@ export function computeEarnedExtraPayDaysForCalendarScope(
       const windowStart = `${year}-${pad2(monthIndex + 1)}-${pad2(start)}`;
       const windowEnd = `${year}-${pad2(monthIndex + 1)}-${pad2(end)}`;
       if (windowStart < fromDate || windowEnd > toDate) continue;
-      const presentCount = countPresentDaysOnWorkingDaysInMonthWindow(
+      const presentCount = countPresentDaysInMonthWindow(
         year,
         monthIndex,
         start,
         end,
-        holidaySet,
         attByDate,
       );
       let earnedForCycle = 0;
