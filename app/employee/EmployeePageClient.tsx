@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams, useRouter } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
@@ -59,20 +59,11 @@ import {
   type SundayCategory,
 } from "@/lib/services/sundayCategoryService";
 import { saveEmployee } from "@/lib/services/employeeService";
-import {
-  getSalarySheetOverridesByEmployeeMonth,
-  getSalarySheetCorrectionPeriods,
-  saveSalarySheetOverride,
-  type SalarySheetOverrideRecord,
-} from "@/lib/services/salarySheetOverrideService";
-import {
-  buildSalarySheetDraftState,
-  buildSalarySheetOverrideValuesFromDraft,
-  getSalarySheetDriverDefaults,
-  stepSalarySheetDriverValue,
-  type SalarySheetDraftDrivers,
-} from "@/lib/services/salarySheetEditorState";
 import { getSalaryRecordsByEmployee } from "@/lib/services/salaryRecordService";
+import {
+  getSalarySheetRowForEmployee,
+  type SalarySheetRow,
+} from "@/lib/services/salarySheetService";
 import {
   calculateSalary,
   buildPrintableAttendanceSalaryRangeHtml,
@@ -105,17 +96,21 @@ import {
   getMonthRangePresets,
   getPeriodForDate,
   getPeriodsWithData,
+  getYearMonthFromIsoDate,
   today,
   isRestrictedForEntry,
   formatMonthYear,
   toISODate,
   type MonthRangeMode,
+  type DisplayLocale,
 } from "@/lib/utils/date";
 import { getMissingDataDays } from "@/lib/utils/missingDataWarnings";
 import { getHolidayByDate } from "@/lib/services/factoryHolidayService";
 import { toast } from "sonner";
 import { currency, dateDisplay, number } from "@/lib/utils/formatter";
 import { EmployeeCalendar } from "@/components/employee-calendar";
+import { SalarySheetAdjustDialog } from "@/components/salary-sheet-adjust-dialog";
+import { PayrollPeriodBadge } from "@/components/payroll-period-badge";
 import {
   Check,
   X,
@@ -161,69 +156,47 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty";
+import { useLanguage } from "@/components/language-provider";
 
-const MONTH_NAMES = [
-  "Jan",
-  "Feb",
-  "Mar",
-  "Apr",
-  "May",
-  "Jun",
-  "Jul",
-  "Aug",
-  "Sep",
-  "Oct",
-  "Nov",
-  "Dec",
-];
-
-function monthPickerOptions(count = 36): { value: string; label: string }[] {
+function monthPickerOptions(
+  count = 36,
+  locale: DisplayLocale = "en",
+): { value: string; label: string }[] {
   const out: { value: string; label: string }[] = [];
   const now = new Date();
   for (let i = 0; i < count; i++) {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
     out.push({
       value: `${d.getFullYear()}-${d.getMonth()}`,
-      label: formatMonthYear(toISODate(d)),
+      label: formatMonthYear(toISODate(d), locale),
     });
   }
   return out;
 }
 
 function EmployeePageHeader() {
+  const { t } = useLanguage();
   return (
     <Breadcrumb>
       <BreadcrumbList>
         <BreadcrumbItem>
           <BreadcrumbLink asChild>
-            <Link href="/">Dashboard</Link>
+            <Link href="/">{t("navDashboard")}</Link>
           </BreadcrumbLink>
         </BreadcrumbItem>
         <BreadcrumbSeparator />
         <BreadcrumbItem>
-          <BreadcrumbPage>Employee</BreadcrumbPage>
+          <BreadcrumbPage>{t("breadcrumbEmployee")}</BreadcrumbPage>
         </BreadcrumbItem>
       </BreadcrumbList>
     </Breadcrumb>
   );
 }
 
-function summarizeSalaryCorrection(record: SalarySheetOverrideRecord): string {
-  const parts: string[] = [];
-  const overrides = record.overrides;
-  if (overrides.presentDays != null) parts.push(`Present ${number(overrides.presentDays)}`);
-  if (overrides.earnedSundayPayDays != null) {
-    parts.push(`Extra ${number(overrides.earnedSundayPayDays)}`);
-  }
-  if (overrides.sundayPresentBonusDays != null) {
-    parts.push(`Sun+ ${number(overrides.sundayPresentBonusDays)}`);
-  }
-  return parts.join(" · ") || "Manual correction";
-}
-
 export function EmployeePageClient() {
   const searchParams = useSearchParams();
   const router = useRouter();
+  const { locale, t } = useLanguage();
   /** Static export: real IDs are passed via ?id= (only /employee is pre-rendered). */
   const id = searchParams?.get("id") ?? "";
   const [ready, setReady] = useState(false);
@@ -274,18 +247,6 @@ export function EmployeePageClient() {
   const [periodAttendance, setPeriodAttendance] = useState<
     Record<string, unknown>[]
   >([]);
-  const [salaryCorrections, setSalaryCorrections] = useState<
-    SalarySheetOverrideRecord[]
-  >([]);
-  const [editingCorrectionPeriod, setEditingCorrectionPeriod] = useState<{
-    fromDate: string;
-    toDate: string;
-    label: string;
-  } | null>(null);
-  const [correctionDraftDrivers, setCorrectionDraftDrivers] =
-    useState<SalarySheetDraftDrivers | null>(null);
-  const [correctionDraftNotes, setCorrectionDraftNotes] = useState("");
-  const [savingCorrection, setSavingCorrection] = useState(false);
   const now = new Date();
   const [calYear, setCalYear] = useState(now.getFullYear());
   const [calMonth, setCalMonth] = useState(now.getMonth());
@@ -298,6 +259,10 @@ export function EmployeePageClient() {
   const [selectedDate, setSelectedDate] = useState<string | null>(today());
   const [hoursReducedInput, setHoursReducedInput] = useState("");
   const [hoursExtraInput, setHoursExtraInput] = useState("");
+  const [salarySheetRowForPeriod, setSalarySheetRowForPeriod] =
+    useState<SalarySheetRow | null>(null);
+  const [salarySheetRowLoading, setSalarySheetRowLoading] = useState(false);
+  const [payrollAdjustOpen, setPayrollAdjustOpen] = useState(false);
 
   const load = async () => {
     const emp = await getEmployee(id);
@@ -330,8 +295,8 @@ export function EmployeePageClient() {
     setSundayCategories(sundayCategoryList);
     setAllAdvances(allAdvs);
     setDeductions(deductionsList);
-    const periodsWithData = getPeriodsWithData([...allProds, ...allAdvs]);
-    const period = getPeriodForDate(today());
+    const periodsWithData = getPeriodsWithData([...allProds, ...allAdvs], 24, locale);
+    const period = getPeriodForDate(today(), locale);
     const periodList = periodsWithData.length > 0 ? periodsWithData : [period];
     setPeriods(periodList);
     const initialFrom =
@@ -359,7 +324,7 @@ export function EmployeePageClient() {
         load().then(() => setReady(true));
       })
       .catch(() => setReady(true));
-  }, [router, id]);
+  }, [router, id, locale]);
 
   useEffect(() => {
     if (!id || !from || !to) return;
@@ -391,17 +356,15 @@ export function EmployeePageClient() {
     const monthStart = `${calYear}-${padM}-01`;
     const lastDay = new Date(calYear, calMonth + 1, 0).getDate();
     const monthEnd = `${calYear}-${padM}-${lastDay}`;
-    const [holidays, prods, att, corrections] = await Promise.all([
+    const [holidays, prods, att] = await Promise.all([
       getHolidaysInRange(monthStart, monthEnd),
       getProductionsByEmployee(id, monthStart, monthEnd),
       getAttendanceByEmployeeInRange(id, monthStart, monthEnd),
-      getSalarySheetOverridesByEmployeeMonth(id, calYear, calMonth),
     ]);
     if (gen !== calendarLoadGen.current) return;
     setFactoryHolidays(holidays.map((h) => h.date as string));
     setCalendarProductions(prods);
     setCalendarAttendance(att);
-    setSalaryCorrections(corrections);
   }, [id, calYear, calMonth]);
 
   useEffect(() => {
@@ -443,6 +406,67 @@ export function EmployeePageClient() {
     }
   }, [selectedDate, calendarAttendance]);
 
+  useEffect(() => {
+    setPayrollAdjustOpen(false);
+  }, [from, to, calYear, calMonth]);
+
+  useEffect(() => {
+    if (!id || !from || !to) {
+      setSalarySheetRowForPeriod(null);
+      setSalarySheetRowLoading(false);
+      return;
+    }
+    const ym = getYearMonthFromIsoDate(from);
+    if (!ym) {
+      setSalarySheetRowForPeriod(null);
+      setSalarySheetRowLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setSalarySheetRowLoading(true);
+    void getSalarySheetRowForEmployee(id, ym.year, ym.month, from, to)
+      .then((row) => {
+        if (!cancelled) setSalarySheetRowForPeriod(row);
+      })
+      .finally(() => {
+        if (!cancelled) setSalarySheetRowLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [id, from, to]);
+
+  const openPayrollAdjust = useCallback(() => {
+    if (!from || !to) {
+      toast.message(t("empPayrollToastSelectDate"));
+      return;
+    }
+    if (!getYearMonthFromIsoDate(from)) {
+      toast.error(t("empPayrollToastLoadFailed"));
+      return;
+    }
+    if (salarySheetRowLoading) {
+      toast.message(t("empPayrollToastLoading"));
+      return;
+    }
+    if (!salarySheetRowForPeriod) {
+      toast.error(t("empPayrollToastLoadFailed"));
+      return;
+    }
+    setPayrollAdjustOpen(true);
+  }, [
+    from,
+    to,
+    salarySheetRowLoading,
+    salarySheetRowForPeriod,
+    t,
+  ]);
+
+  const payrollSheetYearMonth = useMemo(
+    () => (from ? getYearMonthFromIsoDate(from) : null),
+    [from],
+  );
+
   if (!ready) {
     return (
       <AppShell headerContent={<EmployeePageHeader />}>
@@ -471,7 +495,7 @@ export function EmployeePageClient() {
     return (
       <AppShell headerContent={<EmployeePageHeader />}>
         <main id="main" className="flex flex-col gap-8">
-          <p className="text-lg text-muted-foreground">Employee not found.</p>
+          <p className="text-lg text-muted-foreground">{t("empNotFound")}</p>
         </main>
       </AppShell>
     );
@@ -557,9 +581,9 @@ export function EmployeePageClient() {
   const calculatedSalary =
     Math.round(totalPaidDays * ratePerDay * 100) / 100;
 
-  const monthSheetOptions = monthPickerOptions(36);
+  const monthSheetOptions = monthPickerOptions(36, locale);
   const monthBounds = getMonthRange(calYear, calMonth);
-  const salaryRangePresets = getMonthRangePresets(calYear, calMonth);
+  const salaryRangePresets = getMonthRangePresets(calYear, calMonth, locale);
   const resolvedSalaryCustomFrom = clampDateToMonth(
     salaryCustomFrom || monthBounds.from,
     calYear,
@@ -588,6 +612,7 @@ export function EmployeePageClient() {
             resolvedSalaryCustomFrom <= resolvedSalaryCustomTo
               ? resolvedSalaryCustomTo
               : resolvedSalaryCustomFrom,
+            locale,
           ),
         }
       : salaryRangePresets.find((preset) => preset.mode === salaryRangeMode) ??
@@ -609,15 +634,8 @@ export function EmployeePageClient() {
   });
   const salaryRangeLabel =
     salaryRangeMode === "full-month"
-      ? formatMonthYear(monthBounds.from)
+      ? formatMonthYear(monthBounds.from, locale)
       : salaryRange.label;
-  const currentPeriodLabel = from && to ? getMonthRangeLabel(from, to) : "";
-  const currentPeriodAdjusted = deductions.some(
-    (record) =>
-      (record.periodFrom as string) === from &&
-      (record.periodTo as string) === to &&
-      ((record.amount as number) ?? 0) > 0,
-  );
   const monthAttendanceBreakdown = buildMonthSalaryBreakdown({
     year: calYear,
     month: calMonth,
@@ -638,86 +656,8 @@ export function EmployeePageClient() {
   const salaryRangeDayRows = monthAttendanceBreakdown.days.filter(
     (row) => row.date >= salaryRange.from && row.date <= salaryRange.to,
   );
-  const correctionPeriods = getSalarySheetCorrectionPeriods(calYear, calMonth);
-  const correctionCards = correctionPeriods.map((period) => {
-    const summary = buildAttendanceSalarySummaryForRange({
-      fromDate: period.fromDate,
-      toDate: period.toDate,
-      holidayDates: factoryHolidays,
-      attendance: calendarAttendance.map((a) => ({
-        date: a.date as string,
-        status: a.status as string,
-        hoursWorked: a.hoursWorked as number | undefined,
-        hoursReduced: a.hoursReduced as number | undefined,
-        hoursExtra: a.hoursExtra as number | undefined,
-      })),
-      hoursPerDay,
-      ratePerDay,
-      sundayCategoryRule,
-    });
-    const overrideRecord =
-      salaryCorrections.find(
-        (record) =>
-          record.fromDate === period.fromDate && record.toDate === period.toDate,
-      ) ?? null;
-    const rowLike = {
-      id,
-      name: (employee?.name as string) || "Employee",
-      presentDays: overrideRecord?.overrides.presentDays ?? summary.presentDays,
-      absentDays: overrideRecord?.overrides.absentDays ?? summary.absentDays,
-      holidayPresentDays:
-        overrideRecord?.overrides.holidayPresentDays ?? summary.holidayPresentDays,
-      earnedSundayPayDays:
-        overrideRecord?.overrides.earnedSundayPayDays ?? summary.earnedSundayPayDays,
-      sundayPresentBonusDays:
-        overrideRecord?.overrides.sundayPresentBonusDays ??
-        summary.sundayPresentBonusDays,
-      totalPaidDays: overrideRecord?.overrides.totalPaidDays ?? summary.totalPaidDays,
-      monthlySalary,
-      ratePerDay,
-      ratePerHour,
-      hoursExtraTotal:
-        overrideRecord?.overrides.hoursExtraTotal ?? summary.hoursExtraTotal,
-      hoursReducedTotal:
-        overrideRecord?.overrides.hoursReducedTotal ?? summary.hoursReducedTotal,
-      baseCalculatedSalary: summary.calculatedSalary,
-      calculatedSalary:
-        overrideRecord?.overrides.calculatedSalary ?? summary.calculatedSalary,
-      hasOverrides: !!overrideRecord,
-      overrideNotes: overrideRecord?.notes ?? "",
-      overrideUpdatedAt: overrideRecord?.updatedAt ?? "",
-      overrideValues: overrideRecord?.overrides ?? {},
-      calculatedValues: {
-        presentDays: summary.presentDays,
-        absentDays: summary.absentDays,
-        holidayPresentDays: summary.holidayPresentDays,
-        earnedSundayPayDays: summary.earnedSundayPayDays,
-        sundayPresentBonusDays: summary.sundayPresentBonusDays,
-        totalPaidDays: summary.totalPaidDays,
-        hoursExtraTotal: summary.hoursExtraTotal,
-        hoursReducedTotal: summary.hoursReducedTotal,
-        calculatedSalary: summary.calculatedSalary,
-      },
-    };
-    return { period, summary, overrideRecord, rowLike };
-  });
-  const editingCorrectionCard =
-    editingCorrectionPeriod == null
-      ? null
-      : correctionCards.find(
-          (item) =>
-            item.period.fromDate === editingCorrectionPeriod.fromDate &&
-            item.period.toDate === editingCorrectionPeriod.toDate,
-        ) ?? null;
-  const correctionDraftState =
-    editingCorrectionCard && correctionDraftDrivers
-      ? buildSalarySheetDraftState(
-          editingCorrectionCard.rowLike as Parameters<
-            typeof buildSalarySheetDraftState
-          >[0],
-          correctionDraftDrivers,
-        )
-      : null;
+  const currentPeriodLabel =
+    from && to ? getMonthRangeLabel(from, to, locale) : "";
 
   const periodProdQty = productions.reduce(
     (sum, p) => sum + ((p.quantity as number) || 0),
@@ -778,6 +718,11 @@ export function EmployeePageClient() {
     if (nextTo < nextFrom) setSalaryCustomFrom(nextTo);
   };
 
+  const calendarMonthTitle = formatMonthYear(
+    `${calYear}-${String(calMonth + 1).padStart(2, "0")}-01`,
+    locale,
+  );
+
   return (
     <AppShell
       headerContent={<EmployeePageHeader />}
@@ -795,7 +740,9 @@ export function EmployeePageClient() {
                 <button
                   type="button"
                   className="relative flex items-center justify-center rounded-lg p-2 text-destructive hover:bg-destructive/10 focus:outline-none focus:ring-2 focus:ring-destructive/30 transition-colors"
-                  aria-label={`${missingDataDays.length} day${missingDataDays.length !== 1 ? "s" : ""} with missing data`}
+                  aria-label={t("dashboardMissingDataAria", {
+                    count: missingDataDays.length,
+                  })}
                 >
                   <AlertTriangle className="size-5" />
                   <span className="absolute -top-0.5 -right-0.5 flex size-4 items-center justify-center rounded-full bg-destructive text-[10px] font-bold text-destructive-foreground animate-pulse">
@@ -806,10 +753,12 @@ export function EmployeePageClient() {
               <PopoverContent align="end" className="w-72">
                 <div className="space-y-2">
                   <p className="font-medium text-destructive">
-                    Missing data
+                    {t("dashboardMissingDataTitle")}
                   </p>
                   <p className="text-sm text-muted-foreground">
-                    {missingDataDays.length} working day{missingDataDays.length !== 1 ? "s" : ""} without attendance:
+                    {t("empMissingPopoverBody", {
+                      count: missingDataDays.length,
+                    })}
                   </p>
                   <ul className="text-sm max-h-40 overflow-y-auto space-y-1">
                     {missingDataDays
@@ -819,7 +768,9 @@ export function EmployeePageClient() {
                       ))}
                     {missingDataDays.length > 15 && (
                       <li className="text-muted-foreground">
-                        +{missingDataDays.length - 15} more
+                        {t("dashboardMissingMore", {
+                          n: missingDataDays.length - 15,
+                        })}
                       </li>
                     )}
                   </ul>
@@ -834,7 +785,7 @@ export function EmployeePageClient() {
               <div className="flex items-center gap-2">
                 <Clock className="size-4 text-primary" />
                 <CardTitle className="text-sm font-medium text-muted-foreground">
-                  Shift
+                  {t("labelShift")}
                 </CardTitle>
               </div>
             </CardHeader>
@@ -849,10 +800,10 @@ export function EmployeePageClient() {
                 }}
               >
                 <SelectTrigger id="emp-shift" className="w-full min-h-10">
-                  <SelectValue placeholder="Select shift" />
+                  <SelectValue placeholder={t("empSelectShiftPlaceholder")} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="_none">No shift</SelectItem>
+                  <SelectItem value="_none">{t("empNoShift")}</SelectItem>
                   {shifts.map((s) => (
                     <SelectItem key={s.id as string} value={s.id as string}>
                       {s.name as string}
@@ -867,7 +818,7 @@ export function EmployeePageClient() {
               <div className="flex items-center gap-2">
                 <CalendarDays className="size-4 text-primary" />
                 <CardTitle className="text-sm font-medium text-muted-foreground">
-                  Sunday category
+                  {t("employeesColSundayCat")}
                 </CardTitle>
               </div>
             </CardHeader>
@@ -882,10 +833,10 @@ export function EmployeePageClient() {
                 }}
               >
                 <SelectTrigger id="emp-sunday-category" className="w-full min-h-10">
-                  <SelectValue placeholder="Default (12 => 2)" />
+                  <SelectValue placeholder={t("employeesSundayDefault")} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="_default">Default (12 present → 2)</SelectItem>
+                  <SelectItem value="_default">{t("employeesSundayDefault")}</SelectItem>
                   {sundayCategories.map((c) => (
                     <SelectItem key={c.id as string} value={c.id as string}>
                       {c.name as string}
@@ -900,7 +851,7 @@ export function EmployeePageClient() {
               <div className="flex items-center gap-2">
                 <IndianRupee className="size-4 text-primary" />
                 <CardTitle className="text-sm font-medium text-muted-foreground">
-                  Monthly salary
+                  {t("empMonthlySalary")}
                 </CardTitle>
               </div>
             </CardHeader>
@@ -931,7 +882,7 @@ export function EmployeePageClient() {
               <div className="flex items-center gap-2">
                 <IndianRupee className="size-4 text-primary" />
                 <CardTitle className="text-sm font-medium text-muted-foreground">
-                  Daily rate
+                  {t("empDailyRate")}
                 </CardTitle>
               </div>
             </CardHeader>
@@ -940,8 +891,11 @@ export function EmployeePageClient() {
                 {currency(ratePerDay)}
               </p>
               <p className="text-xs text-muted-foreground mt-1">
-                {calendarDaysInMonth} calendar days (rate) · {workingDays}{" "}
-                working days in {MONTH_NAMES[calMonth]}
+                {t("empDailyRateHint", {
+                  calendarDays: calendarDaysInMonth,
+                  workingDays,
+                  month: calendarMonthTitle,
+                })}
               </p>
             </CardContent>
           </Card>
@@ -950,7 +904,7 @@ export function EmployeePageClient() {
               <div className="flex items-center gap-2">
                 <Clock className="size-4 text-primary" />
                 <CardTitle className="text-sm font-medium text-muted-foreground">
-                  Hourly rate
+                  {t("empHourlyRate")}
                 </CardTitle>
               </div>
             </CardHeader>
@@ -959,7 +913,7 @@ export function EmployeePageClient() {
                 {currency(ratePerHour)}
               </p>
               <p className="text-xs text-muted-foreground mt-1">
-                {hoursPerDay}h shift
+                {t("empShiftHoursLabel", { hours: hoursPerDay })}
               </p>
             </CardContent>
           </Card>
@@ -981,7 +935,7 @@ export function EmployeePageClient() {
               onDateClick={(date) => {
                 setSelectedDate(date);
                 setProdDate(date);
-                const p = getPeriodForDate(date);
+                const p = getPeriodForDate(date, locale);
                 setFrom(p.from);
                 setTo(p.to);
               }}
@@ -1015,14 +969,20 @@ export function EmployeePageClient() {
                 refreshMissingData();
                 toast.success(
                   existing?.status === "present"
-                    ? `Cleared attendance for ${dateDisplay(date)}`
-                    : `Marked present for ${dateDisplay(date)}`,
+                    ? t("empToastClearedPresent", {
+                        date: dateDisplay(date),
+                      })
+                    : t("empToastMarkedPresent", {
+                        date: dateDisplay(date),
+                      }),
                 );
               }}
               periodFrom={from || ""}
               periodTo={to || ""}
               periodStatusLabel={currentPeriodLabel}
-              periodAdjusted={currentPeriodAdjusted}
+              periodAdjusted={salarySheetRowForPeriod?.hasOverrides ?? false}
+              onPeriodBadgeClick={openPayrollAdjust}
+              periodBadgeLoading={salarySheetRowLoading}
             />
           </div>
           <div className="grid grid-cols-2 gap-2 flex-1 min-w-0 xl:min-w-[280px]">
@@ -1030,14 +990,14 @@ export function EmployeePageClient() {
               <CardHeader className="p-0 pb-1">
                 <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-1">
                   <UserCheck className="size-3.5 text-primary shrink-0" />
-                  Attendance — {MONTH_NAMES[calMonth]}
+                  {t("empAttendanceCardTitle", { month: calendarMonthTitle })}
                 </CardTitle>
               </CardHeader>
               <CardContent className="p-0 pt-1.5">
                 <div className="grid grid-cols-2 gap-1.5">
                   <div className="rounded-lg border bg-muted/40 px-2 py-1.5 text-xs">
                     <p className="text-muted-foreground text-[10px] font-medium">
-                      Present
+                      {t("empLegendPresent")}
                     </p>
                     <p className="font-bold tabular-nums text-foreground text-sm">
                       {daysPresent}
@@ -1045,7 +1005,7 @@ export function EmployeePageClient() {
                   </div>
                   <div className="rounded-lg border bg-muted/40 px-2 py-1.5 text-xs">
                     <p className="text-muted-foreground text-[10px] font-medium">
-                      Absent
+                      {t("empLegendAbsent")}
                     </p>
                     <p className="font-bold tabular-nums text-foreground text-sm">
                       {daysAbsent}
@@ -1053,7 +1013,7 @@ export function EmployeePageClient() {
                   </div>
                   <div className="rounded-lg border bg-muted/40 px-2 py-1.5 text-xs">
                     <p className="text-muted-foreground text-[10px] font-medium">
-                      Earned Sun. / Sun. +
+                      {t("empEarnedSundayShort")}
                     </p>
                     <p className="font-bold tabular-nums text-foreground text-sm">
                       {earnedSundayPayDays} / {sundayPresentBonusDays}
@@ -1061,7 +1021,7 @@ export function EmployeePageClient() {
                   </div>
                   <div className="rounded-lg border bg-muted/40 px-2 py-1.5 text-xs">
                     <p className="text-muted-foreground text-[10px] font-medium">
-                      Paid days
+                      {t("empPaidDaysShort")}
                     </p>
                     <p className="font-bold tabular-nums text-foreground text-sm">
                       {totalPaidDays}
@@ -1069,7 +1029,7 @@ export function EmployeePageClient() {
                   </div>
                   <div className="col-span-2 rounded-lg border-2 border-primary/30 bg-primary/10 px-2 py-2">
                     <p className="text-muted-foreground text-[10px] font-medium">
-                      Salary
+                      {t("salarySheetColSalary")}
                     </p>
                     <p className="text-base font-bold tabular-nums text-foreground">
                       {currency(calculatedSalary)}
@@ -1078,62 +1038,17 @@ export function EmployeePageClient() {
                 </div>
               </CardContent>
             </Card>
-            <Card className="col-span-2 p-3">
-              <CardHeader className="p-0 pb-2">
-                <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-1">
-                  <FileSpreadsheet className="size-3.5 text-primary shrink-0" />
-                  Salary corrections — {MONTH_NAMES[calMonth]} {calYear}
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="p-0">
-                <div className="grid gap-2 lg:grid-cols-2">
-                  {correctionCards.map((item) => (
-                    <button
-                      key={item.period.key}
-                      type="button"
-                      className="rounded-xl border border-chart-1/20 bg-chart-1/10 px-3 py-2 text-left transition-colors hover:bg-chart-1/15"
-                      onClick={() => {
-                        setEditingCorrectionPeriod({
-                          fromDate: item.period.fromDate,
-                          toDate: item.period.toDate,
-                          label: item.period.label,
-                        });
-                        setCorrectionDraftDrivers(getSalarySheetDriverDefaults(item.rowLike as never));
-                        setCorrectionDraftNotes(item.overrideRecord?.notes ?? "");
-                      }}
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="rounded-full bg-chart-2/10 px-2 py-0.5 text-[10px] font-medium text-chart-4">
-                          {item.period.label}
-                        </span>
-                        <span className="text-[10px] font-medium text-chart-4">
-                          {item.overrideRecord ? "Re-edit correction" : "Add correction"}
-                        </span>
-                      </div>
-                      <p className="mt-2 text-sm font-semibold text-foreground">
-                        {item.overrideRecord
-                          ? summarizeSalaryCorrection(item.overrideRecord)
-                          : "No correction yet"}
-                      </p>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {item.overrideRecord?.notes?.trim() || "Tap to create or review this 15-day correction."}
-                      </p>
-                    </button>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
             <div className="grid grid-cols-2 gap-2">
               <Card className="p-3">
                 <CardHeader className="p-0 pb-1 shrink-0">
                   <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-1">
                     <Clock className="size-3.5 text-primary shrink-0" />
-                    Period hours
+                    {t("empPeriodHours")}
                   </CardTitle>
                   <p className="text-[10px] text-muted-foreground truncate">
                     {from && to
                       ? `${dateDisplay(from)} – ${dateDisplay(to)}`
-                      : "Select period"}
+                      : t("empSelectPeriod")}
                   </p>
                 </CardHeader>
                 <CardContent className="p-0 pt-1">
@@ -1149,12 +1064,12 @@ export function EmployeePageClient() {
                 <CardHeader className="p-0 pb-1 shrink-0">
                   <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-1">
                     <Package className="size-3.5 text-primary shrink-0" />
-                    Period production
+                    {t("empPeriodProduction")}
                   </CardTitle>
                   <p className="text-[10px] text-muted-foreground truncate">
                     {from && to
                       ? `${dateDisplay(from)} – ${dateDisplay(to)}`
-                      : "Select period"}
+                      : t("empSelectPeriod")}
                   </p>
                 </CardHeader>
                 <CardContent className="p-0 pt-1">
@@ -1170,10 +1085,10 @@ export function EmployeePageClient() {
                 <CardHeader className="p-0 pb-1 shrink-0">
                   <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-1">
                     <Clock className="size-3.5 text-primary shrink-0" />
-                    Monthly hours
+                    {t("empMonthlyHours")}
                   </CardTitle>
                   <p className="text-[10px] text-muted-foreground">
-                    {MONTH_NAMES[calMonth]} {calYear}
+                    {calendarMonthTitle}
                   </p>
                 </CardHeader>
                 <CardContent className="p-0 pt-1">
@@ -1189,10 +1104,10 @@ export function EmployeePageClient() {
                 <CardHeader className="p-0 pb-1 shrink-0">
                   <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-1">
                     <LayoutGrid className="size-3.5 text-primary shrink-0" />
-                    Monthly production
+                    {t("empMonthlyProduction")}
                   </CardTitle>
                   <p className="text-[10px] text-muted-foreground">
-                    {MONTH_NAMES[calMonth]} {calYear}
+                    {calendarMonthTitle}
                   </p>
                 </CardHeader>
                 <CardContent className="p-0 pt-1">
@@ -1210,14 +1125,16 @@ export function EmployeePageClient() {
                 <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-1">
                   <CalendarDays className="size-3.5 text-primary shrink-0" />
                   {selectedDate
-                    ? `${dateDisplay(selectedDate)} — Attendance`
-                    : "Select a date"}
+                    ? t("empAttendanceDateTitle", {
+                        date: dateDisplay(selectedDate),
+                      })
+                    : t("empSelectDateShort")}
                 </CardTitle>
               </CardHeader>
               <CardContent className="p-0 mt-2">
                 {!selectedDate ? (
                   <p className="text-sm text-muted-foreground">
-                    Click a date on the calendar to mark attendance.
+                    {t("empClickDateForAttendance")}
                   </p>
                 ) : (
                   <div className="space-y-3">
@@ -1288,11 +1205,17 @@ export function EmployeePageClient() {
                           setCalendarAttendance(att);
                           if (from && to) setPeriodAttendance(periodAtt);
                           refreshMissingData();
-                          toast.success(`Marked present for ${selectedDate ? dateDisplay(selectedDate) : "this date"}`);
+                          toast.success(
+                            t("empToastMarkedPresent", {
+                              date: selectedDate
+                                ? dateDisplay(selectedDate)
+                                : t("empThisDate"),
+                            }),
+                          );
                         }}
                       >
                         <Check data-icon="inline-start" />
-                        Present
+                        {t("empBtnPresent")}
                       </Button>
                       <Button
                         type="button"
@@ -1338,11 +1261,17 @@ export function EmployeePageClient() {
                           setCalendarAttendance(att);
                           if (from && to) setPeriodAttendance(periodAtt);
                           refreshMissingData();
-                          toast.success(`Marked absent for ${selectedDate ? dateDisplay(selectedDate) : "this date"}`);
+                          toast.success(
+                            t("empToastMarkedAbsent", {
+                              date: selectedDate
+                                ? dateDisplay(selectedDate)
+                                : t("empThisDate"),
+                            }),
+                          );
                         }}
                       >
                         <X data-icon="inline-start" />
-                        Absent
+                        {t("empBtnAbsent")}
                       </Button>
                       {calendarAttendance.some(
                         (a) => (a.date as string) === selectedDate,
@@ -1355,18 +1284,26 @@ export function EmployeePageClient() {
                               size="sm"
                               className="text-xs h-8 px-3"
                             >
-                              Clear
+                              {t("commonClear")}
                             </Button>
                           </AlertDialogTrigger>
                           <AlertDialogContent>
                             <AlertDialogHeader>
-                              <AlertDialogTitle>Clear attendance?</AlertDialogTitle>
+                              <AlertDialogTitle>
+                                {t("empClearAttendanceTitle")}
+                              </AlertDialogTitle>
                               <AlertDialogDescription>
-                                Remove the attendance record for {selectedDate ? dateDisplay(selectedDate) : "this date"}. You can add it again later.
+                                {t("empClearAttendanceDesc", {
+                                  date: selectedDate
+                                    ? dateDisplay(selectedDate)
+                                    : t("empThisDate"),
+                                })}
                               </AlertDialogDescription>
                             </AlertDialogHeader>
                             <AlertDialogFooter>
-                              <AlertDialogCancel>Cancel</AlertDialogCancel>
+                              <AlertDialogCancel>
+                                {t("commonCancel")}
+                              </AlertDialogCancel>
                               <AlertDialogAction
                                 className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                                 onClick={async () => {
@@ -1381,13 +1318,21 @@ export function EmployeePageClient() {
                                       ),
                                     );
                                     refreshMissingData();
-                                    toast.success("Attendance cleared");
+                                    toast.success(
+                                      t("empToastAttendanceCleared", {
+                                        date: selectedDate
+                                          ? dateDisplay(selectedDate)
+                                          : t("empThisDate"),
+                                      }),
+                                    );
                                   } catch {
-                                    toast.error("Failed to clear attendance");
+                                    toast.error(
+                                      t("empToastAttendanceClearFailed"),
+                                    );
                                   }
                                 }}
                               >
-                                Clear
+                                {t("commonClear")}
                               </AlertDialogAction>
                             </AlertDialogFooter>
                           </AlertDialogContent>
@@ -1399,7 +1344,7 @@ export function EmployeePageClient() {
                     )?.status === "present" && (
                       <div className="space-y-3 pt-3 border-t">
                         <p className="text-xs font-medium text-foreground">
-                          Adjust hours for this day
+                          {t("empAdjustHoursDayTitle")}
                         </p>
                         <div className="grid grid-cols-2 gap-3">
                           <div className="space-y-1.5">
@@ -1407,7 +1352,7 @@ export function EmployeePageClient() {
                               htmlFor="hours-reduced"
                               className="text-sm text-muted-foreground"
                             >
-                              Hours less (−)
+                              {t("empHoursLessLabel")}
                             </Label>
                             <Input
                               id="hours-reduced"
@@ -1428,7 +1373,7 @@ export function EmployeePageClient() {
                               htmlFor="hours-extra"
                               className="text-sm text-muted-foreground"
                             >
-                              Extra hours (+)
+                              {t("empHoursExtraShortLabel")}
                             </Label>
                             <Input
                               id="hours-extra"
@@ -1446,7 +1391,9 @@ export function EmployeePageClient() {
                           </div>
                         </div>
                         <p className="text-xs text-muted-foreground">
-                          Rate: {currency(ratePerHour)}/h
+                          {t("empRatePerHourLine", {
+                            rate: currency(ratePerHour),
+                          })}
                         </p>
                         {(() => {
                           const rec = calendarAttendance.find(
@@ -1519,10 +1466,10 @@ export function EmployeePageClient() {
                                 setCalendarAttendance(att);
                                 if (from && to) setPeriodAttendance(periodAtt);
                                 refreshMissingData();
-                                toast.success("Hours updated");
+                                toast.success(t("empToastHoursUpdated"));
                               }}
                             >
-                              Save hours
+                              {t("empSaveHours")}
                             </Button>
                           ) : null;
                         })()}
@@ -1538,10 +1485,10 @@ export function EmployeePageClient() {
                 <CardHeader className="p-0 pb-1 shrink-0">
                   <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-1">
                     <Clock className="size-3.5 text-primary shrink-0" />
-                    Day hours
+                    {t("empDayHours")}
                   </CardTitle>
                   <p className="text-[10px] text-muted-foreground truncate">
-                    {selectedDate ? dateDisplay(selectedDate) : "Select date"}
+                    {selectedDate ? dateDisplay(selectedDate) : t("empSelectDateShort")}
                   </p>
                 </CardHeader>
                 <CardContent className="p-0 pt-1">
@@ -1557,10 +1504,10 @@ export function EmployeePageClient() {
                 <CardHeader className="p-0 pb-1 shrink-0">
                   <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-1">
                     <Package className="size-3.5 text-primary shrink-0" />
-                    Day production
+                    {t("empDayProduction")}
                   </CardTitle>
                   <p className="text-[10px] text-muted-foreground truncate">
-                    {selectedDate ? dateDisplay(selectedDate) : "Select date"}
+                    {selectedDate ? dateDisplay(selectedDate) : t("empSelectDateShort")}
                   </p>
                 </CardHeader>
                 <CardContent className="p-0 pt-1">
@@ -1576,210 +1523,20 @@ export function EmployeePageClient() {
           </div>
         </div>
 
-        <Dialog
-          open={!!editingCorrectionPeriod}
-          onOpenChange={(open) => {
-            if (!open && !savingCorrection) {
-              setEditingCorrectionPeriod(null);
-              setCorrectionDraftDrivers(null);
-              setCorrectionDraftNotes("");
-            }
-          }}
-        >
-          <DialogContent className="max-w-3xl">
-            <DialogHeader>
-              <DialogTitle>
-                {editingCorrectionPeriod?.label} correction
-              </DialogTitle>
-            </DialogHeader>
-            {editingCorrectionCard && correctionDraftState && (
-              <div className="space-y-4">
-                <div className="grid gap-4 md:grid-cols-3">
-                  {([
-                    ["presentDays", "Present days"],
-                    ["earnedSundayPayDays", "Extra days earned"],
-                    ["sundayPresentBonusDays", "Sunday present bonus"],
-                  ] as const).map(([key, label]) => (
-                    <div key={key} className="rounded-xl border border-chart-1/20 bg-chart-1/5 p-4">
-                      <div className="flex items-center justify-between gap-2">
-                        <Label className="text-sm font-medium">{label}</Label>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          onClick={() =>
-                            setCorrectionDraftDrivers((current) =>
-                              current
-                                ? {
-                                    ...current,
-                                    [key]: getSalarySheetDriverDefaults(
-                                      editingCorrectionCard.rowLike as never,
-                                    )[key],
-                                  }
-                                : current,
-                            )
-                          }
-                        >
-                          Auto
-                        </Button>
-                      </div>
-                      <div className="mt-3 flex items-center gap-2">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="icon-sm"
-                          onClick={() =>
-                            setCorrectionDraftDrivers((current) =>
-                              current
-                                ? {
-                                    ...current,
-                                    [key]: stepSalarySheetDriverValue(current[key], -1),
-                                  }
-                                : current,
-                            )
-                          }
-                        >
-                          -
-                        </Button>
-                        <Input
-                          type="number"
-                          step="1"
-                          inputMode="numeric"
-                          className="text-center tabular-nums"
-                          value={String(correctionDraftState.drivers[key])}
-                          onChange={(event) => {
-                            const next = Number(event.target.value);
-                            if (!Number.isFinite(next)) return;
-                            setCorrectionDraftDrivers((current) =>
-                              current
-                                ? {
-                                    ...current,
-                                    [key]: Math.max(0, Math.round(next)),
-                                  }
-                                : current,
-                            );
-                          }}
-                        />
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="icon-sm"
-                          onClick={() =>
-                            setCorrectionDraftDrivers((current) =>
-                              current
-                                ? {
-                                    ...current,
-                                    [key]: stepSalarySheetDriverValue(current[key], 1),
-                                  }
-                                : current,
-                            )
-                          }
-                        >
-                          +
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                <div className="grid gap-4 md:grid-cols-3">
-                  {([
-                    ["absentDays", "Absent days"],
-                    ["totalPaidDays", "Paid days"],
-                    ["calculatedSalary", "Salary"],
-                  ] as const).map(([key, label]) => (
-                    <div
-                      key={key}
-                      className={`rounded-xl border p-4 ${
-                        correctionDraftState.changedDerivedFields.includes(key)
-                          ? "border-chart-2/35 bg-chart-1/15"
-                          : "border-chart-1/20 bg-background"
-                      }`}
-                    >
-                      <p className="text-sm font-medium text-foreground">{label}</p>
-                      <p className="mt-2 text-xl font-semibold tabular-nums">
-                        {key === "calculatedSalary"
-                          ? currency(correctionDraftState.derived[key])
-                          : number(correctionDraftState.derived[key])}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="employee-correction-notes">Reason</Label>
-                  <textarea
-                    id="employee-correction-notes"
-                    className="min-h-24 w-full rounded-xl border-2 border-input bg-background px-4 py-3 text-sm"
-                    value={correctionDraftNotes}
-                    onChange={(event) => setCorrectionDraftNotes(event.target.value)}
-                    placeholder="Why was this corrected?"
-                  />
-                </div>
-                <div className="flex justify-end gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    disabled={savingCorrection}
-                    onClick={() => {
-                      setEditingCorrectionPeriod(null);
-                      setCorrectionDraftDrivers(null);
-                      setCorrectionDraftNotes("");
-                    }}
-                  >
-                    Cancel
-                  </Button>
-                  <Button
-                    type="button"
-                    disabled={savingCorrection}
-                    onClick={async () => {
-                      if (!editingCorrectionCard || !correctionDraftState) return;
-                      setSavingCorrection(true);
-                      try {
-                        await saveSalarySheetOverride({
-                          employeeId: id,
-                          year: calYear,
-                          month: calMonth,
-                          fromDate: editingCorrectionCard.period.fromDate,
-                          toDate: editingCorrectionCard.period.toDate,
-                          notes: correctionDraftNotes,
-                          overrides: buildSalarySheetOverrideValuesFromDraft(
-                            editingCorrectionCard.rowLike as never,
-                            correctionDraftState,
-                          ),
-                        });
-                        await loadCalendarMonth();
-                        toast.success("Correction saved");
-                        setEditingCorrectionPeriod(null);
-                        setCorrectionDraftDrivers(null);
-                        setCorrectionDraftNotes("");
-                      } catch {
-                        toast.error("Failed to save correction");
-                      } finally {
-                        setSavingCorrection(false);
-                      }
-                    }}
-                  >
-                    {savingCorrection ? "Saving..." : "Save correction"}
-                  </Button>
-                </div>
-              </div>
-            )}
-          </DialogContent>
-        </Dialog>
-
         <Card className="p-6 sm:p-8 transition-all duration-300 ease-out animate-fade-in animate-stagger-3">
           <CardHeader className="p-0 mb-4 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <CardTitle className="text-xl font-semibold font-heading flex items-center gap-2">
                 <FileSpreadsheet className="size-5 text-primary shrink-0" />
-                Monthly attendance (print)
+                {t("empMonthlyAttendancePrint")}
               </CardTitle>
               <p className="text-sm text-muted-foreground mt-1 max-w-xl">
-                Full-month attendance, hours, and day pay—only in the printout. Pick the month here or from the calendar, then print.
+                {t("empMonthlyAttendancePrintDesc")}
               </p>
             </div>
             <div className="flex flex-wrap items-end gap-3 shrink-0">
               <div className="flex flex-col gap-2">
-                <Label htmlFor="month-sheet-month">Month</Label>
+                <Label htmlFor="month-sheet-month">{t("labelMonth")}</Label>
                 <Select
                   value={`${calYear}-${calMonth}`}
                   onValueChange={(v) => {
@@ -1817,7 +1574,7 @@ export function EmployeePageClient() {
                 }}
               >
                 <Printer data-icon="inline-start" className="size-4" />
-                Print monthly attendance
+                {t("empPrintMonthlyAttendance")}
               </Button>
             </div>
           </CardHeader>
@@ -1826,17 +1583,29 @@ export function EmployeePageClient() {
         <Card className="p-6 sm:p-8 transition-all duration-300 ease-out animate-fade-in animate-stagger-4">
           <CardHeader className="p-0 mb-5">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-              <div>
-                <CardTitle className="text-xl font-semibold font-heading">
-                  Salary (attendance range)
-                </CardTitle>
-                <p className="text-sm text-muted-foreground mt-1 max-w-2xl">
-                  View how much of the monthly attendance salary belongs to the selected range. Production and advances stay separate.
+              <div className="space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <CardTitle className="text-xl font-semibold font-heading">
+                    {t("empSalaryAttendanceRange")}
+                  </CardTitle>
+                  {currentPeriodLabel ? (
+                    <PayrollPeriodBadge
+                      label={currentPeriodLabel}
+                      adjusted={
+                        salarySheetRowForPeriod?.hasOverrides ?? false
+                      }
+                      loading={salarySheetRowLoading}
+                      onClick={openPayrollAdjust}
+                    />
+                  ) : null}
+                </div>
+                <p className="text-sm text-muted-foreground max-w-2xl">
+                  {t("empSalaryAttendanceRangeDesc")}
                 </p>
               </div>
               <div className="flex flex-wrap items-end gap-3 shrink-0">
                 <div className="flex flex-col gap-2">
-                  <Label htmlFor="attendance-salary-month">Month</Label>
+                  <Label htmlFor="attendance-salary-month">{t("labelMonth")}</Label>
                   <Select
                     value={`${calYear}-${calMonth}`}
                     onValueChange={(v) => {
@@ -1861,7 +1630,9 @@ export function EmployeePageClient() {
                   </Select>
                 </div>
                 <div className="flex flex-col gap-2">
-                  <Label htmlFor="attendance-salary-range-mode">Range</Label>
+                  <Label htmlFor="attendance-salary-range-mode">
+                    {t("empSalaryRangeBoxRange")}
+                  </Label>
                   <Select
                     value={salaryRangeMode}
                     onValueChange={(value) =>
@@ -1875,19 +1646,29 @@ export function EmployeePageClient() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="full-month">Full month</SelectItem>
-                      <SelectItem value="first-half">1-15</SelectItem>
-                      <SelectItem value="second-half">
-                        {`16-${new Date(calYear, calMonth + 1, 0).getDate()}`}
+                      <SelectItem value="full-month">
+                        {t("empSalaryRangeFullMonth")}
                       </SelectItem>
-                      <SelectItem value="custom">Custom range</SelectItem>
+                      <SelectItem value="first-half">
+                        {t("empSalaryRangeFirstHalf")}
+                      </SelectItem>
+                      <SelectItem value="second-half">
+                        {t("empSalaryRangeSecondHalf", {
+                          lastDay: new Date(calYear, calMonth + 1, 0).getDate(),
+                        })}
+                      </SelectItem>
+                      <SelectItem value="custom">
+                        {t("empSalaryRangeCustom")}
+                      </SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
                 {salaryRangeMode === "custom" && (
                   <>
                     <div className="flex flex-col gap-2">
-                      <Label htmlFor="attendance-salary-from">From</Label>
+                      <Label htmlFor="attendance-salary-from">
+                        {t("labelFrom")}
+                      </Label>
                       <DatePicker
                         id="attendance-salary-from"
                         value={salaryRange.from}
@@ -1898,7 +1679,7 @@ export function EmployeePageClient() {
                       />
                     </div>
                     <div className="flex flex-col gap-2">
-                      <Label htmlFor="attendance-salary-to">To</Label>
+                      <Label htmlFor="attendance-salary-to">{t("labelTo")}</Label>
                       <DatePicker
                         id="attendance-salary-to"
                         value={salaryRange.to}
@@ -1915,8 +1696,8 @@ export function EmployeePageClient() {
                   className="min-h-12 px-6"
                   onClick={async () => {
                     const html = buildPrintableAttendanceSalaryRangeHtml({
-                      employeeName: (employee.name as string) ?? "Unknown",
-                      monthLabel: formatMonthYear(monthBounds.from),
+                      employeeName: (employee.name as string) ?? t("empUnknownEmployee"),
+                      monthLabel: formatMonthYear(monthBounds.from, locale),
                       rangeLabel: salaryRangeLabel,
                       fromDate: salaryRange.from,
                       toDate: salaryRange.to,
@@ -1930,7 +1711,7 @@ export function EmployeePageClient() {
                   }}
                 >
                   <Printer data-icon="inline-start" className="size-4" />
-                  Print attendance salary
+                  {t("empPrintAttendanceSalary")}
                 </Button>
               </div>
             </div>
@@ -1939,7 +1720,7 @@ export function EmployeePageClient() {
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
               <div className="rounded-xl border bg-muted/30 p-4">
                 <p className="text-xs font-medium text-muted-foreground">
-                  Range
+                  {t("empSalaryRangeBoxRange")}
                 </p>
                 <p className="mt-1 text-sm font-semibold text-foreground">
                   {salaryRangeLabel}
@@ -1950,7 +1731,7 @@ export function EmployeePageClient() {
               </div>
               <div className="rounded-xl border bg-muted/30 p-4">
                 <p className="text-xs font-medium text-muted-foreground">
-                  Present / Absent
+                  {t("empPresentAbsent")}
                 </p>
                 <p className="mt-1 text-sm font-semibold tabular-nums text-foreground">
                   {number(salaryRangeSummary.presentDays)} / {number(salaryRangeSummary.absentDays)}
@@ -1958,7 +1739,7 @@ export function EmployeePageClient() {
               </div>
               <div className="rounded-xl border bg-muted/30 p-4">
                 <p className="text-xs font-medium text-muted-foreground">
-                  Earned Sun. / Sun. +
+                  {t("empEarnedSundayShort")}
                 </p>
                 <p className="mt-1 text-sm font-semibold tabular-nums text-foreground">
                   {number(salaryRangeSummary.earnedSundayPayDays)} / {number(salaryRangeSummary.sundayPresentBonusDays)}
@@ -1966,13 +1747,17 @@ export function EmployeePageClient() {
               </div>
               <div className="rounded-xl border-2 border-primary/25 bg-primary/10 p-4">
                 <p className="text-xs font-medium text-muted-foreground">
-                  Salary contribution
+                  {t("empSalaryContribution")}
                 </p>
                 <p className="mt-1 text-lg font-bold tabular-nums text-foreground">
                   {currency(salaryRangeSummary.calculatedSalary)}
                 </p>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Paid days {number(salaryRangeSummary.totalPaidDays)} · +hrs {number(salaryRangeSummary.hoursExtraTotal)} · -hrs {number(salaryRangeSummary.hoursReducedTotal)}
+                  {t("empPaidDaysHoursSummary", {
+                    paid: number(salaryRangeSummary.totalPaidDays),
+                    extra: number(salaryRangeSummary.hoursExtraTotal),
+                    reduced: number(salaryRangeSummary.hoursReducedTotal),
+                  })}
                 </p>
               </div>
             </div>
@@ -1982,13 +1767,13 @@ export function EmployeePageClient() {
         <Card className="p-6 sm:p-8 transition-all duration-300 ease-out animate-fade-in animate-stagger-4">
           <CardHeader className="p-0 mb-5">
             <CardTitle className="text-xl font-semibold font-heading">
-              Production & advances (15-day periods)
+              {t("empProductionAdvancesTitle")}
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
             <div className="flex flex-wrap items-end gap-4">
               <div className="flex flex-col gap-2">
-                <Label htmlFor="salary-period">Period</Label>
+                <Label htmlFor="salary-period">{t("reportsPeriod")}</Label>
                 <Select
                   value={`${from}|${to}`}
                   onValueChange={(v) => {
@@ -2009,7 +1794,7 @@ export function EmployeePageClient() {
                         key={p.from + p.to}
                         value={`${p.from}|${p.to}`}
                       >
-                        {p.label}
+                        {getPeriodForDate(p.from, locale).label}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -2023,25 +1808,26 @@ export function EmployeePageClient() {
                   await printHtml(html);
                 }}
               >
-                Print production & advances
+                <Printer data-icon="inline-start" className="size-4" />
+                {t("empPrintProductionAdvances")}
               </Button>
             </div>
             {salary && (
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 items-end mt-6">
                 <div className="flex flex-col gap-2">
-                  <Label>Gross</Label>
+                  <Label>{t("colGross")}</Label>
                   <p className="text-base text-foreground font-medium">
                     {currency(salary.gross)}
                   </p>
                 </div>
                 <div className="flex flex-col gap-2">
-                  <Label>Advance to cut</Label>
+                  <Label>{t("colAdvanceToCut")}</Label>
                   <p className="text-base text-foreground font-medium">
                     {currency(advanceToCutInput)}
                   </p>
                 </div>
                 <div className="flex flex-col gap-2">
-                  <Label>Net</Label>
+                  <Label>{t("colNet")}</Label>
                   <p className="text-base text-foreground font-medium">
                     {currency(Math.max(0, salary.gross - advanceToCutInput))}
                   </p>
@@ -2054,23 +1840,27 @@ export function EmployeePageClient() {
         <Card className="p-6 sm:p-8 transition-all duration-300 ease-out animate-fade-in animate-stagger-5">
           <CardHeader className="p-0 mb-4">
             <CardTitle className="text-xl font-semibold font-heading">
-              Settlement for this period
+              {t("empSettlementTitle")}
             </CardTitle>
             <p className="text-sm text-muted-foreground mt-1">
-              Set how much advance to cut this 15-day cycle. Net = Gross − Advance to cut. Submit to save.
+              {t("empSettlementDesc")}
             </p>
           </CardHeader>
           <CardContent className="p-0">
             {salary ? (
               <div className="space-y-4 max-w-xl">
                 <div className="flex flex-wrap items-baseline justify-between gap-2">
-                  <span className="text-muted-foreground">Total making (gross)</span>
+                  <span className="text-muted-foreground">
+                    {t("empTotalMakingGross")}
+                  </span>
                   <span className="font-semibold tabular-nums">
                     {currency(salary.gross)}
                   </span>
                 </div>
                 <div className="flex flex-wrap items-baseline justify-between gap-2">
-                  <span className="text-muted-foreground">Total advance paid (all time)</span>
+                  <span className="text-muted-foreground">
+                    {t("empTotalAdvancePaidAllTime")}
+                  </span>
                   <span className="font-semibold tabular-nums">
                     {currency(
                       allAdvances.reduce(
@@ -2081,7 +1871,9 @@ export function EmployeePageClient() {
                   </span>
                 </div>
                 <div className="flex flex-col gap-2">
-                  <Label htmlFor="advance-to-cut">Advance to cut this period (₹)</Label>
+                  <Label htmlFor="advance-to-cut">
+                    {t("empAdvanceToCutThisPeriod")}
+                  </Label>
                   <Input
                     id="advance-to-cut"
                     type="number"
@@ -2096,13 +1888,15 @@ export function EmployeePageClient() {
                 </div>
                 <Separator className="my-4" />
                 <div className="flex flex-wrap items-baseline justify-between gap-2">
-                  <span className="font-medium">Net this period</span>
+                  <span className="font-medium">{t("empNetThisPeriod")}</span>
                   <span className="font-bold text-lg tabular-nums">
                     {currency(Math.max(0, salary.gross - advanceToCutInput))}
                   </span>
                 </div>
                 <div className="flex flex-wrap items-baseline justify-between gap-2">
-                  <span className="text-muted-foreground">Advance left after this period</span>
+                  <span className="text-muted-foreground">
+                    {t("empAdvanceLeftAfter")}
+                  </span>
                   <span className="font-semibold tabular-nums">
                     {currency(
                       Math.max(
@@ -2127,7 +1921,7 @@ export function EmployeePageClient() {
                         amount: advanceToCutInput,
                       });
                     } catch {
-                      toast.error("Failed to save period settlement");
+                      toast.error(t("empToastSettlementFailed"));
                       return;
                     }
                     const updatedDeductions = await getDeductionsByEmployee(id);
@@ -2137,10 +1931,10 @@ export function EmployeePageClient() {
                       advanceToCut: advanceToCutInput,
                       final: Math.max(0, salary.gross - advanceToCutInput),
                     });
-                    toast.success("Period settlement saved");
+                    toast.success(t("empToastSettlementSaved"));
                   }}
                 >
-                  Save period settlement
+                  {t("empSavePeriodSettlement")}
                 </Button>
               </div>
             ) : (
@@ -2156,20 +1950,24 @@ export function EmployeePageClient() {
           <Card className="p-6 sm:p-8">
             <CardHeader className="p-0 mb-4">
               <CardTitle className="text-xl font-semibold font-heading">
-                Stored salary records
+                {t("empStoredSalaryRecords")}
               </CardTitle>
               <p className="text-sm text-muted-foreground mt-1">
-                Salary sheet data by month (from imported or manual records).
+                {t("empStoredSalaryRecordsDesc")}
               </p>
             </CardHeader>
             <CardContent className="p-0">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Month</TableHead>
-                    <TableHead>Shift</TableHead>
-                    <TableHead className="text-right">Salary</TableHead>
-                    <TableHead className="text-right">Amount</TableHead>
+                    <TableHead>{t("empTableMonth")}</TableHead>
+                    <TableHead>{t("labelShift")}</TableHead>
+                    <TableHead className="text-right">
+                      {t("salarySheetColSalary")}
+                    </TableHead>
+                    <TableHead className="text-right">
+                      {t("empTableAmount")}
+                    </TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -2198,7 +1996,7 @@ export function EmployeePageClient() {
         <Card className="p-6 sm:p-8">
           <CardHeader className="p-0 mb-5">
             <CardTitle className="text-xl font-semibold font-heading">
-              Add production
+              {t("empAddProduction")}
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
@@ -2210,9 +2008,7 @@ export function EmployeePageClient() {
                 const holiday = await getHolidayByDate(prodDate);
                 const holidayDates = holiday ? [prodDate] : [];
                 if (isRestrictedForEntry(prodDate, holidayDates)) {
-                  toast.error(
-                    "Cannot add production on factory holidays.",
-                  );
+                  toast.error(t("empToastProdHolidayBlock"));
                   return;
                 }
                 try {
@@ -2224,7 +2020,7 @@ export function EmployeePageClient() {
                     shift: prodShift,
                   });
                 } catch {
-                  toast.error("Failed to add production entry");
+                  toast.error(t("empToastProdAddFail"));
                   return;
                 }
                 setProdQty(1);
@@ -2245,14 +2041,14 @@ export function EmployeePageClient() {
                 setAdvances(advs);
                 await loadCalendarMonth();
                 refreshMissingData();
-                toast.success("Production entry added");
+                toast.success(t("empToastProdAdded"));
               }}
             >
               <div className="flex flex-col gap-2">
-                <Label htmlFor="prod-item">Packaging item group</Label>
+                <Label htmlFor="prod-item">{t("reportsColPackagingGroup")}</Label>
                 <Select value={prodItem} onValueChange={setProdItem}>
                   <SelectTrigger id="prod-item" className="w-56 min-h-12">
-                    <SelectValue placeholder="Select…" />
+                    <SelectValue placeholder={t("selectPlaceholder")} />
                   </SelectTrigger>
                   <SelectContent>
                     {items.map((i) => (
@@ -2264,7 +2060,7 @@ export function EmployeePageClient() {
                 </Select>
               </div>
               <div className="flex flex-col gap-2">
-                <Label htmlFor="prod-shift">Shift</Label>
+                <Label htmlFor="prod-shift">{t("labelShift")}</Label>
                 <Select
                   value={prodShift}
                   onValueChange={(v) => setProdShift(v as "day" | "night")}
@@ -2276,13 +2072,13 @@ export function EmployeePageClient() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="day">Day</SelectItem>
-                    <SelectItem value="night">Night</SelectItem>
+                    <SelectItem value="day">{t("shiftDay")}</SelectItem>
+                    <SelectItem value="night">{t("shiftNight")}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
               <div className="flex flex-col gap-2">
-                <Label htmlFor="prod-qty">Qty</Label>
+                <Label htmlFor="prod-qty">{t("labelQty")}</Label>
                 <Input
                   id="prod-qty"
                   type="number"
@@ -2295,7 +2091,7 @@ export function EmployeePageClient() {
                 />
               </div>
               <div className="flex flex-col gap-2">
-                <Label htmlFor="prod-date">Date</Label>
+                <Label htmlFor="prod-date">{t("labelDate")}</Label>
                 <DatePicker
                   id="prod-date"
                   value={prodDate}
@@ -2304,7 +2100,7 @@ export function EmployeePageClient() {
                 />
               </div>
               <Button type="submit" className="min-h-12 px-6">
-                Add
+                {t("add")}
               </Button>
             </form>
           </CardContent>
@@ -2313,7 +2109,7 @@ export function EmployeePageClient() {
         <Card className="p-6 sm:p-8">
           <CardHeader className="p-0 mb-5">
             <CardTitle className="text-xl font-semibold font-heading">
-              Add advance
+              {t("empAddAdvance")}
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
@@ -2328,7 +2124,7 @@ export function EmployeePageClient() {
                     date: advDate,
                   });
                 } catch {
-                  toast.error("Failed to add advance");
+                  toast.error(t("empToastAdvanceAddFail"));
                   return;
                 }
                 setAdvAmount(0);
@@ -2348,11 +2144,11 @@ export function EmployeePageClient() {
                 });
                 setProductions(prods);
                 setAdvances(advs);
-                toast.success("Advance added");
+                toast.success(t("empToastAdvanceAdded"));
               }}
             >
               <div className="flex flex-col gap-2">
-                <Label htmlFor="adv-amount">Amount (₹)</Label>
+                <Label htmlFor="adv-amount">{t("empAmountRupee")}</Label>
                 <Input
                   id="adv-amount"
                   type="number"
@@ -2365,7 +2161,7 @@ export function EmployeePageClient() {
                 />
               </div>
               <div className="flex flex-col gap-2">
-                <Label htmlFor="adv-date">Date</Label>
+                <Label htmlFor="adv-date">{t("labelDate")}</Label>
                 <DatePicker
                   id="adv-date"
                   value={advDate}
@@ -2374,7 +2170,7 @@ export function EmployeePageClient() {
                 />
               </div>
               <Button type="submit" className="min-h-12 px-6">
-                Add advance
+                {t("empAddAdvance")}
               </Button>
             </form>
           </CardContent>
@@ -2390,20 +2186,22 @@ export function EmployeePageClient() {
                   </div>
                   <div>
                     <p className="text-sm font-medium text-muted-foreground">
-                      Production entries
+                      {t("empProductionEntries")}
                     </p>
                     <p className="text-2xl font-bold tabular-nums">
-                      {productions.length} this period
+                      {t("empThisPeriodCount", { count: productions.length })}
                     </p>
                   </div>
                 </div>
-                <span className="text-sm text-muted-foreground">View details →</span>
+                <span className="text-sm text-muted-foreground">
+                  {t("empViewDetailsArrow")}
+                </span>
               </CardContent>
             </Card>
           </DialogTrigger>
           <DialogContent className="sm:max-w-2xl max-h-[85vh] flex flex-col">
             <DialogHeader>
-              <DialogTitle>Production entries</DialogTitle>
+              <DialogTitle>{t("empProdDialogTitle")}</DialogTitle>
             </DialogHeader>
             <div className="flex-1 overflow-y-auto -mx-1 px-1">
               {productions.length === 0 ? (
@@ -2412,9 +2210,9 @@ export function EmployeePageClient() {
                     <EmptyMedia variant="icon">
                       <Package className="size-6 text-muted-foreground" />
                     </EmptyMedia>
-                    <EmptyTitle>No production this period</EmptyTitle>
+                    <EmptyTitle>{t("empNoProductionPeriod")}</EmptyTitle>
                     <EmptyDescription>
-                      Add production entries above or pick another pay period from the 15-day selector.
+                      {t("empNoProductionPeriodDesc")}
                     </EmptyDescription>
                   </EmptyHeader>
                 </Empty>
@@ -2422,11 +2220,11 @@ export function EmployeePageClient() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Date</TableHead>
-                      <TableHead>Packaging item group</TableHead>
-                      <TableHead>Shift</TableHead>
-                      <TableHead className="text-right">Qty</TableHead>
-                      <TableHead className="text-right">Value</TableHead>
+                      <TableHead>{t("labelDate")}</TableHead>
+                      <TableHead>{t("reportsColPackagingGroup")}</TableHead>
+                      <TableHead>{t("labelShift")}</TableHead>
+                      <TableHead className="text-right">{t("labelQty")}</TableHead>
+                      <TableHead className="text-right">{t("colValue")}</TableHead>
                       <TableHead className="w-16" />
                     </TableRow>
                   </TableHeader>
@@ -2442,7 +2240,9 @@ export function EmployeePageClient() {
                             {(item?.name as string) || (p.itemId as string)}
                           </TableCell>
                           <TableCell>
-                            {p.shift === "night" ? "Night" : "Day"}
+                            {p.shift === "night"
+                              ? t("shiftNight")
+                              : t("shiftDay")}
                           </TableCell>
                           <TableCell className="text-right tabular-nums">
                             {number(qty)}
@@ -2464,13 +2264,19 @@ export function EmployeePageClient() {
                               </AlertDialogTrigger>
                               <AlertDialogContent>
                                 <AlertDialogHeader>
-                                  <AlertDialogTitle>Delete production entry?</AlertDialogTitle>
+                                  <AlertDialogTitle>
+                                    {t("empDeleteProductionTitle")}
+                                  </AlertDialogTitle>
                                   <AlertDialogDescription>
-                                    This will remove the entry for {dateDisplay(p.date as string)}. This cannot be undone.
+                                    {t("empDeleteProductionDesc", {
+                                      date: dateDisplay(p.date as string),
+                                    })}
                                   </AlertDialogDescription>
                                 </AlertDialogHeader>
                                 <AlertDialogFooter>
-                                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                  <AlertDialogCancel>
+                                    {t("commonCancel")}
+                                  </AlertDialogCancel>
                                   <AlertDialogAction
                                     className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                                     onClick={async () => {
@@ -2493,13 +2299,13 @@ export function EmployeePageClient() {
                                         setAdvances(advs);
                                         await loadCalendarMonth();
                                         refreshMissingData();
-                                        toast.success("Production entry deleted");
+                                        toast.success(t("empToastProdDeleted"));
                                       } catch {
-                                        toast.error("Failed to delete production entry");
+                                        toast.error(t("empToastProdDeleteFail"));
                                       }
                                     }}
                                   >
-                                    Delete
+                                    {t("commonDelete")}
                                   </AlertDialogAction>
                                 </AlertDialogFooter>
                               </AlertDialogContent>
@@ -2525,7 +2331,7 @@ export function EmployeePageClient() {
                   </div>
                   <div>
                     <p className="text-sm font-medium text-muted-foreground">
-                      Total advances paid
+                      {t("empTotalAdvancesPaid")}
                     </p>
                     <p className="text-2xl font-bold tabular-nums">
                       {currency(
@@ -2537,13 +2343,15 @@ export function EmployeePageClient() {
                     </p>
                   </div>
                 </div>
-                <span className="text-sm text-muted-foreground">View details →</span>
+                <span className="text-sm text-muted-foreground">
+                  {t("empViewDetailsArrow")}
+                </span>
               </CardContent>
             </Card>
           </DialogTrigger>
           <DialogContent className="sm:max-w-md">
             <DialogHeader>
-              <DialogTitle>Advances & settlements</DialogTitle>
+              <DialogTitle>{t("empAdvancesSettlementsTitle")}</DialogTitle>
             </DialogHeader>
             <div className="flex gap-1 p-1 rounded-lg bg-muted/50">
               <button
@@ -2555,7 +2363,7 @@ export function EmployeePageClient() {
                 }`}
                 onClick={() => setAdvancesModalTab("advances")}
               >
-                Advances
+                {t("empTabAdvances")}
               </button>
               <button
                 type="button"
@@ -2566,7 +2374,7 @@ export function EmployeePageClient() {
                 }`}
                 onClick={() => setAdvancesModalTab("settlements")}
               >
-                Settlements
+                {t("empTabSettlements")}
               </button>
             </div>
             {advancesModalTab === "advances" ? (
@@ -2577,9 +2385,9 @@ export function EmployeePageClient() {
                       <EmptyMedia variant="icon">
                         <Wallet className="size-6 text-muted-foreground" />
                       </EmptyMedia>
-                      <EmptyTitle>No advances yet</EmptyTitle>
+                      <EmptyTitle>{t("empNoAdvancesYet")}</EmptyTitle>
                       <EmptyDescription>
-                        Advances you record appear here with date and amount.
+                        {t("empNoAdvancesDesc")}
                       </EmptyDescription>
                     </EmptyHeader>
                   </Empty>
@@ -2587,8 +2395,10 @@ export function EmployeePageClient() {
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Date</TableHead>
-                        <TableHead className="text-right">Amount</TableHead>
+                        <TableHead>{t("labelDate")}</TableHead>
+                        <TableHead className="text-right">
+                          {t("empTableAmount")}
+                        </TableHead>
                         <TableHead className="w-16" />
                       </TableRow>
                     </TableHeader>
@@ -2618,13 +2428,22 @@ export function EmployeePageClient() {
                                 </AlertDialogTrigger>
                                 <AlertDialogContent>
                                   <AlertDialogHeader>
-                                    <AlertDialogTitle>Delete advance?</AlertDialogTitle>
+                                    <AlertDialogTitle>
+                                      {t("empDeleteAdvanceTitle")}
+                                    </AlertDialogTitle>
                                     <AlertDialogDescription>
-                                      This will remove the advance of {currency((a.amount as number) ?? 0)} from {dateDisplay(a.date as string)}. This cannot be undone.
+                                      {t("empDeleteAdvanceDesc", {
+                                        amount: currency(
+                                          (a.amount as number) ?? 0,
+                                        ),
+                                        date: dateDisplay(a.date as string),
+                                      })}
                                     </AlertDialogDescription>
                                   </AlertDialogHeader>
                                   <AlertDialogFooter>
-                                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                    <AlertDialogCancel>
+                                    {t("commonCancel")}
+                                  </AlertDialogCancel>
                                     <AlertDialogAction
                                       className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                                       onClick={async () => {
@@ -2648,13 +2467,13 @@ export function EmployeePageClient() {
                                           });
                                           setProductions(prods);
                                           setAdvances(advs);
-                                          toast.success("Advance deleted");
+                                          toast.success(t("empToastAdvanceDeleted"));
                                         } catch {
-                                          toast.error("Failed to delete advance");
+                                          toast.error(t("empToastAdvanceDeleteFail"));
                                         }
                                       }}
                                     >
-                                      Delete
+                                      {t("commonDelete")}
                                     </AlertDialogAction>
                                   </AlertDialogFooter>
                                 </AlertDialogContent>
@@ -2674,9 +2493,9 @@ export function EmployeePageClient() {
                       <EmptyMedia variant="icon">
                         <IndianRupee className="size-6 text-muted-foreground" />
                       </EmptyMedia>
-                      <EmptyTitle>No settlements yet</EmptyTitle>
+                      <EmptyTitle>{t("empNoSettlementsYet")}</EmptyTitle>
                       <EmptyDescription>
-                        Saved period deductions show here after you submit a settlement.
+                        {t("empNoSettlementsDesc")}
                       </EmptyDescription>
                     </EmptyHeader>
                   </Empty>
@@ -2684,9 +2503,9 @@ export function EmployeePageClient() {
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Period</TableHead>
+                        <TableHead>{t("reportsPeriod")}</TableHead>
                         <TableHead className="text-right">
-                          Deducted
+                          {t("empTableDeducted")}
                         </TableHead>
                       </TableRow>
                     </TableHeader>
@@ -2716,6 +2535,27 @@ export function EmployeePageClient() {
             )}
           </DialogContent>
         </Dialog>
+        <SalarySheetAdjustDialog
+          open={payrollAdjustOpen}
+          onOpenChange={setPayrollAdjustOpen}
+          row={salarySheetRowForPeriod}
+          year={payrollSheetYearMonth?.year ?? calYear}
+          month={payrollSheetYearMonth?.month ?? calMonth}
+          periodFrom={from}
+          periodTo={to}
+          onSaved={async () => {
+            const ym = from ? getYearMonthFromIsoDate(from) : null;
+            if (!ym || !from || !to) return;
+            const row = await getSalarySheetRowForEmployee(
+              id,
+              ym.year,
+              ym.month,
+              from,
+              to,
+            );
+            setSalarySheetRowForPeriod(row);
+          }}
+        />
       </main>
     </AppShell>
   );

@@ -38,9 +38,11 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { AppLoadingScreen } from "@/components/app-loading-screen";
+import { useLanguage } from "@/components/language-provider";
 
 export default function ItemsPage() {
   const router = useRouter();
+  const { t } = useLanguage();
   const [ready, setReady] = useState(false);
   const [items, setItems] = useState<Record<string, unknown>[]>([]);
   const [itemName, setItemName] = useState("");
@@ -67,8 +69,8 @@ export default function ItemsPage() {
   if (!ready) {
     return (
       <AppLoadingScreen
-        title="Opening items…"
-        description="Loading packaging item groups from your database."
+        title={t("loadingOpeningItems")}
+        description={t("loadingOpeningItemsDesc")}
       />
     );
   }
@@ -80,11 +82,10 @@ export default function ItemsPage() {
       <main className="flex flex-col gap-10 animate-fade-in">
         <header className="flex flex-col gap-2">
           <h1 className="font-heading text-3xl font-bold tracking-tight text-foreground md:text-4xl">
-            Packaging items
+            {t("itemsPageTitle")}
           </h1>
           <p className="max-w-2xl text-base leading-relaxed text-muted-foreground">
-            Define packaging item groups and rates. They appear when adding
-            production and in reports.
+            {t("itemsPageIntro")}
           </p>
         </header>
 
@@ -92,10 +93,10 @@ export default function ItemsPage() {
           <CardHeader className="border-b border-border/60 bg-muted/25 pb-6">
             <CardTitle className="flex items-center gap-2 text-xl font-semibold font-heading">
               <Package className="size-5 text-primary" />
-              All packaging item groups
+              {t("itemsCardTitle")}
             </CardTitle>
             <p className="text-sm text-muted-foreground">
-              Names and prices used for daily production and payroll.
+              {t("itemsCardSubtitle")}
             </p>
           </CardHeader>
           <CardContent className="p-6 sm:p-8">
@@ -103,9 +104,9 @@ export default function ItemsPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Packaging item group</TableHead>
+                    <TableHead>{t("itemsColGroup")}</TableHead>
                     <TableHead className="text-right tabular-nums">
-                      Packaging price (₹)
+                      {t("itemsColPrice")}
                     </TableHead>
                     <TableHead className="w-16" />
                   </TableRow>
@@ -117,7 +118,7 @@ export default function ItemsPage() {
                         <div className="flex flex-col items-center gap-2 py-4">
                           <Skeleton className="h-4 w-48 rounded-md" />
                           <span className="text-sm text-muted-foreground">
-                            No items yet — add your first group below.
+                            {t("itemsEmptyHint")}
                           </span>
                         </div>
                       </TableCell>
@@ -141,8 +142,8 @@ export default function ItemsPage() {
                                 type="button"
                                 variant="destructive"
                                 size="icon"
-                                title="Delete packaging item group"
-                                aria-label="Delete packaging item group"
+                                title={t("itemsDeleteTitle")}
+                                aria-label={t("itemsDeleteGroupAria")}
                               >
                                 <Trash2 data-icon="inline-start" aria-hidden />
                               </Button>
@@ -150,15 +151,16 @@ export default function ItemsPage() {
                             <AlertDialogContent>
                               <AlertDialogHeader>
                                 <AlertDialogTitle>
-                                  Delete packaging item group?
+                                  {t("itemsDeleteTitle")}
                                 </AlertDialogTitle>
                                 <AlertDialogDescription>
-                                  Delete {i.name as string}? Productions using
-                                  it will keep the id but may show as unknown.
+                                  {t("itemsDeleteDesc", {
+                                    name: String(i.name),
+                                  })}
                                 </AlertDialogDescription>
                               </AlertDialogHeader>
                               <AlertDialogFooter>
-                                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                <AlertDialogCancel>{t("commonCancel")}</AlertDialogCancel>
                                 <AlertDialogAction
                                   className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                                   onClick={async () => {
@@ -166,16 +168,16 @@ export default function ItemsPage() {
                                       await deleteItem(i.id as string);
                                       await load();
                                       toast.success(
-                                        "Packaging item group deleted",
+                                        t("itemsDeleteSuccess"),
                                       );
                                     } catch {
                                       toast.error(
-                                        "Failed to delete packaging item group",
+                                        t("itemsDeleteFail"),
                                       );
                                     }
                                   }}
                                 >
-                                  Delete
+                                  {t("commonDelete")}
                                 </AlertDialogAction>
                               </AlertDialogFooter>
                             </AlertDialogContent>
@@ -200,26 +202,26 @@ export default function ItemsPage() {
                   setItemName("");
                   setItemRate(0);
                   await load();
-                  toast.success("Packaging item group added");
+                  toast.success(t("itemsAddSuccess"));
                 } catch {
-                  toast.error("Failed to add packaging item group");
+                  toast.error(t("itemsAddFail"));
                 }
               }}
             >
               <div className="flex flex-col gap-2">
-                <Label htmlFor="itemName">Packaging item group name</Label>
+                <Label htmlFor="itemName">{t("itemsFormNameLabel")}</Label>
                 <Input
                   id="itemName"
                   type="text"
                   value={itemName}
                   onChange={(e) => setItemName(e.target.value)}
-                  placeholder="e.g. RD CONT - 1000PCS"
+                  placeholder={t("itemsFormNamePlaceholder")}
                   className="w-64 min-h-[44px]"
                   required
                 />
               </div>
               <div className="flex flex-col gap-2">
-                <Label htmlFor="itemRate">Packaging price (₹)</Label>
+                <Label htmlFor="itemRate">{t("itemsFormRateLabel")}</Label>
                 <Input
                   id="itemRate"
                   type="number"
@@ -233,7 +235,7 @@ export default function ItemsPage() {
                 />
               </div>
               <Button type="submit" className={btnPrimaryClass}>
-                Add packaging item group
+                {t("itemsFormSubmit")}
               </Button>
             </form>
           </CardContent>

@@ -4,22 +4,11 @@ import { useMemo } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-
-const MONTH_NAMES = [
-  "January",
-  "February",
-  "March",
-  "April",
-  "May",
-  "June",
-  "July",
-  "August",
-  "September",
-  "October",
-  "November",
-  "December",
-];
-const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+import { useLanguage } from "@/components/language-provider";
+import {
+  formatMonthCalendarHeading,
+  weekdayShortLabels,
+} from "@/lib/utils/date";
 
 function getLastDayOfMonth(year: number, month: number): number {
   return new Date(year, month + 1, 0).getDate();
@@ -60,6 +49,8 @@ export function DashboardCalendar({
   periodFrom = "",
   periodTo = "",
 }: DashboardCalendarProps) {
+  const { locale, t } = useLanguage();
+  const dayLabels = useMemo(() => weekdayShortLabels(locale), [locale]);
   const daysInMonth = getLastDayOfMonth(year, month);
   const firstDayOfWeek = new Date(year, month, 1).getDay();
 
@@ -74,7 +65,7 @@ export function DashboardCalendar({
 
   const dayOffSet = useMemo(
     () => new Set(factoryHolidays),
-    [factoryHolidays]
+    [factoryHolidays],
   );
 
   /** Employees active on a given date (started on or before that date). */
@@ -95,8 +86,8 @@ export function DashboardCalendar({
   const pad = (n: number) => String(n).padStart(2, "0");
 
   return (
-    <div className="w-full h-full min-w-[320px] max-w-[400px] rounded-xl border border-border bg-card p-4 sm:p-6 flex flex-col">
-      <div className="flex items-center justify-between mb-4">
+    <div className="flex h-full min-h-0 w-full min-w-[320px] max-w-[400px] flex-col rounded-xl border border-border bg-card p-4 sm:p-6">
+      <div className="mb-4 flex items-center justify-between">
         <Button
           type="button"
           variant="outline"
@@ -106,12 +97,12 @@ export function DashboardCalendar({
             const py = month === 0 ? year - 1 : year;
             onMonthChange(py, prev);
           }}
-          aria-label="Previous month"
+          aria-label={t("calPrevMonth")}
         >
           <ChevronLeft data-icon="inline-start" />
         </Button>
-        <h3 className="font-heading font-bold text-lg text-foreground">
-          {MONTH_NAMES[month]} {year}
+        <h3 className="font-heading text-lg font-bold text-foreground">
+          {formatMonthCalendarHeading(year, month, locale)}
         </h3>
         <Button
           type="button"
@@ -122,24 +113,24 @@ export function DashboardCalendar({
             const ny = month === 11 ? year + 1 : year;
             onMonthChange(ny, next);
           }}
-          aria-label="Next month"
+          aria-label={t("calNextMonth")}
         >
           <ChevronRight data-icon="inline-start" />
         </Button>
       </div>
 
-      <div className="grid grid-cols-7 gap-1 mb-1">
-        {DAY_LABELS.map((d) => (
+      <div className="mb-1 grid grid-cols-7 gap-1">
+        {dayLabels.map((d) => (
           <div
             key={d}
-            className="text-center text-xs font-semibold text-muted-foreground py-1"
+            className="py-1 text-center text-xs font-semibold text-muted-foreground"
           >
             {d}
           </div>
         ))}
       </div>
 
-      <div className="grid grid-cols-7 gap-1 flex-1 min-h-0 content-stretch">
+      <div className="grid min-h-0 flex-1 grid-cols-7 gap-1 content-stretch">
         {cells.map((day, i) => {
           if (day === null) return <div key={`empty-${i}`} />;
 
@@ -165,8 +156,8 @@ export function DashboardCalendar({
               type="button"
               variant="ghost"
               className={cn(
-                "relative flex flex-col items-center justify-center rounded-lg p-2 min-h-[48px] h-auto text-sm transition-all",
-                isSelected && "ring-2 ring-chart-1 bg-chart-1/50",
+                "relative flex h-auto min-h-[48px] flex-col items-center justify-center rounded-lg p-2 text-sm transition-all",
+                isSelected && "bg-chart-1/50 ring-2 ring-chart-1",
                 inPeriod && !isSelected && "bg-chart-1/20",
                 !inPeriod && !isSelected && !isDayOff && "hover:bg-muted",
                 isSunday && !isSelected && "text-destructive/70",
@@ -178,38 +169,57 @@ export function DashboardCalendar({
                   ? () => onToggleHoliday(dateStr)
                   : undefined
               }
-              aria-label={`${day}${isDayOff ? ", Factory holiday" : ""}${allEntered ? ", All employees entered" : someEntered ? `, ${enteredEmps} employees entered` : ""}`}
+              aria-label={[
+                t("calAriaDay", { day }),
+                isDayOff ? t("calAriaHoliday") : "",
+                allEntered
+                  ? t("calAriaAllEntered")
+                  : someEntered
+                    ? t("calAriaPartialEntered", {
+                        entered: enteredEmps,
+                        active: activeOnDate,
+                      })
+                    : "",
+              ]
+                .filter(Boolean)
+                .join("")}
               title={dateStr}
             >
               <span
                 className={cn(
                   "text-xs leading-none",
-                  isToday && !isSelected &&
-                    "bg-primary text-primary-foreground rounded-full size-6 flex items-center justify-center",
-                  isToday && isSelected && "bg-foreground/20 text-foreground rounded-full size-6 flex items-center justify-center font-semibold"
+                  isToday &&
+                    !isSelected &&
+                    "flex size-6 items-center justify-center rounded-full bg-primary text-primary-foreground",
+                  isToday &&
+                    isSelected &&
+                    "flex size-6 items-center justify-center rounded-full bg-foreground/20 font-semibold text-foreground",
                 )}
               >
                 {day}
               </span>
-              <div className="flex gap-0.5 mt-0.5">
+              <div className="mt-0.5 flex gap-0.5">
                 {allEntered && (
                   <span
                     className="size-1.5 rounded-full bg-[hsl(var(--success))]"
-                    title="All employees entered"
+                    title={t("calLegendAllEntered")}
                     aria-hidden
                   />
                 )}
                 {someEntered && (
                   <span
                     className="size-1.5 rounded-full bg-[hsl(var(--warning))]"
-                    title={`${enteredEmps}/${activeOnDate} entered`}
+                    title={t("calTitleEnteredFraction", {
+                      entered: enteredEmps,
+                      active: activeOnDate,
+                    })}
                     aria-hidden
                   />
                 )}
                 {isDayOff && (
                   <span
                     className="size-1.5 rounded-full bg-destructive"
-                    title="Factory holiday"
+                    title={t("calTitleFactoryHoliday")}
                     aria-hidden
                   />
                 )}
@@ -219,27 +229,27 @@ export function DashboardCalendar({
         })}
       </div>
 
-      <div className="flex flex-wrap gap-4 mt-auto pt-4 text-xs text-muted-foreground">
+      <div className="mt-auto flex flex-wrap gap-4 pt-4 text-xs text-muted-foreground">
         <div className="flex items-center gap-1.5">
-          <span className="size-2 rounded-full bg-[hsl(var(--success))]" /> All
-          entered
+          <span className="size-2 rounded-full bg-[hsl(var(--success))]" />{" "}
+          {t("calLegendAllEntered")}
         </div>
         <div className="flex items-center gap-1.5">
           <span className="size-2 rounded-full bg-[hsl(var(--warning))]" />{" "}
-          Partial
+          {t("calLegendPartial")}
         </div>
         <div className="flex items-center gap-1.5">
-          <span className="size-2 rounded-full bg-destructive" /> Factory
-          holiday
+          <span className="size-2 rounded-full bg-destructive" />{" "}
+          {t("calLegendHoliday")}
         </div>
         {(periodFrom || periodTo) && (
           <div className="flex items-center gap-1.5">
             <span className="size-4 rounded border border-chart-1/50 bg-chart-1/20" />{" "}
-            Selected period
+            {t("calLegendSelectedPeriod")}
           </div>
         )}
         {onToggleHoliday && (
-          <p className="text-xs italic">Double-click a date to toggle holiday</p>
+          <p className="text-xs italic">{t("calDoubleClickHoliday")}</p>
         )}
       </div>
     </div>

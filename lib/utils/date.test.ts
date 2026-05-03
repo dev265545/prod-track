@@ -12,6 +12,10 @@ import {
   getCalendarDaysInMonth,
   getSundayDatesInMonth,
   countSundaysInRange,
+  getYearMonthFromIsoDate,
+  countCalendarDaysInclusive,
+  getMaxEarnedSundayPayDaysInRange,
+  clampPayrollDriverFieldsToPeriod,
 } from "./date";
 
 describe("getMonthRange", () => {
@@ -20,6 +24,68 @@ describe("getMonthRange", () => {
       from: "2026-04-01",
       to: "2026-04-30",
     });
+  });
+});
+
+describe("getYearMonthFromIsoDate", () => {
+  it("returns JS month index and year", () => {
+    expect(getYearMonthFromIsoDate("2026-03-15")).toEqual({
+      year: 2026,
+      month: 2,
+    });
+  });
+
+  it("returns null for invalid strings", () => {
+    expect(getYearMonthFromIsoDate("")).toBeNull();
+    expect(getYearMonthFromIsoDate("bad")).toBeNull();
+  });
+});
+
+describe("countCalendarDaysInclusive", () => {
+  it("counts first-half 15-day ranges", () => {
+    expect(countCalendarDaysInclusive("2026-03-01", "2026-03-15")).toBe(15);
+  });
+
+  it("returns 0 when range is invalid", () => {
+    expect(countCalendarDaysInclusive("", "2026-03-15")).toBe(0);
+    expect(countCalendarDaysInclusive("2026-03-16", "2026-03-01")).toBe(0);
+  });
+});
+
+describe("getMaxEarnedSundayPayDaysInRange", () => {
+  it("returns 2 for half-month length", () => {
+    expect(getMaxEarnedSundayPayDaysInRange("2026-03-01", "2026-03-15")).toBe(2);
+  });
+
+  it("returns 4 for full-month length", () => {
+    expect(getMaxEarnedSundayPayDaysInRange("2026-03-01", "2026-03-31")).toBe(4);
+  });
+});
+
+describe("clampPayrollDriverFieldsToPeriod", () => {
+  it("caps present to workdays and Sunday bonus to Sundays in range", () => {
+    const out = clampPayrollDriverFieldsToPeriod(
+      "2026-03-01",
+      "2026-03-15",
+      [],
+      { presentDays: 20, earnedSundayPayDays: 5, sundayPresentBonusDays: 10 },
+    );
+    expect(out.presentDays).toBe(12);
+    expect(out.earnedSundayPayDays).toBe(2);
+    expect(out.sundayPresentBonusDays).toBe(3);
+  });
+
+  it("caps present days to 0 when the range has no Mon–Sat workdays", () => {
+    // 2026-03-01 is a Sunday — single-day range has zero workdays
+    const out = clampPayrollDriverFieldsToPeriod(
+      "2026-03-01",
+      "2026-03-01",
+      [],
+      { presentDays: 5, earnedSundayPayDays: 1, sundayPresentBonusDays: 1 },
+    );
+    expect(out.presentDays).toBe(0);
+    expect(out.earnedSundayPayDays).toBe(1);
+    expect(out.sundayPresentBonusDays).toBe(1);
   });
 });
 

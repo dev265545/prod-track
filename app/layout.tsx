@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Inter, Space_Grotesk } from "next/font/google";
 import { ThemeProvider } from "@/components/theme-provider";
+import { LanguageProvider } from "@/components/language-provider";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { Toaster } from "@/components/ui/sonner";
 import { FirstRunGuard } from "@/components/FirstRunGuard";
@@ -9,7 +10,7 @@ import { DatabaseConnectedGuard } from "@/components/DatabaseConnectedGuard";
 import "./globals.css";
 
 const inter = Inter({
-  subsets: ["latin"],
+  subsets: ["latin", "latin-ext"],
   variable: "--font-body",
   display: "swap",
 });
@@ -39,14 +40,16 @@ export default function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
-          <FirstRunGuard>
-            <DatabaseConnectedGuard>
-              <SidebarProvider className="no-print">
-                {children}
-                <Toaster />
-              </SidebarProvider>
-            </DatabaseConnectedGuard>
-          </FirstRunGuard>
+          <LanguageProvider>
+            <FirstRunGuard>
+              <DatabaseConnectedGuard>
+                <SidebarProvider className="no-print">
+                  {children}
+                  <Toaster />
+                </SidebarProvider>
+              </DatabaseConnectedGuard>
+            </FirstRunGuard>
+          </LanguageProvider>
         </ThemeProvider>
       </body>
     </html>

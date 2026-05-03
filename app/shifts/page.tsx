@@ -51,9 +51,11 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { AppLoadingScreen } from "@/components/app-loading-screen";
+import { useLanguage } from "@/components/language-provider";
 
 export default function ShiftsPage() {
   const router = useRouter();
+  const { t } = useLanguage();
   const [ready, setReady] = useState(false);
   const [shifts, setShifts] = useState<Record<string, unknown>[]>([]);
   const [shiftName, setShiftName] = useState("");
@@ -96,8 +98,8 @@ export default function ShiftsPage() {
   if (!ready) {
     return (
       <AppLoadingScreen
-        title="Opening shifts…"
-        description="Loading shift definitions from your database."
+        title={t("loadingOpeningShifts")}
+        description={t("loadingOpeningShiftsDesc")}
       />
     );
   }
@@ -109,11 +111,10 @@ export default function ShiftsPage() {
       <main className="flex flex-col gap-10 animate-fade-in">
         <header className="flex flex-col gap-2">
           <h1 className="font-heading text-3xl font-bold tracking-tight text-foreground md:text-4xl">
-            Shifts
+            {t("shiftsPageTitle")}
           </h1>
           <p className="max-w-2xl text-base leading-relaxed text-muted-foreground">
-            Configure shift hours and Sunday earning categories used in salary
-            calculations.
+            {t("shiftsPageIntro")}
           </p>
         </header>
 
@@ -121,10 +122,10 @@ export default function ShiftsPage() {
           <CardHeader className="border-b border-border/60 bg-muted/25 pb-6">
             <CardTitle className="flex items-center gap-2 text-xl font-semibold font-heading">
               <Clock className="size-5 text-primary" />
-              Shift definitions
+              {t("shiftsCardShiftsTitle")}
             </CardTitle>
             <p className="text-sm text-muted-foreground">
-              Day and night (or any pattern) you track on the floor.
+              {t("shiftsCardShiftsSubtitle")}
             </p>
           </CardHeader>
           <CardContent className="p-6 sm:p-8">
@@ -132,9 +133,9 @@ export default function ShiftsPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Name</TableHead>
+                    <TableHead>{t("shiftsColName")}</TableHead>
                     <TableHead className="text-right tabular-nums">
-                      Hours/day
+                      {t("shiftsColHoursPerDay")}
                     </TableHead>
                     <TableHead className="w-16" />
                   </TableRow>
@@ -146,7 +147,7 @@ export default function ShiftsPage() {
                         <div className="flex flex-col items-center gap-2 py-4">
                           <Skeleton className="h-4 w-40 rounded-md" />
                           <span className="text-sm text-muted-foreground">
-                            No shifts yet — add your first shift below.
+                            {t("shiftsEmptyHint")}
                           </span>
                         </div>
                       </TableCell>
@@ -170,35 +171,34 @@ export default function ShiftsPage() {
                                 type="button"
                                 variant="destructive"
                                 size="icon"
-                                title="Delete shift"
-                                aria-label="Delete shift"
+                                title={t("shiftsDeleteTitle")}
+                                aria-label={t("shiftsDeleteShiftAria")}
                               >
                                 <Trash2 data-icon="inline-start" aria-hidden />
                               </Button>
                             </AlertDialogTrigger>
                             <AlertDialogContent>
                               <AlertDialogHeader>
-                                <AlertDialogTitle>Delete shift?</AlertDialogTitle>
+                                <AlertDialogTitle>{t("shiftsDeleteTitle")}</AlertDialogTitle>
                                 <AlertDialogDescription>
-                                  Delete {s.name as string}? Records referencing
-                                  it may lose the link.
+                                  {t("shiftsDeleteDesc", { name: String(s.name) })}
                                 </AlertDialogDescription>
                               </AlertDialogHeader>
                               <AlertDialogFooter>
-                                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                <AlertDialogCancel>{t("commonCancel")}</AlertDialogCancel>
                                 <AlertDialogAction
                                   className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                                   onClick={async () => {
                                     try {
                                       await deleteShift(s.id as string);
                                       await load();
-                                      toast.success("Shift deleted");
+                                      toast.success(t("shiftsDeleteSuccess"));
                                     } catch {
-                                      toast.error("Failed to delete shift");
+                                      toast.error(t("shiftsDeleteFail"));
                                     }
                                   }}
                                 >
-                                  Delete
+                                  {t("commonDelete")}
                                 </AlertDialogAction>
                               </AlertDialogFooter>
                             </AlertDialogContent>
@@ -223,26 +223,26 @@ export default function ShiftsPage() {
                   setShiftName("");
                   setShiftHours(8);
                   await load();
-                  toast.success("Shift added");
+                  toast.success(t("shiftsAddSuccess"));
                 } catch {
-                  toast.error("Failed to add shift");
+                  toast.error(t("shiftsAddFail"));
                 }
               }}
             >
               <div className="flex flex-col gap-2">
-                <Label htmlFor="shiftName">Name</Label>
+                <Label htmlFor="shiftName">{t("shiftsFormNameLabel")}</Label>
                 <Input
                   id="shiftName"
                   type="text"
                   value={shiftName}
                   onChange={(e) => setShiftName(e.target.value)}
-                  placeholder="e.g. 8AM-8PM"
+                  placeholder={t("shiftsFormNamePlaceholder")}
                   className="w-48 min-h-[44px]"
                   required
                 />
               </div>
               <div className="flex flex-col gap-2">
-                <Label htmlFor="shiftHours">Hours per day</Label>
+                <Label htmlFor="shiftHours">{t("shiftsFormHoursLabel")}</Label>
                 <Input
                   id="shiftHours"
                   type="number"
@@ -261,7 +261,7 @@ export default function ShiftsPage() {
                 />
               </div>
               <Button type="submit" className={btnPrimaryClass}>
-                Add shift
+                {t("shiftsFormSubmit")}
               </Button>
             </form>
           </CardContent>
@@ -271,11 +271,10 @@ export default function ShiftsPage() {
           <CardHeader className="border-b border-border/60 bg-muted/25 pb-6">
             <CardTitle className="flex items-center gap-2 text-xl font-semibold font-heading">
               <CalendarDays className="size-5 text-primary" />
-              Sunday categories
+              {t("shiftsSundayCardTitle")}
             </CardTitle>
             <p className="text-sm text-muted-foreground">
-              Assign one category per employee. Rule is applied per 15-day block,
-              and earned Sundays are capped to 2 per block.
+              {t("shiftsSundayCardSubtitle")}
             </p>
           </CardHeader>
           <CardContent className="p-6 sm:p-8">
@@ -283,8 +282,8 @@ export default function ShiftsPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Name</TableHead>
-                    <TableHead>Rule</TableHead>
+                    <TableHead>{t("shiftsSundayColName")}</TableHead>
+                    <TableHead>{t("shiftsSundayColRule")}</TableHead>
                     <TableHead className="w-16" />
                   </TableRow>
                 </TableHeader>
@@ -295,7 +294,7 @@ export default function ShiftsPage() {
                         <div className="flex flex-col items-center gap-2 py-4">
                           <Skeleton className="h-4 w-48 rounded-md" />
                           <span className="text-sm text-muted-foreground">
-                            No Sunday categories yet — add one below.
+                            {t("shiftsSundayEmptyHint")}
                           </span>
                         </div>
                       </TableCell>
@@ -311,8 +310,14 @@ export default function ShiftsPage() {
                         </TableCell>
                         <TableCell>
                           {(c.mode as string) === "step"
-                            ? `Every ${c.everyPresentDays as number} present => ${c.earnedPerStep as number} Sunday`
-                            : `${c.requiredPresent as number} present => ${c.earnedSundays as number} Sundays`}
+                            ? t("shiftsSundayRuleStep", {
+                                every: c.everyPresentDays as number,
+                                earned: c.earnedPerStep as number,
+                              })
+                            : t("shiftsSundayRuleThreshold", {
+                                required: c.requiredPresent as number,
+                                earned: c.earnedSundays as number,
+                              })}
                         </TableCell>
                         <TableCell>
                           <AlertDialog>
@@ -321,35 +326,36 @@ export default function ShiftsPage() {
                                 type="button"
                                 variant="destructive"
                                 size="icon"
-                                title="Delete category"
-                                aria-label="Delete category"
+                                title={t("shiftsSundayDeleteTitle")}
+                                aria-label={t("shiftsSundayDeleteCatAria")}
                               >
                                 <Trash2 data-icon="inline-start" aria-hidden />
                               </Button>
                             </AlertDialogTrigger>
                             <AlertDialogContent>
                               <AlertDialogHeader>
-                                <AlertDialogTitle>Delete category?</AlertDialogTitle>
+                                <AlertDialogTitle>{t("shiftsSundayDeleteTitle")}</AlertDialogTitle>
                                 <AlertDialogDescription>
-                                  Delete {c.name as string}? Employees using it
-                                  will fall back to default (12 present → 2).
+                                  {t("shiftsSundayDeleteDesc", {
+                                    name: String(c.name),
+                                  })}
                                 </AlertDialogDescription>
                               </AlertDialogHeader>
                               <AlertDialogFooter>
-                                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                <AlertDialogCancel>{t("commonCancel")}</AlertDialogCancel>
                                 <AlertDialogAction
                                   className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                                   onClick={async () => {
                                     try {
                                       await deleteSundayCategory(c.id as string);
                                       await load();
-                                      toast.success("Category deleted");
+                                      toast.success(t("shiftsSundayDeleteSuccess"));
                                     } catch {
-                                      toast.error("Failed to delete category");
+                                      toast.error(t("shiftsSundayDeleteFail"));
                                     }
                                   }}
                                 >
-                                  Delete
+                                  {t("commonDelete")}
                                 </AlertDialogAction>
                               </AlertDialogFooter>
                             </AlertDialogContent>
@@ -389,26 +395,26 @@ export default function ShiftsPage() {
                   setEveryPresentDays(6);
                   setEarnedPerStep(1);
                   await load();
-                  toast.success("Sunday category added");
+                  toast.success(t("shiftsSundayAddSuccess"));
                 } catch {
-                  toast.error("Failed to add Sunday category");
+                  toast.error(t("shiftsSundayAddFail"));
                 }
               }}
             >
               <div className="flex flex-col gap-2">
-                <Label htmlFor="catName">Category name</Label>
+                <Label htmlFor="catName">{t("shiftsSundayFormNameLabel")}</Label>
                 <Input
                   id="catName"
                   type="text"
                   value={categoryName}
                   onChange={(e) => setCategoryName(e.target.value)}
-                  placeholder="e.g. 12 attendance => 2 Sundays"
+                  placeholder={t("shiftsSundayFormNamePlaceholder")}
                   className="w-64 min-h-[44px]"
                   required
                 />
               </div>
               <div className="flex flex-col gap-2">
-                <Label htmlFor="catMode">Rule type</Label>
+                <Label htmlFor="catMode">{t("shiftsSundayFormModeLabel")}</Label>
                 <Select
                   value={categoryMode}
                   onValueChange={(v) =>
@@ -419,8 +425,8 @@ export default function ShiftsPage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="threshold">Threshold</SelectItem>
-                    <SelectItem value="step">Step</SelectItem>
+                    <SelectItem value="threshold">{t("shiftsSundayModeThreshold")}</SelectItem>
+                    <SelectItem value="step">{t("shiftsSundayModeStep")}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -428,7 +434,7 @@ export default function ShiftsPage() {
               {categoryMode === "threshold" ? (
                 <>
                   <div className="flex flex-col gap-2">
-                    <Label htmlFor="requiredPresent">Present days needed</Label>
+                    <Label htmlFor="requiredPresent">{t("shiftsSundayPresentNeeded")}</Label>
                     <Input
                       id="requiredPresent"
                       type="number"
@@ -441,7 +447,7 @@ export default function ShiftsPage() {
                     />
                   </div>
                   <div className="flex flex-col gap-2">
-                    <Label htmlFor="earnedSundays">Sundays earned</Label>
+                    <Label htmlFor="earnedSundays">{t("shiftsSundayEarnedLabel")}</Label>
                     <Input
                       id="earnedSundays"
                       type="number"
@@ -457,7 +463,7 @@ export default function ShiftsPage() {
               ) : (
                 <>
                   <div className="flex flex-col gap-2">
-                    <Label htmlFor="everyPresentDays">Every present days</Label>
+                    <Label htmlFor="everyPresentDays">{t("shiftsSundayEveryPresent")}</Label>
                     <Input
                       id="everyPresentDays"
                       type="number"
@@ -472,7 +478,7 @@ export default function ShiftsPage() {
                     />
                   </div>
                   <div className="flex flex-col gap-2">
-                    <Label htmlFor="earnedPerStep">Sundays per step</Label>
+                    <Label htmlFor="earnedPerStep">{t("shiftsSundayPerStep")}</Label>
                     <Input
                       id="earnedPerStep"
                       type="number"
@@ -488,7 +494,7 @@ export default function ShiftsPage() {
               )}
 
               <Button type="submit" className={btnPrimaryClass}>
-                Add category
+                {t("shiftsSundayFormSubmit")}
               </Button>
             </form>
           </CardContent>

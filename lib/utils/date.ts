@@ -2,6 +2,11 @@
  * ProdTrack Lite - Date & pay-period utilities
  */
 
+import type { AppLocale } from "@/lib/i18n/locale";
+
+/** Locale for month/day labels in formatted dates. */
+export type DisplayLocale = AppLocale;
+
 const monthNames = [
   "Jan", "Feb", "Mar", "Apr", "May", "Jun",
   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
@@ -12,19 +17,60 @@ const monthNamesLong = [
   "July", "August", "September", "October", "November", "December",
 ];
 
-/** Format ISO date for display, e.g. "14 Mar 2026" */
-export function formatDisplayDate(dateStr: string): string {
+const monthNamesHiShort = [
+  "जन", "फ़र", "मार्च", "अप्रै", "मई", "जून",
+  "जुला", "अग", "सितं", "अक्टू", "नवं", "दिसं",
+];
+
+const monthNamesHiLong = [
+  "जनवरी", "फ़रवरी", "मार्च", "अप्रैल", "मई", "जून",
+  "जुलाई", "अगस्त", "सितंबर", "अक्टूबर", "नवंबर", "दिसंबर",
+];
+
+function monthShort(m: number, locale: DisplayLocale = "en"): string {
+  return locale === "hi" ? monthNamesHiShort[m] : monthNames[m];
+}
+
+function monthLong(m: number, locale: DisplayLocale = "en"): string {
+  return locale === "hi" ? monthNamesHiLong[m] : monthNamesLong[m];
+}
+
+/** Format ISO date for display, e.g. "14 Mar 2026" (Hindi month names when `locale` is `hi`). */
+export function formatDisplayDate(
+  dateStr: string,
+  locale: DisplayLocale = "en",
+): string {
   const d = new Date(dateStr + "T12:00:00");
   const day = d.getDate();
-  const month = monthNames[d.getMonth()];
+  const month = monthShort(d.getMonth(), locale);
   const year = d.getFullYear();
   return `${day} ${month} ${year}`;
 }
 
-/** Format for month + year, e.g. "March 2026" */
-export function formatMonthYear(dateStr: string): string {
+/** Format for month + year, e.g. "March 2026". */
+export function formatMonthYear(
+  dateStr: string,
+  locale: DisplayLocale = "en",
+): string {
   const d = new Date(dateStr + "T12:00:00");
-  return `${monthNamesLong[d.getMonth()]} ${d.getFullYear()}`;
+  return `${monthLong(d.getMonth(), locale)} ${d.getFullYear()}`;
+}
+
+/** Calendar title: long month name + year. */
+export function formatMonthCalendarHeading(
+  year: number,
+  monthIndex: number,
+  locale: DisplayLocale = "en",
+): string {
+  return `${monthLong(monthIndex, locale)} ${year}`;
+}
+
+/** Weekday abbreviations for calendar grids (Sunday-first). */
+export function weekdayShortLabels(locale: DisplayLocale = "en"): string[] {
+  if (locale === "hi") {
+    return ["रवि", "सोम", "मंगल", "बुध", "गुरु", "शुक्र", "शनि"];
+  }
+  return ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 }
 
 function pad(n: number): string {
@@ -37,6 +83,29 @@ export function toISODate(d: Date | string): string {
   const m = pad(date.getMonth() + 1);
   const day = pad(date.getDate());
   return `${y}-${m}-${day}`;
+}
+
+/**
+ * Calendar year and month index (0–11) from an ISO calendar date (`yyyy-mm-dd`).
+ * Used to anchor payroll ranges (e.g. 15-day periods) to the correct sheet month
+ * regardless of which month is visible on a calendar UI.
+ */
+export function getYearMonthFromIsoDate(
+  isoDate: string,
+): { year: number; month: number } | null {
+  const m = /^(\d{4})-(\d{2})-/.exec(isoDate);
+  if (!m) return null;
+  const year = Number(m[1]);
+  const monthNum = Number(m[2]);
+  if (
+    !Number.isFinite(year) ||
+    !Number.isFinite(monthNum) ||
+    monthNum < 1 ||
+    monthNum > 12
+  ) {
+    return null;
+  }
+  return { year, month: monthNum - 1 };
 }
 
 export function today(): string {
@@ -75,7 +144,10 @@ export interface MonthRangePreset {
   label: string;
 }
 
-export function getPeriodForDate(date: string | Date): Period {
+export function getPeriodForDate(
+  date: string | Date,
+  locale: DisplayLocale = "en",
+): Period {
   const d =
     typeof date === "string" ? new Date(date + "T12:00:00") : new Date(date);
   const y = d.getFullYear();
@@ -89,18 +161,22 @@ export function getPeriodForDate(date: string | Date): Period {
   if (day <= 15) {
     from = `${y}-${pad(m + 1)}-01`;
     to = `${y}-${pad(m + 1)}-15`;
-    label = `1–15 ${monthNames[m]} ${y}`;
+    label = `1–15 ${monthShort(m, locale)} ${y}`;
   } else {
     const lastDay = getLastDayOfMonth(y, m);
     from = `${y}-${pad(m + 1)}-16`;
     to = `${y}-${pad(m + 1)}-${pad(lastDay)}`;
-    label = `16–${lastDay} ${monthNames[m]} ${y}`;
+    label = `16–${lastDay} ${monthShort(m, locale)} ${y}`;
   }
 
   return { from, to, label, year: y, month: m };
 }
 
-export function getMonthRangeLabel(fromDate: string, toDate: string): string {
+export function getMonthRangeLabel(
+  fromDate: string,
+  toDate: string,
+  locale: DisplayLocale = "en",
+): string {
   const from = new Date(fromDate + "T12:00:00");
   const to = new Date(toDate + "T12:00:00");
   const sameDay = fromDate === toDate;
@@ -109,17 +185,18 @@ export function getMonthRangeLabel(fromDate: string, toDate: string): string {
     from.getMonth() === to.getMonth();
 
   if (sameDay) {
-    return `${from.getDate()} ${monthNames[from.getMonth()]} ${from.getFullYear()}`;
+    return `${from.getDate()} ${monthShort(from.getMonth(), locale)} ${from.getFullYear()}`;
   }
   if (sameMonth) {
-    return `${from.getDate()}-${to.getDate()} ${monthNames[from.getMonth()]} ${from.getFullYear()}`;
+    return `${from.getDate()}-${to.getDate()} ${monthShort(from.getMonth(), locale)} ${from.getFullYear()}`;
   }
-  return `${formatDisplayDate(fromDate)} - ${formatDisplayDate(toDate)}`;
+  return `${formatDisplayDate(fromDate, locale)} - ${formatDisplayDate(toDate, locale)}`;
 }
 
 export function getMonthRangePresets(
   year: number,
   month: number,
+  locale: DisplayLocale = "en",
 ): MonthRangePreset[] {
   const fullMonth = getMonthRange(year, month);
   const lastDay = getCalendarDaysInMonth(year, month);
@@ -128,19 +205,19 @@ export function getMonthRangePresets(
       mode: "full-month",
       from: fullMonth.from,
       to: fullMonth.to,
-      label: getMonthRangeLabel(fullMonth.from, fullMonth.to),
+      label: getMonthRangeLabel(fullMonth.from, fullMonth.to, locale),
     },
     {
       mode: "first-half",
       from: `${year}-${pad(month + 1)}-01`,
       to: `${year}-${pad(month + 1)}-15`,
-      label: `1-15 ${monthNames[month]} ${year}`,
+      label: `1-15 ${monthShort(month, locale)} ${year}`,
     },
     {
       mode: "second-half",
       from: `${year}-${pad(month + 1)}-16`,
       to: `${year}-${pad(month + 1)}-${pad(lastDay)}`,
-      label: `16-${lastDay} ${monthNames[month]} ${year}`,
+      label: `16-${lastDay} ${monthShort(month, locale)} ${year}`,
     },
   ];
 }
@@ -157,7 +234,10 @@ export function clampDateToMonth(
   return dateStr;
 }
 
-export function getPeriods(count = 24): { from: string; to: string; label: string }[] {
+export function getPeriods(
+  count = 24,
+  locale: DisplayLocale = "en",
+): { from: string; to: string; label: string }[] {
   const now = new Date();
   const periods: { from: string; to: string; label: string }[] = [];
   const monthsBack = Math.ceil(count / 2);
@@ -169,12 +249,12 @@ export function getPeriods(count = 24): { from: string; to: string; label: strin
     periods.push({
       from: `${y}-${pad(m + 1)}-01`,
       to: `${y}-${pad(m + 1)}-15`,
-      label: `1–15 ${monthNames[m]} ${y}`,
+      label: `1–15 ${monthShort(m, locale)} ${y}`,
     });
     periods.push({
       from: `${y}-${pad(m + 1)}-16`,
       to: `${y}-${pad(m + 1)}-${pad(lastDay)}`,
-      label: `16–${lastDay} ${monthNames[m]} ${y}`,
+      label: `16–${lastDay} ${monthShort(m, locale)} ${y}`,
     });
   }
   return periods.slice(-count);
@@ -244,6 +324,15 @@ export function getDatesInRange(fromDate: string, toDate: string): string[] {
   return out;
 }
 
+/** Inclusive calendar day count — cannot exceed this for “present days” in a payroll range. */
+export function countCalendarDaysInclusive(
+  fromDate: string,
+  toDate: string,
+): number {
+  if (!fromDate || !toDate || fromDate > toDate) return 0;
+  return getDatesInRange(fromDate, toDate).length;
+}
+
 /** Count Mon–Sat workdays in a range, excluding factory holidays and Sundays. */
 export function getWorkingDaysInRange(
   fromDate: string,
@@ -254,6 +343,55 @@ export function getWorkingDaysInRange(
   return getDatesInRange(fromDate, toDate).filter(
     (d) => !isSunday(d) && !holidaySet.has(d)
   ).length;
+}
+
+/**
+ * Max “earned Sunday pay” extra days for this calendar span: 2 in a half-month
+ * (≤16 days), 4 for longer (full-month style).
+ */
+export function getMaxEarnedSundayPayDaysInRange(
+  fromDate: string,
+  toDate: string,
+): number {
+  const n = countCalendarDaysInclusive(fromDate, toDate);
+  if (n <= 0) return 0;
+  if (n <= 16) return 2;
+  return 4;
+}
+
+/** Subset of sheet drivers enforced together for payroll-period caps. */
+export interface PayrollDriverCapFields {
+  presentDays: number;
+  earnedSundayPayDays: number;
+  sundayPresentBonusDays: number;
+}
+
+/**
+ * Clamp the three adjustable payroll drivers to the period:
+ * - present days ≤ Mon–Sat days excluding factory holidays
+ * - earned Sunday pay days ≤ 2 (half-month) or 4 (longer)
+ * - Sunday present bonus ≤ number of Sundays in range
+ */
+export function clampPayrollDriverFieldsToPeriod(
+  fromDate: string,
+  toDate: string,
+  factoryHolidayDates: string[],
+  d: PayrollDriverCapFields,
+): PayrollDriverCapFields {
+  const maxPresent = getWorkingDaysInRange(fromDate, toDate, factoryHolidayDates);
+  const maxEarned = getMaxEarnedSundayPayDaysInRange(fromDate, toDate);
+  const maxSundayBonus = countSundaysInRange(fromDate, toDate);
+  return {
+    presentDays: Math.min(Math.max(0, d.presentDays), Math.max(0, maxPresent)),
+    earnedSundayPayDays: Math.min(
+      Math.max(0, d.earnedSundayPayDays),
+      maxEarned,
+    ),
+    sundayPresentBonusDays: Math.min(
+      Math.max(0, d.sundayPresentBonusDays),
+      maxSundayBonus,
+    ),
+  };
 }
 
 /** All working day dates in a month (excludes Sundays and factory holidays). */
@@ -276,15 +414,16 @@ export function getWorkingDayDates(
 
 export function getPeriodsWithData(
   records: { date?: string }[],
-  maxPeriods = 24
+  maxPeriods = 24,
+  locale: DisplayLocale = "en",
 ): { from: string; to: string; label: string }[] {
   const keysWithData = new Set<string>();
   records.forEach((r) => {
     if (r.date) {
-      const p = getPeriodForDate(r.date);
+      const p = getPeriodForDate(r.date, locale);
       keysWithData.add(`${p.from}|${p.to}`);
     }
   });
-  const all = getPeriods(maxPeriods);
+  const all = getPeriods(maxPeriods, locale);
   return all.filter((p) => keysWithData.has(`${p.from}|${p.to}`));
 }

@@ -14,9 +14,12 @@ import {
 } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { login } from "@/lib/auth";
+import { useLanguage } from "@/components/language-provider";
+import { AppHeaderActions } from "@/components/app-header-actions";
 
 export default function LoginPage() {
   const router = useRouter();
+  const { t } = useLanguage();
   const [welcomeBack, setWelcomeBack] = useState(false);
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -39,9 +42,9 @@ export default function LoginPage() {
         router.replace("/");
         return;
       }
-      setError("Incorrect password.");
+      setError(t("loginIncorrect"));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Login failed.");
+      setError(err instanceof Error ? err.message : t("loginFailed"));
     } finally {
       setLoading(false);
     }
@@ -49,21 +52,24 @@ export default function LoginPage() {
 
   return (
     <div
-      className="flex min-h-svh min-w-0 flex-1 items-center justify-center p-6 bg-background"
+      className="relative flex min-h-svh min-w-0 flex-1 items-center justify-center p-6 bg-background"
     >
+      <div className="absolute right-3 top-3 z-10 flex sm:right-4 sm:top-4">
+        <AppHeaderActions showLogout={false} />
+      </div>
       <Card className="w-full max-w-sm shrink-0">
         <CardHeader className="flex flex-col gap-1">
-          <CardTitle className="text-2xl font-heading">ProdTrack Lite</CardTitle>
+          <CardTitle className="text-2xl font-heading" translate="no">
+            {t("appName")}
+          </CardTitle>
           <p className="text-sm text-muted-foreground">
-            {welcomeBack
-              ? "Welcome back — enter your app password for this database."
-              : "Enter password to continue"}
+            {welcomeBack ? t("loginSubtitleWelcome") : t("loginSubtitle")}
           </p>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
             <div className="flex flex-col gap-2">
-              <Label htmlFor="loginPassword">Password</Label>
+              <Label htmlFor="loginPassword">{t("loginPassword")}</Label>
               <Input
                 id="loginPassword"
                 type="password"
@@ -71,7 +77,7 @@ export default function LoginPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
-                placeholder="Password"
+                placeholder={t("loginPasswordPlaceholder")}
               />
             </div>
             {error && (
@@ -87,10 +93,10 @@ export default function LoginPage() {
               {loading ? (
                 <>
                   <Spinner data-icon="inline-start" />
-                  Logging in…
+                  {t("loginSubmitting")}
                 </>
               ) : (
-                "Log in"
+                t("loginSubmit")
               )}
             </Button>
           </form>

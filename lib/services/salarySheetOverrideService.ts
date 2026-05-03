@@ -1,5 +1,9 @@
 import { getAll, put, remove, STORES } from "@/lib/db/adapter";
-import { getMonthRangePresets } from "@/lib/utils/date";
+import { getHolidaysInRange } from "@/lib/services/factoryHolidayService";
+import {
+  clampPayrollDriverFieldsToPeriod,
+  getMonthRangePresets,
+} from "@/lib/utils/date";
 
 const STORE = STORES.SALARY_SHEET_OVERRIDES;
 
@@ -206,6 +210,39 @@ export async function saveSalarySheetOverride(
   input: SaveSalarySheetOverrideInput,
 ): Promise<SalarySheetOverrideRecord> {
   const sanitized = sanitizeSalarySheetOverrideValues(input.overrides);
+  const holidays = await getHolidaysInRange(input.fromDate, input.toDate);
+  const holidayDates = holidays.map((h) => h.date as string);
+  const cappedDrivers = clampPayrollDriverFieldsToPeriod(
+    input.fromDate,
+    input.toDate,
+    holidayDates,
+    {
+      presentDays:
+        typeof sanitized.presentDays === "number" &&
+        Number.isFinite(sanitized.presentDays)
+          ? sanitized.presentDays
+          : 0,
+      earnedSundayPayDays:
+        typeof sanitized.earnedSundayPayDays === "number" &&
+        Number.isFinite(sanitized.earnedSundayPayDays)
+          ? sanitized.earnedSundayPayDays
+          : 0,
+      sundayPresentBonusDays:
+        typeof sanitized.sundayPresentBonusDays === "number" &&
+        Number.isFinite(sanitized.sundayPresentBonusDays)
+          ? sanitized.sundayPresentBonusDays
+          : 0,
+    },
+  );
+  if (typeof sanitized.presentDays === "number") {
+    sanitized.presentDays = cappedDrivers.presentDays;
+  }
+  if (typeof sanitized.earnedSundayPayDays === "number") {
+    sanitized.earnedSundayPayDays = cappedDrivers.earnedSundayPayDays;
+  }
+  if (typeof sanitized.sundayPresentBonusDays === "number") {
+    sanitized.sundayPresentBonusDays = cappedDrivers.sundayPresentBonusDays;
+  }
   const notes = input.notes?.trim() ?? "";
   const id = buildSalarySheetOverrideId(input);
 

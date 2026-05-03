@@ -6,9 +6,11 @@ import { openDB } from "@/lib/db/adapter";
 import { isLoggedIn, checkExpiry } from "@/lib/auth";
 import { Dashboard } from "@/components/dashboard";
 import { Spinner } from "@/components/ui/spinner";
+import { useLanguage } from "@/components/language-provider";
 
 export default function Home() {
   const router = useRouter();
+  const { t } = useLanguage();
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
@@ -32,12 +34,12 @@ export default function Home() {
         className="flex min-h-svh w-full items-center justify-center bg-background"
         role="status"
         aria-live="polite"
-        aria-label="Loading"
+        aria-label={t("loading")}
       >
         <div className="flex flex-col items-center justify-center gap-6 animate-loading-screen-in">
           <Spinner className="size-16 text-primary stroke-[1.5]" />
           <span className="animate-loading-screen-in-delay text-lg font-medium text-muted-foreground">
-            Loading…
+            {t("loading")}
           </span>
         </div>
       </div>

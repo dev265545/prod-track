@@ -48,6 +48,11 @@ jobs:
       - name: Pack portable/web
         run: npm run pack-portable
 
+      - name: Write bilingual docs into portable/ (bundled in ZIP + manifest)
+        env:
+          VERSION: ${{ steps.bump.outputs.version }}
+        run: node scripts/generate-portable-user-docs.mjs
+
       - name: Verify wasm bundled
         run: test -f portable/web/wasm/sql-wasm.wasm
 
@@ -65,6 +70,27 @@ jobs:
           echo "path=$OUT" >> "$GITHUB_OUTPUT"
           ls -la "$OUT"
 
+      - name: Upload latest ZIP to UploadThing + portal-manifest.json (optional)
+        env:
+          UPLOADTHING_TOKEN: ${{ secrets.UPLOADTHING_TOKEN }}
+          ZIP_PATH: ${{ steps.zip.outputs.path }}
+          VERSION: ${{ steps.bump.outputs.version }}
+          TAG: v${{ steps.bump.outputs.version }}
+        run: node scripts/release-uploadthing-manifest.mjs
+
+      - name: Build release file list (ZIP + optional manifest)
+        id: relfiles
+        run: |
+          F="${{ steps.zip.outputs.path }}"
+          if [ -f portal-manifest.json ]; then
+            F="$F"$'\n'"portal-manifest.json"
+          fi
+          {
+            echo "files<<EOF"
+            echo "$F"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -75,9 +101,10 @@ jobs:
 
             - Unzip, keep the `portable` folder intact (must include `portable/web/` with `wasm/sql-wasm.wasm`).
             - Uses a local HTTP server and the browser (Chrome or compatible) with File System Access for your `.db` file.
+            - When `UPLOADTHING_TOKEN` is configured in Actions, the latest ZIP is uploaded to **UploadThing** as **private**, `portal-manifest.json` stores the file key only, and the download portal must set the **same** `UPLOADTHING_TOKEN` to stream ZIPs (short-lived signed URLs; no public permanent link).
 
             Built from `${{ github.ref_name }}` @ `${{ github.sha }}`
-          files: ${{ steps.zip.outputs.path }}
+          files: ${{ steps.relfiles.outputs.files }}
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

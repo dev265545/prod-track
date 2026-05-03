@@ -53,12 +53,14 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { useLanguage } from "@/components/language-provider";
 
 const HEADING_CLASS =
   "text-lg sm:text-xl font-semibold text-foreground font-heading";
 
 export default function EmployeesPage() {
   const router = useRouter();
+  const { t } = useLanguage();
   const [ready, setReady] = useState(false);
   const [employees, setEmployees] = useState<Record<string, unknown>[]>([]);
   const [shifts, setShifts] = useState<Record<string, unknown>[]>([]);
@@ -103,12 +105,12 @@ export default function EmployeesPage() {
           isActive: true,
         });
       } catch {
-        toast.error("Failed to add employee");
+        toast.error(t("employeesAddFail"));
         return;
       }
       setEmployeeName("");
       await load();
-      toast.success("Employee added");
+      toast.success(t("employeesAddSuccess"));
     } finally {
       setSubmitting(false);
     }
@@ -136,20 +138,20 @@ export default function EmployeesPage() {
     <AppShell>
       <main id="main" className="flex flex-col gap-10 animate-fade-in">
         <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground font-heading">
-          Employees
+          {t("employeesPageTitle")}
         </h1>
 
         <Card className="border-border">
           <CardHeader className="pb-4">
-            <CardTitle className={HEADING_CLASS}>Employee list</CardTitle>
+            <CardTitle className={HEADING_CLASS}>{t("employeesListTitle")}</CardTitle>
           </CardHeader>
           <CardContent>
           {employees.length === 0 ? (
             <Empty className="py-10 border-0">
               <EmptyHeader>
-                <EmptyTitle>No employees yet</EmptyTitle>
+                <EmptyTitle>{t("employeesNoYet")}</EmptyTitle>
                 <EmptyDescription>
-                  Add one below to get started.
+                  {t("employeesNoYetDesc")}
                 </EmptyDescription>
               </EmptyHeader>
             </Empty>
@@ -158,12 +160,12 @@ export default function EmployeesPage() {
               <Table className="min-w-[400px]">
                 <TableHeader>
                   <TableRow>
-                    <TableHead scope="col">Name</TableHead>
-                    <TableHead scope="col">Shift</TableHead>
-                    <TableHead scope="col">Sunday category</TableHead>
-                    <TableHead scope="col">Status</TableHead>
+                    <TableHead scope="col">{t("employeesColName")}</TableHead>
+                    <TableHead scope="col">{t("employeesColShift")}</TableHead>
+                    <TableHead scope="col">{t("employeesColSundayCat")}</TableHead>
+                    <TableHead scope="col">{t("employeesColStatus")}</TableHead>
                     <TableHead className="w-[52px]" scope="col">
-                      <span className="sr-only">Actions</span>
+                      <span className="sr-only">{t("commonActions")}</span>
                     </TableHead>
                   </TableRow>
                 </TableHeader>
@@ -174,7 +176,9 @@ export default function EmployeesPage() {
                       className="cursor-pointer hover:bg-muted/50 transition-colors"
                       tabIndex={0}
                       role="button"
-                      aria-label={`View details for ${e.name as string}`}
+                      aria-label={t("employeesViewAria", {
+                        name: String(e.name),
+                      })}
                       onClick={() =>
                         router.push(
                           `/employee?id=${encodeURIComponent(String(e.id))}`,
@@ -200,13 +204,13 @@ export default function EmployeesPage() {
                       <TableCell className="text-muted-foreground">
                         {(e.sundayCategoryId as string)
                           ? (sundayCategoryMap[e.sundayCategoryId as string]
-                              ?.name as string) ?? "Default (12 → 2)"
-                          : "Default (12 → 2)"}
+                              ?.name as string) ?? t("employeesSundayDefault")
+                          : t("employeesSundayDefault")}
                       </TableCell>
                       <TableCell className="text-muted-foreground">
                         {(e.isActive as boolean) !== false
-                          ? "Active"
-                          : "Inactive"}
+                          ? t("employeesStatusActive")
+                          : t("employeesStatusInactive")}
                       </TableCell>
                       <TableCell
                         className="w-[52px]"
@@ -219,22 +223,26 @@ export default function EmployeesPage() {
                               type="button"
                               variant="destructive"
                               size="icon"
-                              title="Delete employee"
-                              aria-label={`Delete ${e.name as string}`}
+                              title={t("employeesDeleteTitle")}
+                              aria-label={t("employeesDeleteEmployeeAria", {
+                                name: String(e.name),
+                              })}
                             >
                               <Trash2 data-icon="inline-start" aria-hidden />
                             </Button>
                           </AlertDialogTrigger>
                           <AlertDialogContent>
                             <AlertDialogHeader>
-                              <AlertDialogTitle>Delete employee?</AlertDialogTitle>
+                              <AlertDialogTitle>{t("employeesDeleteTitle")}</AlertDialogTitle>
                               <AlertDialogDescription>
-                                Delete {e.name as string}? Their productions and advances will remain but show as unknown.
+                                {t("employeesDeleteDesc", {
+                                  name: String(e.name),
+                                })}
                               </AlertDialogDescription>
                             </AlertDialogHeader>
                             <AlertDialogFooter>
                               <AlertDialogCancel>
-                                Cancel
+                                {t("commonCancel")}
                               </AlertDialogCancel>
                               <AlertDialogAction
                                 className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
@@ -243,13 +251,13 @@ export default function EmployeesPage() {
                                   try {
                                     await deleteEmployee(e.id as string);
                                     await load();
-                                    toast.success("Employee deleted");
+                                    toast.success(t("employeesDeleteSuccess"));
                                   } catch {
-                                    toast.error("Failed to delete employee");
+                                    toast.error(t("employeesDeleteFail"));
                                   }
                                 }}
                               >
-                                Delete
+                                {t("commonDelete")}
                               </AlertDialogAction>
                             </AlertDialogFooter>
                           </AlertDialogContent>
@@ -266,7 +274,7 @@ export default function EmployeesPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle className={HEADING_CLASS}>Add employee</CardTitle>
+            <CardTitle className={HEADING_CLASS}>{t("employeesAddTitle")}</CardTitle>
           </CardHeader>
           <CardContent>
           <form
@@ -274,13 +282,13 @@ export default function EmployeesPage() {
             onSubmit={handleAdd}
           >
             <div className="flex flex-col gap-2 flex-1 min-w-0 sm:min-w-[200px]">
-              <Label htmlFor="employee-name">Name</Label>
+              <Label htmlFor="employee-name">{t("employeesNameLabel")}</Label>
               <Input
                 id="employee-name"
                 type="text"
                 value={employeeName}
                 onChange={(e) => setEmployeeName(e.target.value)}
-                placeholder="Employee name"
+                placeholder={t("employeesNamePlaceholder")}
                 className="min-h-[44px]"
                 required
                 disabled={submitting}
@@ -291,10 +299,10 @@ export default function EmployeesPage() {
               {submitting ? (
                 <>
                   <Spinner data-icon="inline-start" />
-                  Adding…
+                  {t("employeesAdding")}
                 </>
               ) : (
-                "Add employee"
+                t("employeesAddButton")
               )}
             </Button>
           </form>

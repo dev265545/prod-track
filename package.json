@@ -2,12 +2,16 @@
   "name": "prodtrack-lite",
   "version": "1.0.0",
   "private": true,
+  "workspaces": [
+    "apps/portal"
+  ],
   "scripts": {
     "dev": "next dev",
     "dev:web-sqlite": "cross-env NEXT_PUBLIC_DB_BACKEND=sqlite-file next dev",
     "copy-sql-wasm": "node scripts/copy-sql-wasm.mjs",
     "build:web-sqlite": "cross-env CI=false NODE_ENV=production NEXT_PUBLIC_DB_BACKEND=sqlite-file npm run copy-sql-wasm && cross-env CI=false NODE_ENV=production NEXT_PUBLIC_DB_BACKEND=sqlite-file npm run generate:legacy-css && cross-env CI=false NODE_ENV=production NEXT_PUBLIC_DB_BACKEND=sqlite-file next build",
     "pack-portable": "node scripts/pack-portable.mjs",
+    "generate:portable-docs": "node scripts/generate-portable-user-docs.mjs",
     "generate:legacy-css": "node scripts/generate-legacy-opacity-fallbacks.mjs",
     "build": "npm run generate:legacy-css && next build",
     "start": "next start",
@@ -16,7 +20,10 @@
     "test:watch": "vitest",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
-    "tauri:build": "cross-env CI=false tauri build"
+    "tauri:build": "cross-env CI=false tauri build",
+    "portal:dev": "npm run dev --workspace=@prod-track/portal",
+    "portal:build": "npm run build --workspace=@prod-track/portal",
+    "portal:start": "npm run start --workspace=@prod-track/portal"
   },
   "dependencies": {
     "@radix-ui/react-alert-dialog": "^1.1.15",
@@ -60,6 +67,7 @@
     "postcss": "^8.5.8",
     "tailwindcss": "^4",
     "typescript": "^5.0.0",
+    "uploadthing": "^7.7.4",
     "vitest": "^3.2.4"
   }
 }

@@ -11,6 +11,8 @@ out/
 
 # Portable web bundle output (run npm run pack-portable)
 portable/web/
+# Generated per release (CI / scripts/generate-portable-user-docs.mjs)
+portable/docs/
 
 # Tauri / Rust
 src-tauri/target/

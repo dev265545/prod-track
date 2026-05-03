@@ -249,3 +249,15 @@ export async function getSalarySheetForRange(
     calendarDaysInMonth,
   };
 }
+
+/** Single row for one employee (same rules as the salary sheet table). */
+export async function getSalarySheetRowForEmployee(
+  employeeId: string,
+  year: number,
+  month: number,
+  from: string,
+  to: string,
+): Promise<SalarySheetRow | null> {
+  const result = await getSalarySheetForRange(year, month, from, to);
+  return result.rows.find((r) => r.id === employeeId) ?? null;
+}

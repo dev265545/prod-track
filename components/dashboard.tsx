@@ -82,6 +82,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { useLanguage } from "@/components/language-provider";
 
 function getYearMonth(dateStr: string): { year: number; month: number } {
   const [y, m] = dateStr.split("-").map(Number);
@@ -90,6 +91,7 @@ function getYearMonth(dateStr: string): { year: number; month: number } {
 
 export function Dashboard() {
   const router = useRouter();
+  const { t, locale } = useLanguage();
   const [date, setDate] = useState(today());
   const [calYear, setCalYear] = useState(() => getYearMonth(today()).year);
   const [calMonth, setCalMonth] = useState(() => getYearMonth(today()).month);
@@ -139,7 +141,7 @@ export function Dashboard() {
       getDailyAggregated(date),
       getItems(),
       getEmployees(true),
-      getPeriodForDate(date),
+      getPeriodForDate(date, locale),
     ]);
     setAggregated(dailyAgg);
     setItems(itemsList);
@@ -206,7 +208,7 @@ export function Dashboard() {
       holidaysForWarnings.map((h) => h.date as string)
     );
     setMissingData(missing);
-  }, [date]);
+  }, [date, locale]);
 
   const loadCalendar = useCallback(async () => {
     const { from, to } = getMonthRange(calYear, calMonth);
@@ -254,14 +256,14 @@ export function Dashboard() {
       const existing = await getHolidayByDate(dateStr);
       if (existing?.id) {
         await deleteHoliday(existing.id as string);
-        toast.success("Holiday removed");
+        toast.success(t("toastHolidayRemoved"));
       } else {
         await saveHoliday({ date: dateStr });
-        toast.success("Holiday added");
+        toast.success(t("toastHolidayAdded"));
       }
       await loadCalendar();
     },
-    [loadCalendar]
+    [loadCalendar, t],
   );
 
   const handleQuickAdd = async (e: React.FormEvent) => {
@@ -270,7 +272,7 @@ export function Dashboard() {
     const holiday = await getHolidayByDate(quickDate);
     const holidayDates = holiday ? [quickDate] : [];
     if (isRestrictedForEntry(quickDate, holidayDates)) {
-      toast.error("Cannot add production on factory holidays.");
+      toast.error(t("toastCannotProductionOnHoliday"));
       return;
     }
     setSaving(true);
@@ -284,9 +286,9 @@ export function Dashboard() {
       });
       setQuickQty(1);
       await Promise.all([load(), loadCalendar()]);
-      toast.success("Production added");
+      toast.success(t("toastProductionAdded"));
     } catch {
-      toast.error("Failed to add production");
+      toast.error(t("toastProductionFailed"));
     } finally {
       setSaving(false);
     }
@@ -360,7 +362,7 @@ export function Dashboard() {
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <h1 className="text-3xl font-bold text-foreground font-heading">
-              Dashboard
+              {t("dashboardTitle")}
             </h1>
             {(() => {
               const entries = Array.from(missingData.entries()).filter(
@@ -377,7 +379,9 @@ export function Dashboard() {
                     <button
                       type="button"
                       className="relative flex items-center justify-center rounded-lg p-2 text-destructive hover:bg-destructive/10 focus:outline-none focus:ring-2 focus:ring-destructive/30 transition-colors"
-                      aria-label={`${totalMissing} days with missing data`}
+                      aria-label={t("dashboardMissingDataAria", {
+                        count: totalMissing,
+                      })}
                     >
                       <AlertTriangle className="size-5" />
                       <span className="absolute -top-0.5 -right-0.5 flex size-4 items-center justify-center rounded-full bg-destructive text-[10px] font-bold text-destructive-foreground animate-pulse">
@@ -387,22 +391,33 @@ export function Dashboard() {
                   </DialogTrigger>
                   <DialogContent className="sm:max-w-md">
                     <DialogHeader>
-                      <DialogTitle className="text-destructive">Missing data</DialogTitle>
+                      <DialogTitle className="text-destructive">
+                        {t("dashboardMissingDataTitle")}
+                      </DialogTitle>
                       <p className="text-sm text-muted-foreground">
-                        {totalMissing} working day{totalMissing !== 1 ? "s" : ""} without attendance across{" "}
-                        {entries.length} employee{entries.length !== 1 ? "s" : ""}.
+                        {t("dashboardMissingDataIntro", {
+                          totalMissing,
+                          empCount: entries.length,
+                        })}
                       </p>
                     </DialogHeader>
                     <ul className="flex flex-col gap-2 text-sm max-h-60 overflow-y-auto">
                       {entries.map(([empId, days]) => (
                         <li key={empId}>
-                          <span className="font-medium">{empNames[empId] ?? empId}</span>:{" "}
-                          {days.length} day{days.length !== 1 ? "s" : ""} —{" "}
-                          {days
-                            .slice(0, 5)
-                            .map((d) => formatDisplayDate(d.date))
-                            .join(", ")}
-                          {days.length > 5 && ` +${days.length - 5} more`}
+                          {t("dashboardMissingLine", {
+                            name: String(empNames[empId] ?? empId),
+                            dayCount: days.length,
+                            dates: days
+                              .slice(0, 5)
+                              .map((d) => formatDisplayDate(d.date, locale))
+                              .join(", "),
+                            more:
+                              days.length > 5
+                                ? t("dashboardMissingMore", {
+                                    n: days.length - 5,
+                                  })
+                                : "",
+                          })}
                         </li>
                       ))}
                     </ul>
@@ -416,7 +431,7 @@ export function Dashboard() {
               htmlFor="dashboardDate"
               className="text-base font-medium text-muted-foreground"
             >
-              Date
+              {t("dashboardDate")}
             </Label>
             <DatePicker
               id="dashboardDate"
@@ -429,17 +444,23 @@ export function Dashboard() {
 
         <div className="flex flex-wrap items-center gap-6 text-sm text-muted-foreground border-b border-border pb-4">
           <span>
-            <strong className="text-foreground font-medium">Viewing date:</strong>{" "}
-            {formatDisplayDate(date)}
+            <strong className="text-foreground font-medium">
+              {t("dashboardViewingDate")}
+            </strong>{" "}
+            {formatDisplayDate(date, locale)}
           </span>
           <span>
-            <strong className="text-foreground font-medium">Month:</strong>{" "}
-            {formatMonthYear(date)}
+            <strong className="text-foreground font-medium">
+              {t("dashboardMonth")}
+            </strong>{" "}
+            {formatMonthYear(date, locale)}
           </span>
           {period && (
             <span>
-              <strong className="text-foreground font-medium">Salary period:</strong>{" "}
-              {period.label}
+              <strong className="text-foreground font-medium">
+                {t("dashboardSalaryPeriod")}
+              </strong>{" "}
+              {getPeriodForDate(period.from, locale).label}
             </span>
           )}
         </div>
@@ -466,11 +487,11 @@ export function Dashboard() {
               <div className="flex items-center gap-1.5">
                 <Package className="size-4 text-primary shrink-0" />
                 <CardTitle className="text-xs font-medium text-muted-foreground truncate">
-                  Daily production
+                  {t("dashboardDailyProduction")}
                 </CardTitle>
               </div>
               <p className="text-[10px] text-muted-foreground mt-0.5">
-                {formatDisplayDate(date)}
+                {formatDisplayDate(date, locale)}
               </p>
             </CardHeader>
             <CardContent className="p-0 mt-auto">
@@ -484,11 +505,11 @@ export function Dashboard() {
               <div className="flex items-center gap-1.5">
                 <IndianRupee className="size-4 text-primary shrink-0" />
                 <CardTitle className="text-xs font-medium text-muted-foreground truncate">
-                  Daily value
+                  {t("dashboardDailyValue")}
                 </CardTitle>
               </div>
               <p className="text-[10px] text-muted-foreground mt-0.5">
-                {formatDisplayDate(date)}
+                {formatDisplayDate(date, locale)}
               </p>
             </CardHeader>
             <CardContent className="p-0 mt-auto">
@@ -502,11 +523,13 @@ export function Dashboard() {
               <div className="flex items-center gap-1.5">
                 <CalendarDays className="size-4 text-primary shrink-0" />
                 <CardTitle className="text-xs font-medium text-muted-foreground truncate">
-                  Period production
+                  {t("dashboardPeriodProduction")}
                 </CardTitle>
               </div>
               <p className="text-[10px] text-muted-foreground mt-0.5">
-                {period?.label ?? "—"}
+                {period
+                  ? getPeriodForDate(period.from, locale).label
+                  : "—"}
               </p>
             </CardHeader>
             <CardContent className="p-0 mt-auto">
@@ -523,11 +546,11 @@ export function Dashboard() {
               <div className="flex items-center gap-1.5">
                 <LayoutGrid className="size-4 text-primary shrink-0" />
                 <CardTitle className="text-xs font-medium text-muted-foreground truncate">
-                  Monthly production
+                  {t("dashboardMonthlyProduction")}
                 </CardTitle>
               </div>
               <p className="text-[10px] text-muted-foreground mt-0.5">
-                {formatMonthYear(date)}
+                {formatMonthYear(date, locale)}
               </p>
             </CardHeader>
             <CardContent className="p-0 mt-auto">
@@ -544,11 +567,13 @@ export function Dashboard() {
               <div className="flex items-center gap-1.5">
                 <Users className="size-4 text-primary shrink-0" />
                 <CardTitle className="text-xs font-medium text-muted-foreground">
-                  Active employees
+                  {t("dashboardActiveEmployees")}
                 </CardTitle>
               </div>
               <p className="text-[10px] text-muted-foreground mt-0.5">
-                As of {formatDisplayDate(date)}
+                {t("dashboardAsOf", {
+                  date: formatDisplayDate(date, locale),
+                })}
               </p>
             </CardHeader>
             <CardContent className="p-0 mt-auto">
@@ -564,19 +589,19 @@ export function Dashboard() {
           <CardHeader className="p-0 mb-5">
             <CardTitle className="text-xl font-semibold flex items-center gap-2">
               <Package className="size-5 text-primary" />
-              Daily production by item
+              {t("dashboardDailyByItem")}
             </CardTitle>
             <p className="text-sm text-muted-foreground mt-1">
-              {formatDisplayDate(date)}
+              {formatDisplayDate(date, locale)}
             </p>
           </CardHeader>
           <CardContent className="p-0">
           {dailyRows.length === 0 ? (
               <Empty className="py-6 border-0">
                 <EmptyHeader>
-                  <EmptyTitle>No production for this date</EmptyTitle>
+                  <EmptyTitle>{t("dashboardNoProductionTitle")}</EmptyTitle>
                   <EmptyDescription>
-                    Add production using the form below or from an employee page.
+                    {t("dashboardNoProductionDesc")}
                   </EmptyDescription>
                 </EmptyHeader>
               </Empty>
@@ -584,11 +609,11 @@ export function Dashboard() {
               <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Item</TableHead>
-                  <TableHead className="text-right tabular-nums">Day</TableHead>
-                  <TableHead className="text-right tabular-nums">Night</TableHead>
-                  <TableHead className="text-right tabular-nums">Total</TableHead>
-                  <TableHead className="text-right tabular-nums">Value</TableHead>
+                  <TableHead>{t("colItem")}</TableHead>
+                  <TableHead className="text-right tabular-nums">{t("colDay")}</TableHead>
+                  <TableHead className="text-right tabular-nums">{t("colNight")}</TableHead>
+                  <TableHead className="text-right tabular-nums">{t("colTotal")}</TableHead>
+                  <TableHead className="text-right tabular-nums">{t("colValue")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -611,10 +636,12 @@ export function Dashboard() {
           <CardHeader className="p-0 mb-5">
             <CardTitle className="text-xl font-semibold flex items-center gap-2">
               <LayoutGrid className="size-5 text-primary" />
-              Quick add production
+              {t("dashboardQuickAdd")}
             </CardTitle>
             <p className="text-sm text-muted-foreground mt-1">
-              Adds to selected date: {formatDisplayDate(date)}
+              {t("dashboardQuickAddHint", {
+                date: formatDisplayDate(date, locale),
+              })}
             </p>
           </CardHeader>
           <CardContent className="p-0">
@@ -623,13 +650,13 @@ export function Dashboard() {
             className="flex flex-wrap gap-4 items-end"
           >
             <div className="flex flex-col gap-2">
-              <Label htmlFor="quickEmp">Employee</Label>
+              <Label htmlFor="quickEmp">{t("labelEmployee")}</Label>
               <Select
                 value={quickEmp}
                 onValueChange={setQuickEmp}
               >
                 <SelectTrigger id="quickEmp" className="w-48 min-h-[44px]">
-                  <SelectValue placeholder="Select…" />
+                  <SelectValue placeholder={t("selectPlaceholder")} />
                 </SelectTrigger>
                 <SelectContent>
                   {employees.map((e) => (
@@ -641,10 +668,10 @@ export function Dashboard() {
               </Select>
             </div>
             <div className="flex flex-col gap-2">
-              <Label htmlFor="quickItem">Item</Label>
+              <Label htmlFor="quickItem">{t("labelItem")}</Label>
               <Select value={quickItem} onValueChange={setQuickItem}>
                 <SelectTrigger id="quickItem" className="w-56 min-h-[44px]">
-                  <SelectValue placeholder="Select…" />
+                  <SelectValue placeholder={t("selectPlaceholder")} />
                 </SelectTrigger>
                 <SelectContent>
                   {items.map((i) => (
@@ -656,7 +683,7 @@ export function Dashboard() {
               </Select>
             </div>
             <div className="flex flex-col gap-2">
-              <Label htmlFor="quickShift">Shift</Label>
+              <Label htmlFor="quickShift">{t("labelShift")}</Label>
               <Select
                 value={quickShift}
                 onValueChange={(v) => setQuickShift(v as "day" | "night")}
@@ -665,13 +692,13 @@ export function Dashboard() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="day">Day</SelectItem>
-                  <SelectItem value="night">Night</SelectItem>
+                  <SelectItem value="day">{t("shiftDay")}</SelectItem>
+                  <SelectItem value="night">{t("shiftNight")}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
             <div className="flex flex-col gap-2">
-              <Label htmlFor="quickQty">Qty</Label>
+              <Label htmlFor="quickQty">{t("labelQty")}</Label>
               <Input
                 type="number"
                 id="quickQty"
@@ -684,7 +711,7 @@ export function Dashboard() {
               />
             </div>
             <div className="flex flex-col gap-2">
-              <Label htmlFor="quickDate">Date</Label>
+              <Label htmlFor="quickDate">{t("labelDate")}</Label>
               <DatePicker
                 id="quickDate"
                 value={quickDate}
@@ -700,10 +727,10 @@ export function Dashboard() {
               {saving ? (
                 <>
                   <Spinner data-icon="inline-start" />
-                  Adding…
+                  {t("adding")}
                 </>
               ) : (
-                "Add"
+                t("add")
               )}
             </Button>
           </form>
@@ -714,19 +741,21 @@ export function Dashboard() {
           <CardHeader className="p-0 mb-5">
             <CardTitle className="text-xl font-semibold flex items-center gap-2">
               <Receipt className="size-5 text-primary" />
-              Salary summary (current period)
+              {t("dashboardSalarySummary")}
             </CardTitle>
-            <p className="text-base text-muted-foreground mt-1">{period.label}</p>
+            <p className="text-base text-muted-foreground mt-1">
+              {getPeriodForDate(period.from, locale).label}
+            </p>
           </CardHeader>
           <CardContent className="p-0">
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Employee</TableHead>
-                  <TableHead className="text-right tabular-nums">Gross</TableHead>
-                  <TableHead className="text-right tabular-nums">Advance to cut</TableHead>
-                  <TableHead className="text-right tabular-nums">Net</TableHead>
+                  <TableHead>{t("colEmployee")}</TableHead>
+                  <TableHead className="text-right tabular-nums">{t("colGross")}</TableHead>
+                  <TableHead className="text-right tabular-nums">{t("colAdvanceToCut")}</TableHead>
+                  <TableHead className="text-right tabular-nums">{t("colNet")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -745,7 +774,7 @@ export function Dashboard() {
                     }}
                     tabIndex={0}
                     role="button"
-                    aria-label={`View ${r.name}`}
+                    aria-label={t("viewEmployeeAria", { name: r.name })}
                   >
                     <TableCell>{r.name}</TableCell>
                     <TableCell className="text-right tabular-nums">{currency(r.gross)}</TableCell>

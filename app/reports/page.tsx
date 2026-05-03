@@ -38,6 +38,7 @@ import { number, dateDisplay } from "@/lib/utils/formatter";
 import { useRouter } from "next/navigation";
 import { printHtml } from "@/lib/utils/print";
 import { Package, BarChart2 } from "lucide-react";
+import { useLanguage } from "@/components/language-provider";
 
 type PrintScope = "both" | "day" | "night";
 
@@ -51,6 +52,7 @@ interface CumulativeRow {
 
 export default function ReportsPage() {
   const router = useRouter();
+  const { locale, t } = useLanguage();
   const [ready, setReady] = useState(false);
   const [periods, setPeriods] = useState<
     { from: string; to: string; label: string }[]
@@ -69,10 +71,11 @@ export default function ReportsPage() {
           return;
         }
         getProductions().then((prods) => {
-          const withData = getPeriodsWithData(prods);
+          const withData = getPeriodsWithData(prods, 24, locale);
           setPeriods(withData);
           const current = getPeriodForDate(
             new Date().toISOString().slice(0, 10),
+            locale,
           );
           const selected = withData.some((p) => p.from === current.from)
             ? current.from
@@ -86,7 +89,7 @@ export default function ReportsPage() {
         });
       })
       .catch(() => setReady(true));
-  }, [router]);
+  }, [router, locale]);
 
   useEffect(() => {
     if (!ready || !from || !to) return;
@@ -175,25 +178,31 @@ export default function ReportsPage() {
     const periodLabel = `${dateDisplay(from)} – ${dateDisplay(to)}`;
     const filterLabel =
       scope === "day"
-        ? " (Day shift only)"
+        ? t("reportsPrintFilterDayOnly")
         : scope === "night"
-          ? " (Night shift only)"
+          ? t("reportsPrintFilterNightOnly")
           : "";
     const cumulativeDesc =
       scope === "day"
-        ? "Day-shift quantity per packaging item group (all employees)."
+        ? t("reportsPrintCumulativeDescDay")
         : scope === "night"
-          ? "Night-shift quantity per packaging item group (all employees)."
-          : "Day and night quantity per packaging item group (all employees).";
+          ? t("reportsPrintCumulativeDescNight")
+          : t("reportsPrintCumulativeDescBoth");
+
+    const colGroup = t("reportsColPackagingGroup");
+    const colDay = t("colDay");
+    const colNight = t("colNight");
+    const colTotal = t("colTotal");
+    const emptyRow = t("reportsNoProductionInPeriod");
 
     let cumulativeTableHeader: string;
     let cumulativeRowsHtml: string;
     if (scope === "day") {
       cumulativeTableHeader =
-        '<tr class="border"><th class="border" style="padding:6px">Packaging item group</th><th class="border text-right" style="padding:6px">Day</th></tr>';
+        `<tr class="border"><th class="border" style="padding:6px">${colGroup}</th><th class="border text-right" style="padding:6px">${colDay}</th></tr>`;
       cumulativeRowsHtml =
         cumRows.length === 0
-          ? '<tr><td colspan="2" class="border" style="padding:6px;color:#71717a">No production in this period.</td></tr>'
+          ? `<tr><td colspan="2" class="border" style="padding:6px;color:#71717a">${emptyRow}</td></tr>`
           : cumRows
               .map(
                 (r) =>
@@ -202,10 +211,10 @@ export default function ReportsPage() {
               .join("");
     } else if (scope === "night") {
       cumulativeTableHeader =
-        '<tr class="border"><th class="border" style="padding:6px">Packaging item group</th><th class="border text-right" style="padding:6px">Night</th></tr>';
+        `<tr class="border"><th class="border" style="padding:6px">${colGroup}</th><th class="border text-right" style="padding:6px">${colNight}</th></tr>`;
       cumulativeRowsHtml =
         cumRows.length === 0
-          ? '<tr><td colspan="2" class="border" style="padding:6px;color:#71717a">No production in this period.</td></tr>'
+          ? `<tr><td colspan="2" class="border" style="padding:6px;color:#71717a">${emptyRow}</td></tr>`
           : cumRows
               .map(
                 (r) =>
@@ -214,10 +223,10 @@ export default function ReportsPage() {
               .join("");
     } else {
       cumulativeTableHeader =
-        '<tr class="border"><th class="border" style="padding:6px">Packaging item group</th><th class="border text-right" style="padding:6px">Day</th><th class="border text-right" style="padding:6px">Night</th><th class="border text-right" style="padding:6px">Total</th></tr>';
+        `<tr class="border"><th class="border" style="padding:6px">${colGroup}</th><th class="border text-right" style="padding:6px">${colDay}</th><th class="border text-right" style="padding:6px">${colNight}</th><th class="border text-right" style="padding:6px">${colTotal}</th></tr>`;
       cumulativeRowsHtml =
         cumRows.length === 0
-          ? '<tr><td colspan="4" class="border" style="padding:6px;color:#71717a">No production in this period.</td></tr>'
+          ? `<tr><td colspan="4" class="border" style="padding:6px;color:#71717a">${emptyRow}</td></tr>`
           : cumRows
               .map(
                 (r) =>
@@ -228,7 +237,9 @@ export default function ReportsPage() {
 
     const printStyles =
       "body{margin:0;font-family:system-ui,sans-serif;font-size:12px;color:#0a0a0a;background:#fff;padding:16px}.mb-4{margin-bottom:12px}.mb-6{margin-bottom:20px}.text-2xl{font-size:1.5rem;font-weight:700}.text-sm{font-size:0.75rem}.text-lg{font-size:1.125rem}.text-gray-600{color:#52525b}.border{border:1px solid #e4e4e7}.w-full{width:100%}.table{width:100%;font-size:11px;border-collapse:collapse}.table th,.table td{padding:4px 6px;text-align:left;border:1px solid #e4e4e7}.table th{background:#f4f4f5;font-weight:600}.text-right{text-align:right}";
-    const html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Production report – ${periodLabel}</title><style>${printStyles}</style></head><body><div style="max-width:100%;margin:0 auto"><div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px"><div><h1 class="text-2xl">ProdTrack Lite</h1><p class="text-sm text-gray-600">Production report${filterLabel}</p></div><div class="text-sm text-right"><p><strong>Period:</strong> ${periodLabel}</p></div></div><h2 class="text-lg" style="font-weight:600;margin-bottom:6px">Cumulative by packaging item group</h2><p class="text-sm text-gray-600 mb-4">${cumulativeDesc}</p><table class="table w-full mb-6"><thead>${cumulativeTableHeader}</thead><tbody>${cumulativeRowsHtml}</tbody></table></div></body></html>`;
+    const docLang = locale === "hi" ? "hi" : "en";
+    const title = `${t("reportsPrintTitleSuffix")} – ${periodLabel}`;
+    const html = `<!DOCTYPE html><html lang="${docLang}"><head><meta charset="UTF-8"><title>${title}</title><style>${printStyles}</style></head><body><div style="max-width:100%;margin:0 auto"><div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px"><div><h1 class="text-2xl">ProdTrack Lite</h1><p class="text-sm text-gray-600">${t("reportsPrintTitleSuffix")}${filterLabel}</p></div><div class="text-sm text-right"><p><strong>${t("reportsPrintPeriodLabel")}</strong> ${periodLabel}</p></div></div><h2 class="text-lg" style="font-weight:600;margin-bottom:6px">${t("reportsPrintCumulativeHeading")}</h2><p class="text-sm text-gray-600 mb-4">${cumulativeDesc}</p><table class="table w-full mb-6"><thead>${cumulativeTableHeader}</thead><tbody>${cumulativeRowsHtml}</tbody></table></div></body></html>`;
     console.log("[print] Print button clicked (reports), HTML length:", html?.length ?? 0);
     printHtml(html);
   };
@@ -253,35 +264,41 @@ export default function ReportsPage() {
       <main className="flex flex-col gap-8 animate-fade-in">
         <div className="flex flex-wrap items-end justify-between gap-4">
           <h1 className="text-3xl font-bold text-foreground font-heading">
-            Production report
+            {t("reportsPageTitle")}
           </h1>
           <div className="flex flex-wrap items-end gap-4">
             <div className="flex flex-col gap-2">
-              <Label>Period</Label>
+              <Label>{t("reportsPeriod")}</Label>
               <Select
                 value={periodValue || undefined}
                 onValueChange={(v) => {
                   if (!v) return;
-                  const [f, t] = v.split("|");
+                  const [f, tVal] = v.split("|");
                   setFrom(f);
-                  setTo(t);
+                  setTo(tVal);
                 }}
                 disabled={hasNoData}
               >
                 <SelectTrigger className="min-w-[220px] min-h-12">
-                  <SelectValue placeholder={hasNoData ? "No periods with data" : "Loading…"} />
+                  <SelectValue
+                    placeholder={
+                      hasNoData
+                        ? t("reportsNoPeriodsPlaceholder")
+                        : t("loading")
+                    }
+                  />
                 </SelectTrigger>
                 <SelectContent>
                   {periods.map((p) => (
                     <SelectItem key={`${p.from}|${p.to}`} value={`${p.from}|${p.to}`}>
-                      {p.label}
+                      {getPeriodForDate(p.from, locale).label}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
             <div className="flex flex-col gap-2">
-              <Label>Print</Label>
+              <Label>{t("reportsPrint")}</Label>
               <Select
                 value={printScope}
                 onValueChange={(v) => setPrintScope(v as PrintScope)}
@@ -290,9 +307,9 @@ export default function ReportsPage() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="both">Both (Day + Night)</SelectItem>
-                  <SelectItem value="day">Day shift only</SelectItem>
-                  <SelectItem value="night">Night shift only</SelectItem>
+                  <SelectItem value="both">{t("reportsPrintBoth")}</SelectItem>
+                  <SelectItem value="day">{t("reportsPrintDay")}</SelectItem>
+                  <SelectItem value="night">{t("reportsPrintNight")}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -301,14 +318,14 @@ export default function ReportsPage() {
               onClick={handlePrint}
               className="h-12 shrink-0 px-6"
             >
-              Print report
+              {t("reportsPrintButton")}
             </Button>
           </div>
         </div>
 
         {hasNoData && (
           <p className="py-4 text-base text-muted-foreground">
-            No production data yet. Add production from the Dashboard or Employee pages to see reports.
+            {t("reportsNoDataHint")}
           </p>
         )}
 
@@ -318,11 +335,10 @@ export default function ReportsPage() {
               <CardHeader className="p-0 mb-5">
                 <CardTitle className="text-xl font-semibold font-heading flex items-center gap-2">
                   <Package className="size-5 text-primary" />
-                  Cumulative by packaging item group
+                  {t("reportsCumulativeTitle")}
                 </CardTitle>
                 <p className="text-base leading-relaxed text-muted-foreground mt-1">
-                  Day and night quantity per packaging item group in the selected period (all
-                  employees).
+                  {t("reportsCumulativeDesc")}
                 </p>
               </CardHeader>
               <CardContent className="p-0">
@@ -330,10 +346,10 @@ export default function ReportsPage() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Packaging item group</TableHead>
-                      <TableHead className="text-right tabular-nums">Day</TableHead>
-                      <TableHead className="text-right tabular-nums">Night</TableHead>
-                      <TableHead className="text-right tabular-nums">Total</TableHead>
+                      <TableHead>{t("reportsColPackagingGroup")}</TableHead>
+                      <TableHead className="text-right tabular-nums">{t("colDay")}</TableHead>
+                      <TableHead className="text-right tabular-nums">{t("colNight")}</TableHead>
+                      <TableHead className="text-right tabular-nums">{t("colTotal")}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -343,7 +359,7 @@ export default function ReportsPage() {
                           colSpan={4}
                           className="text-center text-muted-foreground"
                         >
-                          No production in this period.
+                          {t("reportsNoProductionInPeriod")}
                         </TableCell>
                       </TableRow>
                     ) : (
@@ -366,10 +382,10 @@ export default function ReportsPage() {
               <CardHeader className="p-0 mb-5">
                 <CardTitle className="text-xl font-semibold font-heading flex items-center gap-2">
                   <BarChart2 className="size-5 text-primary" />
-                  By date – Day shift (matrix)
+                  {t("reportsByDateDayTitle")}
                 </CardTitle>
                 <p className="text-base text-muted-foreground mt-1">
-                  Rows = dates, columns = packaging item groups. Day-shift quantity only.
+                  {t("reportsByDateDayDesc")}
                 </p>
               </CardHeader>
               <CardContent className="p-0">
@@ -378,7 +394,7 @@ export default function ReportsPage() {
                   <TableHeader>
                     <TableRow>
                       <TableHead className="sticky left-0 z-10 bg-card whitespace-nowrap">
-                        Date
+                        {t("dashboardDate")}
                       </TableHead>
                       {cumulativeRows.map((i) => (
                         <TableHead
@@ -397,7 +413,7 @@ export default function ReportsPage() {
                           colSpan={cumulativeRows.length + 1}
                           className="text-center text-muted-foreground"
                         >
-                          No production in this period.
+                          {t("reportsNoProductionInPeriod")}
                         </TableCell>
                       </TableRow>
                     ) : (
@@ -431,10 +447,10 @@ export default function ReportsPage() {
               <CardHeader className="p-0 mb-5">
                 <CardTitle className="text-xl font-semibold font-heading flex items-center gap-2">
                   <BarChart2 className="size-5 text-primary" />
-                  By date – Night shift (matrix)
+                  {t("reportsByDateNightTitle")}
                 </CardTitle>
                 <p className="text-base text-muted-foreground mt-1">
-                  Rows = dates, columns = packaging item groups. Night-shift quantity only.
+                  {t("reportsByDateNightDesc")}
                 </p>
               </CardHeader>
               <CardContent className="p-0">
@@ -443,7 +459,7 @@ export default function ReportsPage() {
                   <TableHeader>
                     <TableRow>
                       <TableHead className="sticky left-0 z-10 bg-card whitespace-nowrap">
-                        Date
+                        {t("dashboardDate")}
                       </TableHead>
                       {cumulativeRows.map((i) => (
                         <TableHead
@@ -462,7 +478,7 @@ export default function ReportsPage() {
                           colSpan={cumulativeRows.length + 1}
                           className="text-center text-muted-foreground"
                         >
-                          No production in this period.
+                          {t("reportsNoProductionInPeriod")}
                         </TableCell>
                       </TableRow>
                     ) : (

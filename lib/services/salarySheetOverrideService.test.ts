@@ -1,43 +1,97 @@
-import { describe, expect, it } from "vitest";
-import {
-  getSalarySheetCorrectionPeriodForRange,
-  getSalarySheetCorrectionPeriods,
-} from "./salarySheetOverrideService";
+import { describe, expect, it, vi, beforeEach } from "vitest";
+import { STORES } from "@/lib/db/schema";
 
-describe("salarySheetOverrideService periods", () => {
-  it("returns exactly two correction periods for a month", () => {
-    expect(getSalarySheetCorrectionPeriods(2026, 4)).toEqual([
-      {
-        key: "first-half",
-        fromDate: "2026-05-01",
-        toDate: "2026-05-15",
-        label: "1-15 May 2026",
-      },
-      {
-        key: "second-half",
-        fromDate: "2026-05-16",
-        toDate: "2026-05-31",
-        label: "16-31 May 2026",
-      },
-    ]);
+const {
+  mockPut,
+  mockRemove,
+  mockGetAll,
+  mockGetHolidaysInRange,
+} = vi.hoisted(() => ({
+  mockPut: vi.fn(),
+  mockRemove: vi.fn(),
+  mockGetAll: vi.fn(),
+  mockGetHolidaysInRange: vi.fn(),
+}));
+
+vi.mock("@/lib/db/adapter", () => ({
+  STORES,
+  getAll: mockGetAll,
+  put: mockPut,
+  remove: mockRemove,
+}));
+
+vi.mock("@/lib/services/factoryHolidayService", () => ({
+  getHolidaysInRange: mockGetHolidaysInRange,
+}));
+
+import { saveSalarySheetOverride } from "./salarySheetOverrideService";
+
+describe("saveSalarySheetOverride", () => {
+  beforeEach(() => {
+    mockPut.mockReset();
+    mockRemove.mockReset();
+    mockGetAll.mockReset();
+    mockGetHolidaysInRange.mockReset();
+    mockGetHolidaysInRange.mockResolvedValue([]);
   });
 
-  it("matches only exact half-month ranges", () => {
-    expect(
-      getSalarySheetCorrectionPeriodForRange(
-        2026,
-        4,
-        "2026-05-01",
-        "2026-05-15",
-      )?.key,
-    ).toBe("first-half");
-    expect(
-      getSalarySheetCorrectionPeriodForRange(
-        2026,
-        4,
-        "2026-05-01",
-        "2026-05-31",
-      ),
-    ).toBeNull();
+  it("clamps present days to Mon–Sat workdays in the period", async () => {
+    await saveSalarySheetOverride({
+      employeeId: "e1",
+      year: 2026,
+      month: 2,
+      fromDate: "2026-03-01",
+      toDate: "2026-03-15",
+      notes: "note",
+      overrides: { presentDays: 20 },
+    });
+    expect(mockPut).toHaveBeenCalledTimes(1);
+    const saved = mockPut.mock.calls[0][1] as {
+      overrides: { presentDays: number };
+    };
+    expect(saved.overrides.presentDays).toBe(12);
+  });
+
+  it("clamps earned Sunday pay and Sunday bonus to period rules", async () => {
+    await saveSalarySheetOverride({
+      employeeId: "e1",
+      year: 2026,
+      month: 2,
+      fromDate: "2026-03-01",
+      toDate: "2026-03-15",
+      notes: "note",
+      overrides: {
+        earnedSundayPayDays: 9,
+        sundayPresentBonusDays: 9,
+      },
+    });
+    const saved = mockPut.mock.calls[0][1] as {
+      overrides: {
+        earnedSundayPayDays: number;
+        sundayPresentBonusDays: number;
+      };
+    };
+    expect(saved.overrides.earnedSundayPayDays).toBe(2);
+    expect(saved.overrides.sundayPresentBonusDays).toBe(3);
+  });
+
+  it("treats factory holidays as non-workdays for present cap", async () => {
+    mockGetHolidaysInRange.mockResolvedValue([
+      { id: "h1", date: "2026-03-02" },
+      { id: "h2", date: "2026-03-03" },
+    ]);
+    await saveSalarySheetOverride({
+      employeeId: "e1",
+      year: 2026,
+      month: 2,
+      fromDate: "2026-03-01",
+      toDate: "2026-03-15",
+      notes: "note",
+      overrides: { presentDays: 20 },
+    });
+    const saved = mockPut.mock.calls[0][1] as {
+      overrides: { presentDays: number };
+    };
+    expect(saved.overrides.presentDays).toBe(10);
   });
 });

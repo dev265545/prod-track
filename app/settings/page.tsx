@@ -62,9 +62,11 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { AppLoadingScreen } from "@/components/app-loading-screen";
+import { useLanguage } from "@/components/language-provider";
 
 export default function SettingsPage() {
   const router = useRouter();
+  const { t } = useLanguage();
   const [ready, setReady] = useState(false);
   const [factoryHolidays, setFactoryHolidays] = useState<
     Record<string, unknown>[]
@@ -102,8 +104,8 @@ export default function SettingsPage() {
   if (!ready) {
     return (
       <AppLoadingScreen
-        title="Opening settings…"
-        description="Loading your preferences and data tools."
+        title={t("loadingOpeningSettings")}
+        description={t("loadingOpeningSettingsDesc")}
       />
     );
   }
@@ -121,13 +123,10 @@ export default function SettingsPage() {
       <main className="flex flex-col gap-10 animate-fade-in">
         <header className="flex flex-col gap-2">
           <h1 className="text-3xl font-bold text-foreground font-heading md:text-4xl">
-            Settings &amp; data
+            {t("settingsPageTitle")}
           </h1>
           <p className="max-w-2xl text-base text-muted-foreground leading-relaxed">
-            Packaging item groups and shifts now live under{" "}
-            <strong className="font-medium text-foreground">Items</strong> and{" "}
-            <strong className="font-medium text-foreground">Shifts</strong> in the
-            sidebar.
+            {t("settingsPageIntro")}
           </p>
         </header>
 
@@ -135,18 +134,17 @@ export default function SettingsPage() {
           <CardHeader>
             <CardTitle className={headingClassFirst + " flex items-center gap-2"}>
               <Trash2 className="size-5 text-destructive" />
-              Delete historical data
+              {t("settingsDeleteHistoryTitle")}
             </CardTitle>
           </CardHeader>
           <CardContent>
           <p className={paraClass}>
-            Permanently remove all productions and advances before the selected
-            date. This cannot be undone.
+            {t("settingsDeleteHistoryBody")}
           </p>
           <div className="flex flex-wrap gap-4 items-end">
             <div className="flex flex-col gap-2">
               <Label htmlFor="historyBefore">
-                Delete data before (exclusive)
+                {t("settingsDeleteHistoryDateLabel")}
               </Label>
               <input
                 id="historyBefore"
@@ -163,18 +161,18 @@ export default function SettingsPage() {
                   className={btnPrimaryClass}
                   disabled={!historyBefore}
                 >
-                  Delete historical data
+                  {t("settingsDeleteHistoryButton")}
                 </Button>
               </AlertDialogTrigger>
               <AlertDialogContent>
                 <AlertDialogHeader>
-                  <AlertDialogTitle>Delete historical data?</AlertDialogTitle>
+                  <AlertDialogTitle>{t("settingsDeleteHistoryConfirmTitle")}</AlertDialogTitle>
                   <AlertDialogDescription>
-                    Delete all productions and advances before {historyBefore}? This cannot be undone.
+                    {t("settingsDeleteHistoryConfirmDesc", { date: historyBefore })}
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogCancel>{t("commonCancel")}</AlertDialogCancel>
                   <AlertDialogAction
                     className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                     onClick={async () => {
@@ -185,25 +183,35 @@ export default function SettingsPage() {
                           deleteAdvancesBefore(historyBefore),
                         ]);
                         setDeleteResult(
-                          `Deleted ${prodCount} production(s) and ${advCount} advance(s).`,
+                          t("settingsDeleteHistoryResult", {
+                            prodCount,
+                            advCount,
+                          }),
                         );
                         toast.success(
-                          `Deleted ${prodCount} production(s) and ${advCount} advance(s)`
+                          t("settingsDeleteHistoryToast", {
+                            prodCount,
+                            advCount,
+                          }),
                         );
                       } catch (e) {
-                        setDeleteResult("Error: " + (e as Error).message);
-                        toast.error("Failed to delete historical data");
+                        setDeleteResult(
+                          t("commonErrorWithMessage", {
+                            msg: (e as Error).message,
+                          }),
+                        );
+                        toast.error(t("settingsDeleteHistoryFail"));
                       }
                     }}
                   >
-                    Delete
+                    {t("commonDelete")}
                   </AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
           </div>
           {deleteResult && (
-            <Alert className="mt-4" variant={deleteResult.startsWith("Error") ? "destructive" : "default"}>
+            <Alert className="mt-4" variant={deleteResult.startsWith("Error") || deleteResult.startsWith("गड़बड़") ? "destructive" : "default"}>
               <AlertDescription>{deleteResult}</AlertDescription>
             </Alert>
           )}
@@ -214,27 +222,17 @@ export default function SettingsPage() {
           <CardHeader>
             <CardTitle className={headingClass + " flex items-center gap-2"}>
               <Download className="size-5 text-primary" />
-              Export / Import
+              {t("settingsExportImportTitle")}
             </CardTitle>
           </CardHeader>
           <CardContent>
           {isTauri() && dbPath && (
             <p className="text-sm text-muted-foreground mb-3 font-mono break-all">
-              Database file: {dbPath}
+              {t("settingsDbFileLine", { path: dbPath })}
             </p>
           )}
           <p className={paraClassMuted}>
-            Export downloads a <strong>SQLite (.db)</strong> file so you can
-            keep your records; legacy <strong>JSON</strong> is also available.
-            Import accepts <strong>JSON</strong> (legacy) or{" "}
-            <strong>SQLite (.db)</strong>. Import replaces all current data.
-            Auto import loads from{" "}
-            <code className="text-sm bg-muted px-1 rounded">
-              {AUTO_IMPORT_PATH}
-            </code>{" "}
-            if that file exists (e.g. in{" "}
-            <code className="text-sm bg-muted px-1 rounded">dist/data/</code>
-            ).
+            {t("settingsExportIntro", { autoPath: AUTO_IMPORT_PATH })}
           </p>
           <div className="flex flex-wrap gap-3 items-center">
             <Button
@@ -245,8 +243,8 @@ export default function SettingsPage() {
                     const { exportDbToFile } = await import("@/lib/db/tauriDb");
                     const result = await exportDbToFile();
                     if (result.success)
-                      setExportResult("Database (.db) saved.");
-                    else setExportResult("Export failed: " + result.error);
+                      setExportResult(t("settingsExportDbSaved"));
+                    else setExportResult(t("settingsExportFailed", { msg: result.error ?? "" }));
                   } else {
                     const bytes = await exportDatabaseToSqlite();
                     const blob = new Blob([new Uint8Array(bytes)], {
@@ -257,15 +255,17 @@ export default function SettingsPage() {
                     a.download = `prodtrack-${new Date().toISOString().slice(0, 10)}.db`;
                     a.click();
                     URL.revokeObjectURL(a.href);
-                    setExportResult("Database (.db) downloaded.");
+                    setExportResult(t("settingsExportDbDownloaded"));
                   }
                 } catch (e) {
-                  setExportResult("Export failed: " + (e as Error).message);
+                  setExportResult(
+                    t("settingsExportFailed", { msg: (e as Error).message }),
+                  );
                 }
               }}
               className={btnPrimaryClass}
             >
-              Export database (.db)
+              {t("settingsExportDb")}
             </Button>
             <Button
               type="button"
@@ -281,14 +281,16 @@ export default function SettingsPage() {
                   a.download = `prodtrack-export-${new Date().toISOString().slice(0, 10)}.json`;
                   a.click();
                   URL.revokeObjectURL(a.href);
-                  setExportResult("Export (JSON legacy) downloaded.");
+                  setExportResult(t("settingsExportJsonDownloaded"));
                 } catch (e) {
-                  setExportResult("Export failed: " + (e as Error).message);
+                  setExportResult(
+                    t("settingsExportFailed", { msg: (e as Error).message }),
+                  );
                 }
               }}
               className="rounded-xl min-h-[44px] px-6 py-3"
             >
-              Export to JSON (legacy)
+              {t("settingsExportJson")}
             </Button>
             <input
               ref={importJsonInputRef}
@@ -310,12 +312,12 @@ export default function SettingsPage() {
                     const data = await importDatabaseFromSqliteBuffer(buf);
                     if (
                       !confirm(
-                        "Import will replace all current data. Continue?",
+                        t("settingsConfirmImportReplace"),
                       )
                     )
                       return;
                     await importDatabase(data);
-                    setExportResult("Import (.db) complete.");
+                    setExportResult(t("settingsImportDbComplete"));
                     load();
                     return;
                   }
@@ -323,22 +325,26 @@ export default function SettingsPage() {
                   const data = JSON.parse(raw);
                   const { valid, error } = validateExportData(data);
                   if (!valid) {
-                    setExportResult("Invalid file: " + (error || "unknown"));
+                    setExportResult(
+                      t("settingsInvalidFile", { msg: error || "unknown" }),
+                    );
                     return;
                   }
                   if (
                     !confirm(
-                      "Import will replace all current data. Continue?",
+                      t("settingsConfirmImportReplace"),
                     )
                   )
                     return;
                   await importDatabase(
                     data as Awaited<ReturnType<typeof exportDatabase>>,
                   );
-                  setExportResult("Import (JSON) complete.");
+                  setExportResult(t("settingsImportJsonComplete"));
                   load();
                 } catch (err) {
-                  setExportResult("Import failed: " + (err as Error).message);
+                  setExportResult(
+                    t("settingsImportFailed", { msg: (err as Error).message }),
+                  );
                 }
               }}
             />
@@ -348,7 +354,7 @@ export default function SettingsPage() {
               className="min-h-[44px] px-6 py-3"
               onClick={() => importJsonInputRef.current?.click()}
             >
-              Import from file (JSON or .db)
+              {t("settingsImportFile")}
             </Button>
             <Button
               type="button"
@@ -362,26 +368,26 @@ export default function SettingsPage() {
                   }
                   if (
                     !confirm(
-                      `Found data. Import will replace current data. Continue?`,
+                      t("settingsConfirmAutoImport"),
                     )
                   )
                     return;
                   await importDatabase(result.data);
-                  setExportResult("Auto import complete.");
+                  setExportResult(t("settingsAutoImportComplete"));
                   load();
                 } catch (e) {
                   setExportResult(
-                    "Auto import failed: " + (e as Error).message,
+                    t("settingsAutoImportFailed", { msg: (e as Error).message }),
                   );
                 }
               }}
               className="rounded-xl border-2 border-primary text-primary hover:bg-accent min-h-[44px] px-6 py-3"
             >
-              Auto import (JSON)
+              {t("settingsAutoImport")}
             </Button>
           </div>
           {exportResult && (
-            <Alert className="mt-4" variant={exportResult.startsWith("Export failed") || exportResult.startsWith("Import failed") || exportResult.startsWith("Invalid") ? "destructive" : "default"}>
+            <Alert className="mt-4" variant={/^(Export failed|Import failed|Invalid|एक्सपोर्ट फेल|इम्पोर्ट फेल|गलत फाइल)/.test(exportResult) ? "destructive" : "default"}>
               <AlertDescription>{exportResult}</AlertDescription>
             </Alert>
           )}
@@ -392,39 +398,38 @@ export default function SettingsPage() {
           <CardHeader>
             <CardTitle className={headingClass + " flex items-center gap-2"}>
               <ShieldAlert className="size-5 text-primary" />
-              Security &amp; master actions
+              {t("settingsSecurityTitle")}
             </CardTitle>
           </CardHeader>
           <CardContent>
           <p className={paraClassMuted}>
-            Change the login password (requires master password). Permanently
-            delete all data (requires master password and double confirmation).
+            {t("settingsSecurityIntro")}
           </p>
           <div className="flex flex-wrap gap-3 items-center">
             <Button
               type="button"
               variant="outline"
               onClick={async () => {
-                const master = prompt("Enter master password");
+                const master = prompt(t("settingsPromptMaster"));
                 if (master === null) return;
                 if (!verifyMasterPassword(master)) {
-                  setSecurityResult("Incorrect master password.");
+                  setSecurityResult(t("settingsWrongMaster"));
                   return;
                 }
-                const new1 = prompt("Enter new login password");
+                const new1 = prompt(t("settingsPromptNewPassword"));
                 if (new1 === null) return;
-                const new2 = prompt("Confirm new login password");
+                const new2 = prompt(t("settingsPromptConfirmPassword"));
                 if (new2 === null) return;
                 if (new1 !== new2) {
-                  setSecurityResult("Passwords do not match.");
+                  setSecurityResult(t("settingsPasswordMismatch"));
                   return;
                 }
                 await setAppPassword(new1.trim());
-                setSecurityResult("Login password updated.");
+                setSecurityResult(t("settingsPasswordUpdated"));
               }}
               className="rounded-xl min-h-[44px] px-6 py-3"
             >
-              Change login password
+              {t("settingsChangePassword")}
             </Button>
             <AlertDialog>
               <AlertDialogTrigger asChild>
@@ -433,53 +438,70 @@ export default function SettingsPage() {
                   variant="destructive"
                   className="rounded-xl min-h-[44px] px-6 py-3"
                 >
-                  Master delete all data
+                  {t("settingsMasterDelete")}
                 </Button>
               </AlertDialogTrigger>
               <AlertDialogContent>
                 <AlertDialogHeader>
-                  <AlertDialogTitle>Permanently delete ALL data?</AlertDialogTitle>
+                  <AlertDialogTitle>{t("settingsMasterDeleteTitle")}</AlertDialogTitle>
                   <AlertDialogDescription>
-                    This cannot be undone. You will be asked for the master password and to type DELETE to confirm.
+                    {t("settingsMasterDeleteDesc")}
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogCancel>{t("commonCancel")}</AlertDialogCancel>
                   <AlertDialogAction
                     className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                     onClick={async () => {
-                      const master = prompt("Enter master password to confirm");
+                      const master = prompt(t("settingsPromptMasterConfirm"));
                       if (master === null) return;
                       if (!verifyMasterPassword(master)) {
-                        setSecurityResult("Incorrect master password.");
-                        toast.error("Incorrect master password");
+                        setSecurityResult(t("settingsWrongMaster"));
+                        toast.error(t("settingsWrongMaster"));
                         return;
                       }
-                      const confirmText = prompt("Type DELETE (all caps) to confirm.");
+                      const confirmText = prompt(t("settingsPromptTypeDelete"));
                       if (confirmText !== "DELETE") {
-                        setSecurityResult("Confirmation did not match.");
-                        toast.error("Confirmation did not match");
+                        setSecurityResult(t("settingsConfirmMismatch"));
+                        toast.error(t("settingsConfirmMismatch"));
                         return;
                       }
                       try {
                         await clearAllData();
-                        setSecurityResult("All data deleted.");
-                        toast.success("All data deleted");
+                        setSecurityResult(t("settingsAllDataDeleted"));
+                        toast.success(t("settingsAllDataDeleted"));
                         load();
                       } catch (e) {
-                        setSecurityResult("Error: " + (e as Error).message);
-                        toast.error("Failed to delete data");
+                        setSecurityResult(
+                          t("commonErrorWithMessage", {
+                            msg: (e as Error).message,
+                          }),
+                        );
+                        toast.error(t("settingsMasterDeleteFail"));
                       }
                     }}
                   >
-                    Delete
+                    {t("commonDelete")}
                   </AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
           </div>
           {securityResult && (
-            <Alert className="mt-4" variant={securityResult.startsWith("Incorrect") || securityResult.startsWith("Error") || securityResult.startsWith("Confirmation") ? "destructive" : "default"}>
+            <Alert
+              className="mt-4"
+              variant={
+                [
+                  t("settingsWrongMaster"),
+                  t("settingsPasswordMismatch"),
+                  t("settingsConfirmMismatch"),
+                ].includes(securityResult) ||
+                securityResult.startsWith("Error") ||
+                securityResult.startsWith("गड़बड़")
+                  ? "destructive"
+                  : "default"
+              }
+            >
               <AlertDescription>{securityResult}</AlertDescription>
             </Alert>
           )}
@@ -490,11 +512,10 @@ export default function SettingsPage() {
           <CardHeader>
             <CardTitle className={headingClass + " flex items-center gap-2"}>
               <Calendar className="size-5 text-primary" />
-              Factory holidays
+              {t("settingsFactoryHolidaysTitle")}
             </CardTitle>
             <p className="text-sm text-muted-foreground mt-1">
-              Days when the full factory is closed. Used for working-day and rate
-              calculations.
+              {t("settingsFactoryHolidaysIntro")}
             </p>
           </CardHeader>
           <CardContent>
@@ -502,7 +523,7 @@ export default function SettingsPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Date</TableHead>
+                  <TableHead>{t("settingsHolidayColDate")}</TableHead>
                   <TableHead className="w-16" />
                 </TableRow>
               </TableHeader>
@@ -523,34 +544,38 @@ export default function SettingsPage() {
                               type="button"
                               variant="destructive"
                               size="icon"
-                              title="Delete holiday"
-                              aria-label={`Delete holiday ${h.date as string}`}
+                              title={t("settingsHolidayDeleteTitle")}
+                              aria-label={t("settingsHolidayDeleteAria", {
+                                date: String(h.date),
+                              })}
                             >
                               <Trash2 data-icon="inline-start" aria-hidden />
                             </Button>
                           </AlertDialogTrigger>
                           <AlertDialogContent>
                             <AlertDialogHeader>
-                              <AlertDialogTitle>Delete holiday?</AlertDialogTitle>
+                              <AlertDialogTitle>{t("settingsHolidayDeleteTitle")}</AlertDialogTitle>
                               <AlertDialogDescription>
-                                Remove {h.date as string} from factory holidays?
+                                {t("settingsHolidayDeleteDesc", {
+                                  date: String(h.date),
+                                })}
                               </AlertDialogDescription>
                             </AlertDialogHeader>
                             <AlertDialogFooter>
-                              <AlertDialogCancel>Cancel</AlertDialogCancel>
+                              <AlertDialogCancel>{t("commonCancel")}</AlertDialogCancel>
                               <AlertDialogAction
                                 className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                                 onClick={async () => {
                                   try {
                                     await deleteHoliday(h.id as string);
                                     await load();
-                                    toast.success("Holiday deleted");
+                                    toast.success(t("settingsHolidayDeleteSuccess"));
                                   } catch {
-                                    toast.error("Failed to delete holiday");
+                                    toast.error(t("settingsHolidayDeleteFail"));
                                   }
                                 }}
                               >
-                                Delete
+                                {t("commonDelete")}
                               </AlertDialogAction>
                             </AlertDialogFooter>
                           </AlertDialogContent>
@@ -570,24 +595,24 @@ export default function SettingsPage() {
                 await saveHoliday({ date: holidayDate.trim() });
                 setHolidayDate("");
                 await load();
-                toast.success("Holiday added");
+                toast.success(t("settingsHolidayAddSuccess"));
               } catch {
-                toast.error("Failed to add holiday");
+                toast.error(t("settingsHolidayAddFail"));
               }
             }}
           >
             <div className="flex flex-col gap-2">
-              <Label htmlFor="holiday-date">Add date</Label>
+              <Label htmlFor="holiday-date">{t("settingsHolidayAddLabel")}</Label>
               <DatePicker
                 id="holiday-date"
                 value={holidayDate}
                 onChange={setHolidayDate}
-                placeholder="Select date"
+                placeholder={t("settingsHolidayDatePlaceholder")}
                 className="w-48 min-h-[44px]"
               />
             </div>
             <Button type="submit" className={btnPrimaryClass}>
-              Add holiday
+              {t("settingsHolidayAddButton")}
             </Button>
           </form>
           </CardContent>

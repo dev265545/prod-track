@@ -4,22 +4,12 @@ import { useMemo } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-
-const MONTH_NAMES = [
-  "January",
-  "February",
-  "March",
-  "April",
-  "May",
-  "June",
-  "July",
-  "August",
-  "September",
-  "October",
-  "November",
-  "December",
-];
-const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+import { useLanguage } from "@/components/language-provider";
+import { PayrollPeriodBadge } from "@/components/payroll-period-badge";
+import {
+  formatMonthCalendarHeading,
+  weekdayShortLabels,
+} from "@/lib/utils/date";
 
 function getLastDayOfMonth(year: number, month: number): number {
   return new Date(year, month + 1, 0).getDate();
@@ -45,6 +35,13 @@ export interface EmployeeCalendarProps {
   onDateDoubleClick?: (date: string) => void;
   periodFrom: string;
   periodTo: string;
+  /** When set (e.g. selected payroll period label), shown under the month title. */
+  periodStatusLabel?: string;
+  /** True when this period has saved manual payroll overrides. */
+  periodAdjusted?: boolean;
+  /** Opens the payroll adjust flow (employee dashboard). */
+  onPeriodBadgeClick?: () => void;
+  periodBadgeLoading?: boolean;
 }
 
 export function EmployeeCalendar({
@@ -59,7 +56,13 @@ export function EmployeeCalendar({
   onDateDoubleClick,
   periodFrom,
   periodTo,
+  periodStatusLabel,
+  periodAdjusted = false,
+  onPeriodBadgeClick,
+  periodBadgeLoading = false,
 }: EmployeeCalendarProps) {
+  const { locale, t } = useLanguage();
+  const dayLabels = useMemo(() => weekdayShortLabels(locale), [locale]);
   const daysInMonth = getLastDayOfMonth(year, month);
   const firstDayOfWeek = new Date(year, month, 1).getDay();
 
@@ -104,8 +107,8 @@ export function EmployeeCalendar({
   const pad = (n: number) => String(n).padStart(2, "0");
 
   return (
-    <div className="w-full h-full min-w-[320px] max-w-[380px] rounded-xl border border-border bg-card p-3 sm:p-4 flex flex-col">
-      <div className="flex items-center justify-between mb-3">
+    <div className="flex h-full w-full min-w-[320px] max-w-[380px] flex-col rounded-xl border border-border bg-card p-3 sm:p-4">
+      <div className="mb-3 flex items-center justify-between gap-2">
         <Button
           type="button"
           variant="outline"
@@ -115,13 +118,24 @@ export function EmployeeCalendar({
             const py = month === 0 ? year - 1 : year;
             onMonthChange(py, prev);
           }}
-          aria-label="Previous month"
+          aria-label={t("calPrevMonth")}
+          className="shrink-0"
         >
           <ChevronLeft data-icon="inline-start" />
         </Button>
-        <h3 className="font-heading font-bold text-base text-foreground">
-          {MONTH_NAMES[month]} {year}
-        </h3>
+        <div className="flex min-w-0 flex-col items-center gap-1">
+          <h3 className="text-center font-heading text-base font-bold text-foreground">
+            {formatMonthCalendarHeading(year, month, locale)}
+          </h3>
+          {periodStatusLabel ? (
+            <PayrollPeriodBadge
+              label={periodStatusLabel}
+              adjusted={periodAdjusted}
+              loading={periodBadgeLoading}
+              onClick={onPeriodBadgeClick}
+            />
+          ) : null}
+        </div>
         <Button
           type="button"
           variant="outline"
@@ -131,24 +145,25 @@ export function EmployeeCalendar({
             const ny = month === 11 ? year + 1 : year;
             onMonthChange(ny, next);
           }}
-          aria-label="Next month"
+          aria-label={t("calNextMonth")}
+          className="shrink-0"
         >
           <ChevronRight data-icon="inline-start" />
         </Button>
       </div>
 
-      <div className="grid grid-cols-7 gap-1 mb-1">
-        {DAY_LABELS.map((d) => (
+      <div className="mb-1 grid grid-cols-7 gap-1">
+        {dayLabels.map((d) => (
           <div
             key={d}
-            className="text-center text-xs font-semibold text-muted-foreground py-1"
+            className="py-1 text-center text-xs font-semibold text-muted-foreground"
           >
             {d}
           </div>
         ))}
       </div>
 
-      <div className="grid grid-cols-7 gap-1 flex-1 min-h-0 content-stretch">
+      <div className="grid min-h-0 flex-1 grid-cols-7 gap-1 content-stretch">
         {cells.map((day, i) => {
           if (day === null) return <div key={`empty-${i}`} />;
 
@@ -170,8 +185,8 @@ export function EmployeeCalendar({
               type="button"
               variant="ghost"
               className={cn(
-                "relative flex flex-col items-center justify-center rounded-lg p-2 min-h-[48px] h-auto text-sm transition-all",
-                isSelected && "ring-2 ring-chart-1 bg-chart-1/50",
+                "relative flex h-auto min-h-[48px] flex-col items-center justify-center rounded-lg p-2 text-sm transition-all",
+                isSelected && "bg-chart-1/50 ring-2 ring-chart-1",
                 inPeriod && !isSelected && "bg-chart-1/20",
                 !inPeriod && !isSelected && "hover:bg-muted",
                 isToday && "font-bold",
@@ -184,58 +199,75 @@ export function EmployeeCalendar({
                   ? () => onDateDoubleClick(dateStr)
                   : undefined
               }
-              aria-label={`${day}${isDayOff ? ", Factory holiday" : ""}${attStatus ? `, ${attStatus}` : ""}${hasProd ? ", Has production" : ""}${hasExtra ? ", Extra hours" : ""}${hasReduced ? ", Reduced hours" : ""}`}
+              aria-label={[
+                t("calAriaDay", { day }),
+                isDayOff ? t("calAriaHoliday") : "",
+                attStatus === "present"
+                  ? t("empCalAriaPresent")
+                  : attStatus === "absent"
+                    ? t("empCalAriaAbsent")
+                    : "",
+                hasProd ? t("empCalAriaHasProduction") : "",
+                hasExtra ? t("empCalAriaExtraHours") : "",
+                hasReduced ? t("empCalAriaReducedHours") : "",
+              ]
+                .filter(Boolean)
+                .join("")}
               title={dateStr}
             >
               <span
                 className={cn(
                   "text-xs leading-none",
                   isToday &&
-                    "bg-primary text-primary-foreground rounded-full size-6 flex items-center justify-center",
+                    "flex size-6 items-center justify-center rounded-full bg-primary text-primary-foreground",
                 )}
               >
                 {day}
               </span>
-              <div className="flex gap-0.5 mt-0.5">
+              <div className="mt-0.5 flex gap-0.5">
                 {hasProd && (
                   <span
                     className="size-1.5 rounded-full bg-[hsl(var(--success))]"
-                    title="Production entry"
+                    title={t("calTitleProductionEntry")}
                     aria-hidden
                   />
                 )}
                 {attStatus === "present" && (
                   <span
                     className="size-1.5 rounded-full bg-primary"
-                    title="Present"
+                    title={t("calTitlePresent")}
                     aria-hidden
                   />
                 )}
                 {attStatus === "absent" && (
                   <span
                     className="size-1.5 rounded-full bg-destructive"
-                    title="Absent"
+                    title={t("calTitleAbsent")}
                     aria-hidden
                   />
                 )}
                 {hasExtra && (
                   <span
                     className="size-1.5 rounded-full bg-blue-500"
-                    title={`+${hoursAdjust?.extra}h extra`}
+                    title={t("calTitleExtraHours", {
+                      h: hoursAdjust?.extra ?? 0,
+                    })}
                     aria-hidden
                   />
                 )}
                 {hasReduced && (
                   <span
                     className="size-1.5 rounded-full bg-amber-500"
-                    title={`−${hoursAdjust?.reduced}h reduced`}
+                    title={t("calTitleReducedHours", {
+                      h: hoursAdjust?.reduced ?? 0,
+                    })}
                     aria-hidden
                   />
                 )}
                 {isDayOff && (
                   <span
                     className="size-1.5 rounded-full bg-muted-foreground"
-                    title="Factory holiday"
+                    title={t("calTitleFactoryHoliday")}
                     aria-hidden
                   />
                 )}
@@ -245,33 +277,39 @@ export function EmployeeCalendar({
         })}
       </div>
 
-      <div className="flex flex-wrap gap-3 mt-auto pt-3 text-[10px] text-muted-foreground">
+      <div className="mt-auto flex flex-wrap gap-3 pt-3 text-[10px] text-muted-foreground">
         <div className="flex items-center gap-1.5">
           <span className="size-2 rounded-full bg-[hsl(var(--success))]" />{" "}
-          Production
+          {t("empLegendProduction")}
         </div>
         <div className="flex items-center gap-1.5">
-          <span className="size-2 rounded-full bg-primary" /> Present
+          <span className="size-2 rounded-full bg-primary" />{" "}
+          {t("empLegendPresent")}
         </div>
         <div className="flex items-center gap-1.5">
-          <span className="size-2 rounded-full bg-destructive" /> Absent
+          <span className="size-2 rounded-full bg-destructive" />{" "}
+          {t("empLegendAbsent")}
         </div>
         <div className="flex items-center gap-1.5">
-          <span className="size-2 rounded-full bg-blue-500" /> Extra h
+          <span className="size-2 rounded-full bg-blue-500" />{" "}
+          {t("empLegendExtraH")}
         </div>
         <div className="flex items-center gap-1.5">
-          <span className="size-2 rounded-full bg-amber-500" /> Less h
+          <span className="size-2 rounded-full bg-amber-500" />{" "}
+          {t("empLegendLessH")}
         </div>
         <div className="flex items-center gap-1.5">
-          <span className="size-2 rounded-full bg-muted-foreground" /> Factory
-          holiday
+          <span className="size-2 rounded-full bg-muted-foreground" />{" "}
+          {t("calLegendHoliday")}
         </div>
         <div className="flex items-center gap-1.5">
           <span className="size-4 rounded border border-chart-1/50 bg-chart-1/20" />{" "}
-          Selected period
+          {t("calLegendSelectedPeriod")}
         </div>
         {onDateDoubleClick && (
-          <p className="text-[10px] italic">Double-click a date to mark present or clear it</p>
+          <p className="text-[10px] italic">
+            {t("empCalDoubleClickPresent")}
+          </p>
         )}
       </div>
     </div>
