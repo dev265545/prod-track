@@ -53,8 +53,15 @@ import { getSalarySheetForRange } from "@/lib/services/salarySheetService";
 import type { SalarySheetRow } from "@/lib/services/salarySheetService";
 import {
   saveSalarySheetOverride,
-  type SalarySheetOverrideValues,
 } from "@/lib/services/salarySheetOverrideService";
+import {
+  buildSalarySheetDraftState,
+  buildSalarySheetOverrideValuesFromDraft,
+  getSalarySheetDriverDefaults,
+  stepSalarySheetDriverValue,
+  type SalarySheetDriverField,
+  type SalarySheetDraftDrivers,
+} from "@/lib/services/salarySheetEditorState";
 import {
   clampDateToMonth,
   getMonthRange,
@@ -73,37 +80,20 @@ const MONTH_NAMES = [
   "July", "August", "September", "October", "November", "December",
 ];
 
-type EditableOverrideField = keyof SalarySheetOverrideValues;
-
-const OVERRIDE_FIELDS: Array<{
-  key: EditableOverrideField;
+const DRIVER_FIELDS: Array<{
+  key: SalarySheetDriverField;
   label: string;
 }> = [
   { key: "presentDays", label: "Present days" },
-  { key: "absentDays", label: "Absent days" },
   { key: "holidayPresentDays", label: "Holiday present" },
   { key: "earnedSundayPayDays", label: "Extra days earned" },
   { key: "sundayPresentBonusDays", label: "Sunday present bonus" },
-  { key: "totalPaidDays", label: "Total paid days" },
   { key: "hoursExtraTotal", label: "Extra hours" },
   { key: "hoursReducedTotal", label: "Less hours" },
-  { key: "calculatedSalary", label: "Salary" },
 ];
 
-function formatOverrideValue(value: number | undefined): string {
-  return value == null ? "" : String(value);
-}
-
-function parseOptionalNumber(value: string): number | undefined {
-  const trimmed = value.trim();
-  if (!trimmed) return undefined;
-  const parsed = Number(trimmed);
-  if (!Number.isFinite(parsed)) return undefined;
-  return Math.round(parsed * 100) / 100;
-}
-
 function formatCalculatedValue(
-  key: EditableOverrideField,
+  key: SalarySheetDriverField | "absentDays" | "totalPaidDays" | "calculatedSalary",
   value: number,
 ): string {
   return key === "calculatedSalary" ? currency(value) : number(value);
@@ -193,9 +183,7 @@ export default function SalarySheetPage() {
   const [reorderMode, setReorderMode] = useState(false);
   const [savingOrder, setSavingOrder] = useState(false);
   const [editingRow, setEditingRow] = useState<SalarySheetRow | null>(null);
-  const [draftOverrideValues, setDraftOverrideValues] = useState<
-    Partial<Record<EditableOverrideField, string>>
-  >({});
+  const [draftDrivers, setDraftDrivers] = useState<SalarySheetDraftDrivers | null>(null);
   const [draftNotes, setDraftNotes] = useState("");
   const [savingOverride, setSavingOverride] = useState(false);
 
@@ -301,54 +289,39 @@ export default function SalarySheetPage() {
 
   const openAdjustModal = (row: SalarySheetRow) => {
     setEditingRow(row);
-    setDraftOverrideValues(
-      OVERRIDE_FIELDS.reduce<Partial<Record<EditableOverrideField, string>>>(
-        (acc, field) => {
-          acc[field.key] = formatOverrideValue(row.overrideValues[field.key]);
-          return acc;
-        },
-        {},
-      ),
-    );
+    setDraftDrivers(getSalarySheetDriverDefaults(row));
     setDraftNotes(row.overrideNotes);
   };
 
   const closeAdjustModal = (force = false) => {
     if (savingOverride && !force) return;
     setEditingRow(null);
-    setDraftOverrideValues({});
+    setDraftDrivers(null);
     setDraftNotes("");
   };
 
-  const resetDraftField = (field: EditableOverrideField) => {
-    setDraftOverrideValues((current) => ({
-      ...current,
-      [field]: "",
-    }));
+  const resetDraftField = (field: SalarySheetDriverField) => {
+    if (!editingRow) return;
+    const defaults = getSalarySheetDriverDefaults(editingRow);
+    setDraftDrivers((current) =>
+      current
+        ? {
+            ...current,
+            [field]: defaults[field],
+          }
+        : current,
+    );
   };
 
   const resetAllDraftFields = () => {
-    setDraftOverrideValues(
-      OVERRIDE_FIELDS.reduce<Partial<Record<EditableOverrideField, string>>>(
-        (acc, field) => {
-          acc[field.key] = "";
-          return acc;
-        },
-        {},
-      ),
-    );
+    if (editingRow) setDraftDrivers(getSalarySheetDriverDefaults(editingRow));
     setDraftNotes("");
   };
 
   const saveAdjustments = async () => {
-    if (!editingRow) return;
-    const overrides: SalarySheetOverrideValues = {};
-    for (const field of OVERRIDE_FIELDS) {
-      const parsed = parseOptionalNumber(draftOverrideValues[field.key] ?? "");
-      if (parsed != null) {
-        overrides[field.key] = parsed;
-      }
-    }
+    if (!editingRow || !draftDrivers) return;
+    const draftState = buildSalarySheetDraftState(editingRow, draftDrivers);
+    const overrides = buildSalarySheetOverrideValuesFromDraft(editingRow, draftState);
 
     setSavingOverride(true);
     try {
@@ -370,6 +343,11 @@ export default function SalarySheetPage() {
       setSavingOverride(false);
     }
   };
+
+  const draftState =
+    editingRow && draftDrivers
+      ? buildSalarySheetDraftState(editingRow, draftDrivers)
+      : null;
 
   const moveRow = async (index: number, direction: -1 | 1) => {
     const nextIndex = index + direction;
@@ -708,7 +686,8 @@ export default function SalarySheetPage() {
                     </Card>
 
                     <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                      {OVERRIDE_FIELDS.map((field) => (
+                      {draftState &&
+                        DRIVER_FIELDS.map((field) => (
                         <Card
                           key={field.key}
                           className="rounded-2xl border-border/80 bg-card shadow-none"
@@ -738,25 +717,123 @@ export default function SalarySheetPage() {
                             </div>
                           </CardHeader>
                           <CardContent className="px-5 pb-5">
-                            <Input
-                              id={`override-${field.key}`}
-                              type="number"
-                              step="0.01"
-                              inputMode="decimal"
-                              className="h-11 text-base tabular-nums"
-                              placeholder={String(editingRow.calculatedValues[field.key])}
-                              value={draftOverrideValues[field.key] ?? ""}
-                              onChange={(event) =>
-                                setDraftOverrideValues((current) => ({
-                                  ...current,
-                                  [field.key]: event.target.value,
-                                }))
-                              }
-                            />
+                            <div className="flex items-center gap-2">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="icon-sm"
+                                onClick={() =>
+                                  setDraftDrivers((current) =>
+                                    current
+                                      ? {
+                                          ...current,
+                                          [field.key]: stepSalarySheetDriverValue(
+                                            current[field.key],
+                                            -1,
+                                          ),
+                                        }
+                                      : current,
+                                  )
+                                }
+                              >
+                                -
+                              </Button>
+                              <Input
+                                id={`override-${field.key}`}
+                                type="number"
+                                step="1"
+                                inputMode="numeric"
+                                className="h-11 text-center text-base tabular-nums"
+                                value={String(draftState.drivers[field.key])}
+                                onChange={(event) => {
+                                  const next = Number(event.target.value);
+                                  if (!Number.isFinite(next)) return;
+                                  setDraftDrivers((current) =>
+                                    current
+                                      ? {
+                                          ...current,
+                                          [field.key]: Math.max(0, Math.round(next)),
+                                        }
+                                      : current,
+                                  );
+                                }}
+                              />
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="icon-sm"
+                                onClick={() =>
+                                  setDraftDrivers((current) =>
+                                    current
+                                      ? {
+                                          ...current,
+                                          [field.key]: stepSalarySheetDriverValue(
+                                            current[field.key],
+                                            1,
+                                          ),
+                                        }
+                                      : current,
+                                  )
+                                }
+                              >
+                                +
+                              </Button>
+                            </div>
                           </CardContent>
                         </Card>
                       ))}
                     </div>
+
+                    {draftState && (
+                      <Card className="rounded-2xl border-primary/20 bg-primary/5 shadow-none">
+                        <CardHeader className="px-5 pb-3 pt-5">
+                          <CardTitle className="text-base font-semibold">
+                            Auto-calculated results
+                          </CardTitle>
+                          <p className="text-sm text-muted-foreground">
+                            These react instantly when the driver values change.
+                          </p>
+                        </CardHeader>
+                        <CardContent className="grid gap-4 px-5 pb-5 md:grid-cols-3">
+                          {([
+                            ["absentDays", "Absent days"],
+                            ["totalPaidDays", "Total paid days"],
+                            ["calculatedSalary", "Salary"],
+                          ] as const).map(([key, label]) => {
+                            const isChanged =
+                              draftState.changedDerivedFields.includes(key);
+                            const value = draftState.derived[key];
+                            return (
+                              <div
+                                key={key}
+                                className={`rounded-xl border p-4 transition-colors ${
+                                  isChanged
+                                    ? "border-primary bg-primary/10"
+                                    : "border-border bg-background"
+                                }`}
+                              >
+                                <div className="flex items-center justify-between gap-3">
+                                  <p className="text-sm font-medium text-foreground">
+                                    {label}
+                                  </p>
+                                  {isChanged ? (
+                                    <span className="rounded-full bg-primary/15 px-2 py-0.5 text-[11px] font-medium text-primary">
+                                      Auto updated
+                                    </span>
+                                  ) : null}
+                                </div>
+                                <p className="mt-3 text-2xl font-semibold tabular-nums text-foreground">
+                                  {formatCalculatedValue(key, value)}
+                                </p>
+                                <p className="mt-1 text-xs text-muted-foreground">
+                                  Current sheet: {formatCalculatedValue(key, editingRow[key])}
+                                </p>
+                              </div>
+                            );
+                          })}
+                        </CardContent>
+                      </Card>
+                    )}
 
                     <Card className="rounded-2xl border-border/80 shadow-none">
                       <CardHeader className="px-5 pb-3 pt-5">
