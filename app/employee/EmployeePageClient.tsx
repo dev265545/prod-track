@@ -61,8 +61,17 @@ import {
 import { saveEmployee } from "@/lib/services/employeeService";
 import {
   getSalarySheetOverridesByEmployeeMonth,
+  getSalarySheetCorrectionPeriods,
+  saveSalarySheetOverride,
   type SalarySheetOverrideRecord,
 } from "@/lib/services/salarySheetOverrideService";
+import {
+  buildSalarySheetDraftState,
+  buildSalarySheetOverrideValuesFromDraft,
+  getSalarySheetDriverDefaults,
+  stepSalarySheetDriverValue,
+  type SalarySheetDraftDrivers,
+} from "@/lib/services/salarySheetEditorState";
 import { getSalaryRecordsByEmployee } from "@/lib/services/salaryRecordService";
 import {
   calculateSalary,
@@ -268,6 +277,15 @@ export function EmployeePageClient() {
   const [salaryCorrections, setSalaryCorrections] = useState<
     SalarySheetOverrideRecord[]
   >([]);
+  const [editingCorrectionPeriod, setEditingCorrectionPeriod] = useState<{
+    fromDate: string;
+    toDate: string;
+    label: string;
+  } | null>(null);
+  const [correctionDraftDrivers, setCorrectionDraftDrivers] =
+    useState<SalarySheetDraftDrivers | null>(null);
+  const [correctionDraftNotes, setCorrectionDraftNotes] = useState("");
+  const [savingCorrection, setSavingCorrection] = useState(false);
   const now = new Date();
   const [calYear, setCalYear] = useState(now.getFullYear());
   const [calMonth, setCalMonth] = useState(now.getMonth());
@@ -593,12 +611,13 @@ export function EmployeePageClient() {
     salaryRangeMode === "full-month"
       ? formatMonthYear(monthBounds.from)
       : salaryRange.label;
-  const salaryCorrectionItems = salaryCorrections.map((record) => ({
-    id: record.id,
-    periodLabel: getMonthRangeLabel(record.fromDate, record.toDate),
-    summary: summarizeSalaryCorrection(record),
-    reason: record.notes?.trim() || "No reason added",
-  }));
+  const currentPeriodLabel = from && to ? getMonthRangeLabel(from, to) : "";
+  const currentPeriodAdjusted = deductions.some(
+    (record) =>
+      (record.periodFrom as string) === from &&
+      (record.periodTo as string) === to &&
+      ((record.amount as number) ?? 0) > 0,
+  );
   const monthAttendanceBreakdown = buildMonthSalaryBreakdown({
     year: calYear,
     month: calMonth,
@@ -619,6 +638,86 @@ export function EmployeePageClient() {
   const salaryRangeDayRows = monthAttendanceBreakdown.days.filter(
     (row) => row.date >= salaryRange.from && row.date <= salaryRange.to,
   );
+  const correctionPeriods = getSalarySheetCorrectionPeriods(calYear, calMonth);
+  const correctionCards = correctionPeriods.map((period) => {
+    const summary = buildAttendanceSalarySummaryForRange({
+      fromDate: period.fromDate,
+      toDate: period.toDate,
+      holidayDates: factoryHolidays,
+      attendance: calendarAttendance.map((a) => ({
+        date: a.date as string,
+        status: a.status as string,
+        hoursWorked: a.hoursWorked as number | undefined,
+        hoursReduced: a.hoursReduced as number | undefined,
+        hoursExtra: a.hoursExtra as number | undefined,
+      })),
+      hoursPerDay,
+      ratePerDay,
+      sundayCategoryRule,
+    });
+    const overrideRecord =
+      salaryCorrections.find(
+        (record) =>
+          record.fromDate === period.fromDate && record.toDate === period.toDate,
+      ) ?? null;
+    const rowLike = {
+      id,
+      name: (employee?.name as string) || "Employee",
+      presentDays: overrideRecord?.overrides.presentDays ?? summary.presentDays,
+      absentDays: overrideRecord?.overrides.absentDays ?? summary.absentDays,
+      holidayPresentDays:
+        overrideRecord?.overrides.holidayPresentDays ?? summary.holidayPresentDays,
+      earnedSundayPayDays:
+        overrideRecord?.overrides.earnedSundayPayDays ?? summary.earnedSundayPayDays,
+      sundayPresentBonusDays:
+        overrideRecord?.overrides.sundayPresentBonusDays ??
+        summary.sundayPresentBonusDays,
+      totalPaidDays: overrideRecord?.overrides.totalPaidDays ?? summary.totalPaidDays,
+      monthlySalary,
+      ratePerDay,
+      ratePerHour,
+      hoursExtraTotal:
+        overrideRecord?.overrides.hoursExtraTotal ?? summary.hoursExtraTotal,
+      hoursReducedTotal:
+        overrideRecord?.overrides.hoursReducedTotal ?? summary.hoursReducedTotal,
+      baseCalculatedSalary: summary.calculatedSalary,
+      calculatedSalary:
+        overrideRecord?.overrides.calculatedSalary ?? summary.calculatedSalary,
+      hasOverrides: !!overrideRecord,
+      overrideNotes: overrideRecord?.notes ?? "",
+      overrideUpdatedAt: overrideRecord?.updatedAt ?? "",
+      overrideValues: overrideRecord?.overrides ?? {},
+      calculatedValues: {
+        presentDays: summary.presentDays,
+        absentDays: summary.absentDays,
+        holidayPresentDays: summary.holidayPresentDays,
+        earnedSundayPayDays: summary.earnedSundayPayDays,
+        sundayPresentBonusDays: summary.sundayPresentBonusDays,
+        totalPaidDays: summary.totalPaidDays,
+        hoursExtraTotal: summary.hoursExtraTotal,
+        hoursReducedTotal: summary.hoursReducedTotal,
+        calculatedSalary: summary.calculatedSalary,
+      },
+    };
+    return { period, summary, overrideRecord, rowLike };
+  });
+  const editingCorrectionCard =
+    editingCorrectionPeriod == null
+      ? null
+      : correctionCards.find(
+          (item) =>
+            item.period.fromDate === editingCorrectionPeriod.fromDate &&
+            item.period.toDate === editingCorrectionPeriod.toDate,
+        ) ?? null;
+  const correctionDraftState =
+    editingCorrectionCard && correctionDraftDrivers
+      ? buildSalarySheetDraftState(
+          editingCorrectionCard.rowLike as Parameters<
+            typeof buildSalarySheetDraftState
+          >[0],
+          correctionDraftDrivers,
+        )
+      : null;
 
   const periodProdQty = productions.reduce(
     (sum, p) => sum + ((p.quantity as number) || 0),
@@ -922,6 +1021,8 @@ export function EmployeePageClient() {
               }}
               periodFrom={from || ""}
               periodTo={to || ""}
+              periodStatusLabel={currentPeriodLabel}
+              periodAdjusted={currentPeriodAdjusted}
             />
           </div>
           <div className="grid grid-cols-2 gap-2 flex-1 min-w-0 xl:min-w-[280px]">
@@ -985,35 +1086,41 @@ export function EmployeePageClient() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="p-0">
-                {salaryCorrectionItems.length === 0 ? (
-                  <p className="text-xs text-muted-foreground">
-                    No saved corrections for the 1-15 or 16-end periods this month.
-                  </p>
-                ) : (
-                  <div className="grid gap-2 lg:grid-cols-2">
-                    {salaryCorrectionItems.map((item) => (
-                      <div
-                        key={item.id}
-                        className="rounded-xl border border-chart-1/20 bg-chart-1/10 px-3 py-2"
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="rounded-full bg-chart-2/10 px-2 py-0.5 text-[10px] font-medium text-chart-4">
-                            {item.periodLabel}
-                          </span>
-                          <span className="text-[10px] font-medium text-chart-4">
-                            Correction saved
-                          </span>
-                        </div>
-                        <p className="mt-2 text-sm font-semibold text-foreground">
-                          {item.summary}
-                        </p>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          Reason: {item.reason}
-                        </p>
+                <div className="grid gap-2 lg:grid-cols-2">
+                  {correctionCards.map((item) => (
+                    <button
+                      key={item.period.key}
+                      type="button"
+                      className="rounded-xl border border-chart-1/20 bg-chart-1/10 px-3 py-2 text-left transition-colors hover:bg-chart-1/15"
+                      onClick={() => {
+                        setEditingCorrectionPeriod({
+                          fromDate: item.period.fromDate,
+                          toDate: item.period.toDate,
+                          label: item.period.label,
+                        });
+                        setCorrectionDraftDrivers(getSalarySheetDriverDefaults(item.rowLike as never));
+                        setCorrectionDraftNotes(item.overrideRecord?.notes ?? "");
+                      }}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="rounded-full bg-chart-2/10 px-2 py-0.5 text-[10px] font-medium text-chart-4">
+                          {item.period.label}
+                        </span>
+                        <span className="text-[10px] font-medium text-chart-4">
+                          {item.overrideRecord ? "Re-edit correction" : "Add correction"}
+                        </span>
                       </div>
-                    ))}
-                  </div>
-                )}
+                      <p className="mt-2 text-sm font-semibold text-foreground">
+                        {item.overrideRecord
+                          ? summarizeSalaryCorrection(item.overrideRecord)
+                          : "No correction yet"}
+                      </p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {item.overrideRecord?.notes?.trim() || "Tap to create or review this 15-day correction."}
+                      </p>
+                    </button>
+                  ))}
+                </div>
               </CardContent>
             </Card>
             <div className="grid grid-cols-2 gap-2">
@@ -1468,6 +1575,196 @@ export function EmployeePageClient() {
             </div>
           </div>
         </div>
+
+        <Dialog
+          open={!!editingCorrectionPeriod}
+          onOpenChange={(open) => {
+            if (!open && !savingCorrection) {
+              setEditingCorrectionPeriod(null);
+              setCorrectionDraftDrivers(null);
+              setCorrectionDraftNotes("");
+            }
+          }}
+        >
+          <DialogContent className="max-w-3xl">
+            <DialogHeader>
+              <DialogTitle>
+                {editingCorrectionPeriod?.label} correction
+              </DialogTitle>
+            </DialogHeader>
+            {editingCorrectionCard && correctionDraftState && (
+              <div className="space-y-4">
+                <div className="grid gap-4 md:grid-cols-3">
+                  {([
+                    ["presentDays", "Present days"],
+                    ["earnedSundayPayDays", "Extra days earned"],
+                    ["sundayPresentBonusDays", "Sunday present bonus"],
+                  ] as const).map(([key, label]) => (
+                    <div key={key} className="rounded-xl border border-chart-1/20 bg-chart-1/5 p-4">
+                      <div className="flex items-center justify-between gap-2">
+                        <Label className="text-sm font-medium">{label}</Label>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() =>
+                            setCorrectionDraftDrivers((current) =>
+                              current
+                                ? {
+                                    ...current,
+                                    [key]: getSalarySheetDriverDefaults(
+                                      editingCorrectionCard.rowLike as never,
+                                    )[key],
+                                  }
+                                : current,
+                            )
+                          }
+                        >
+                          Auto
+                        </Button>
+                      </div>
+                      <div className="mt-3 flex items-center gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon-sm"
+                          onClick={() =>
+                            setCorrectionDraftDrivers((current) =>
+                              current
+                                ? {
+                                    ...current,
+                                    [key]: stepSalarySheetDriverValue(current[key], -1),
+                                  }
+                                : current,
+                            )
+                          }
+                        >
+                          -
+                        </Button>
+                        <Input
+                          type="number"
+                          step="1"
+                          inputMode="numeric"
+                          className="text-center tabular-nums"
+                          value={String(correctionDraftState.drivers[key])}
+                          onChange={(event) => {
+                            const next = Number(event.target.value);
+                            if (!Number.isFinite(next)) return;
+                            setCorrectionDraftDrivers((current) =>
+                              current
+                                ? {
+                                    ...current,
+                                    [key]: Math.max(0, Math.round(next)),
+                                  }
+                                : current,
+                            );
+                          }}
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon-sm"
+                          onClick={() =>
+                            setCorrectionDraftDrivers((current) =>
+                              current
+                                ? {
+                                    ...current,
+                                    [key]: stepSalarySheetDriverValue(current[key], 1),
+                                  }
+                                : current,
+                            )
+                          }
+                        >
+                          +
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="grid gap-4 md:grid-cols-3">
+                  {([
+                    ["absentDays", "Absent days"],
+                    ["totalPaidDays", "Paid days"],
+                    ["calculatedSalary", "Salary"],
+                  ] as const).map(([key, label]) => (
+                    <div
+                      key={key}
+                      className={`rounded-xl border p-4 ${
+                        correctionDraftState.changedDerivedFields.includes(key)
+                          ? "border-chart-2/35 bg-chart-1/15"
+                          : "border-chart-1/20 bg-background"
+                      }`}
+                    >
+                      <p className="text-sm font-medium text-foreground">{label}</p>
+                      <p className="mt-2 text-xl font-semibold tabular-nums">
+                        {key === "calculatedSalary"
+                          ? currency(correctionDraftState.derived[key])
+                          : number(correctionDraftState.derived[key])}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="employee-correction-notes">Reason</Label>
+                  <textarea
+                    id="employee-correction-notes"
+                    className="min-h-24 w-full rounded-xl border-2 border-input bg-background px-4 py-3 text-sm"
+                    value={correctionDraftNotes}
+                    onChange={(event) => setCorrectionDraftNotes(event.target.value)}
+                    placeholder="Why was this corrected?"
+                  />
+                </div>
+                <div className="flex justify-end gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={savingCorrection}
+                    onClick={() => {
+                      setEditingCorrectionPeriod(null);
+                      setCorrectionDraftDrivers(null);
+                      setCorrectionDraftNotes("");
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="button"
+                    disabled={savingCorrection}
+                    onClick={async () => {
+                      if (!editingCorrectionCard || !correctionDraftState) return;
+                      setSavingCorrection(true);
+                      try {
+                        await saveSalarySheetOverride({
+                          employeeId: id,
+                          year: calYear,
+                          month: calMonth,
+                          fromDate: editingCorrectionCard.period.fromDate,
+                          toDate: editingCorrectionCard.period.toDate,
+                          notes: correctionDraftNotes,
+                          overrides: buildSalarySheetOverrideValuesFromDraft(
+                            editingCorrectionCard.rowLike as never,
+                            correctionDraftState,
+                          ),
+                        });
+                        await loadCalendarMonth();
+                        toast.success("Correction saved");
+                        setEditingCorrectionPeriod(null);
+                        setCorrectionDraftDrivers(null);
+                        setCorrectionDraftNotes("");
+                      } catch {
+                        toast.error("Failed to save correction");
+                      } finally {
+                        setSavingCorrection(false);
+                      }
+                    }}
+                  >
+                    {savingCorrection ? "Saving..." : "Save correction"}
+                  </Button>
+                </div>
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
 
         <Card className="p-6 sm:p-8 transition-all duration-300 ease-out animate-fade-in animate-stagger-3">
           <CardHeader className="p-0 mb-4 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
