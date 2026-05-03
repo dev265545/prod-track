@@ -1,4 +1,5 @@
 import { getAll, put, remove, STORES } from "@/lib/db/adapter";
+import { getMonthRangePresets } from "@/lib/utils/date";
 
 const STORE = STORES.SALARY_SHEET_OVERRIDES;
 
@@ -36,6 +37,13 @@ export interface SaveSalarySheetOverrideInput {
   overrides: SalarySheetOverrideValues;
 }
 
+export interface SalarySheetCorrectionPeriod {
+  key: "first-half" | "second-half";
+  fromDate: string;
+  toDate: string;
+  label: string;
+}
+
 function round2(value: number): number {
   return Math.round(value * 100) / 100;
 }
@@ -53,6 +61,38 @@ export function buildSalarySheetOverrideId(input: {
 }): string {
   const { employeeId, year, month, fromDate, toDate } = input;
   return `salary_sheet_override:${employeeId}:${year}:${month}:${fromDate}:${toDate}`;
+}
+
+export function getSalarySheetCorrectionPeriods(
+  year: number,
+  month: number,
+): SalarySheetCorrectionPeriod[] {
+  const presets = getMonthRangePresets(year, month);
+  return presets
+    .filter(
+      (preset): preset is (typeof presets)[number] & {
+        mode: "first-half" | "second-half";
+      } => preset.mode === "first-half" || preset.mode === "second-half",
+    )
+    .map((preset) => ({
+      key: preset.mode,
+      fromDate: preset.from,
+      toDate: preset.to,
+      label: preset.label,
+    }));
+}
+
+export function getSalarySheetCorrectionPeriodForRange(
+  year: number,
+  month: number,
+  fromDate: string,
+  toDate: string,
+): SalarySheetCorrectionPeriod | null {
+  return (
+    getSalarySheetCorrectionPeriods(year, month).find(
+      (period) => period.fromDate === fromDate && period.toDate === toDate,
+    ) ?? null
+  );
 }
 
 export function sanitizeSalarySheetOverrideValues(
@@ -126,6 +166,40 @@ export async function getSalarySheetOverridesForRange(
         (row.overrides as SalarySheetOverrideValues | undefined) ?? {},
       ),
     }));
+}
+
+export async function getSalarySheetOverridesByEmployeeMonth(
+  employeeId: string,
+  year: number,
+  month: number,
+): Promise<SalarySheetOverrideRecord[]> {
+  const periods = getSalarySheetCorrectionPeriods(year, month);
+  const periodKeys = new Set(
+    periods.map((period) => `${period.fromDate}:${period.toDate}`),
+  );
+  const all = await getAll(STORE);
+  return all
+    .filter(
+      (row) =>
+        (row.employeeId as string) === employeeId &&
+        (row.year as number) === year &&
+        (row.month as number) === month &&
+        periodKeys.has(`${row.fromDate as string}:${row.toDate as string}`),
+    )
+    .map((row) => ({
+      id: row.id as string,
+      employeeId: row.employeeId as string,
+      year: row.year as number,
+      month: row.month as number,
+      fromDate: row.fromDate as string,
+      toDate: row.toDate as string,
+      notes: (row.notes as string | undefined) ?? "",
+      updatedAt: (row.updatedAt as string) ?? "",
+      overrides: sanitizeSalarySheetOverrideValues(
+        (row.overrides as SalarySheetOverrideValues | undefined) ?? {},
+      ),
+    }))
+    .sort((a, b) => a.fromDate.localeCompare(b.fromDate));
 }
 
 export async function saveSalarySheetOverride(

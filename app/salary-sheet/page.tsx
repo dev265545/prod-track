@@ -52,6 +52,7 @@ import { saveEmployeeSortOrder } from "@/lib/services/employeeService";
 import { getSalarySheetForRange } from "@/lib/services/salarySheetService";
 import type { SalarySheetRow } from "@/lib/services/salarySheetService";
 import {
+  getSalarySheetCorrectionPeriodForRange,
   saveSalarySheetOverride,
 } from "@/lib/services/salarySheetOverrideService";
 import {
@@ -317,6 +318,16 @@ export default function SalarySheetPage() {
 
   const saveAdjustments = async () => {
     if (!editingRow || !draftDrivers) return;
+    const correctionPeriod = getSalarySheetCorrectionPeriodForRange(
+      year,
+      month,
+      from,
+      to,
+    );
+    if (!correctionPeriod) {
+      toast.error("Corrections are only available for 1-15 and 16-end ranges.");
+      return;
+    }
     const draftState = buildSalarySheetDraftState(editingRow, draftDrivers);
     const overrides = buildSalarySheetOverrideValuesFromDraft(editingRow, draftState);
 
@@ -326,8 +337,8 @@ export default function SalarySheetPage() {
         employeeId: editingRow.id,
         year,
         month,
-        fromDate: from,
-        toDate: to,
+        fromDate: correctionPeriod.fromDate,
+        toDate: correctionPeriod.toDate,
         notes: draftNotes,
         overrides,
       });
@@ -345,6 +356,12 @@ export default function SalarySheetPage() {
     editingRow && draftDrivers
       ? buildSalarySheetDraftState(editingRow, draftDrivers)
       : null;
+  const correctionPeriod = getSalarySheetCorrectionPeriodForRange(
+    year,
+    month,
+    from,
+    to,
+  );
 
   const moveRow = async (index: number, direction: -1 | 1) => {
     const nextIndex = index + direction;
@@ -610,6 +627,7 @@ export default function SalarySheetPage() {
                             type="button"
                             variant={r.hasOverrides ? "secondary" : "outline"}
                             size="sm"
+                            disabled={!correctionPeriod}
                             onClick={() => openAdjustModal(r)}
                           >
                             {r.hasOverrides ? "Adjusted" : "Adjust"}
@@ -635,7 +653,7 @@ export default function SalarySheetPage() {
                         Adjust payroll values · {editingRow.name}
                       </DialogTitle>
                       <DialogDescription className="max-w-3xl text-sm leading-6">
-                        Blank fields stay automatic. Filled fields are saved permanently for this exact period from {from} to {to}.
+                        Blank fields stay automatic. Filled fields are saved permanently for this 15-day period from {from} to {to}.
                       </DialogDescription>
                     </div>
                     <Card className="min-w-[220px] rounded-2xl border-chart-1/30 bg-chart-1/10 shadow-none">

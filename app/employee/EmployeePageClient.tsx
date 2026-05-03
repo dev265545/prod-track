@@ -5,6 +5,14 @@ import Link from "next/link";
 import { useSearchParams, useRouter } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from "@/components/ui/breadcrumb";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -51,6 +59,10 @@ import {
   type SundayCategory,
 } from "@/lib/services/sundayCategoryService";
 import { saveEmployee } from "@/lib/services/employeeService";
+import {
+  getSalarySheetOverridesByEmployeeMonth,
+  type SalarySheetOverrideRecord,
+} from "@/lib/services/salarySheetOverrideService";
 import { getSalaryRecordsByEmployee } from "@/lib/services/salaryRecordService";
 import {
   calculateSalary,
@@ -169,6 +181,37 @@ function monthPickerOptions(count = 36): { value: string; label: string }[] {
   return out;
 }
 
+function EmployeePageHeader() {
+  return (
+    <Breadcrumb>
+      <BreadcrumbList>
+        <BreadcrumbItem>
+          <BreadcrumbLink asChild>
+            <Link href="/">Dashboard</Link>
+          </BreadcrumbLink>
+        </BreadcrumbItem>
+        <BreadcrumbSeparator />
+        <BreadcrumbItem>
+          <BreadcrumbPage>Employee</BreadcrumbPage>
+        </BreadcrumbItem>
+      </BreadcrumbList>
+    </Breadcrumb>
+  );
+}
+
+function summarizeSalaryCorrection(record: SalarySheetOverrideRecord): string {
+  const parts: string[] = [];
+  const overrides = record.overrides;
+  if (overrides.presentDays != null) parts.push(`Present ${number(overrides.presentDays)}`);
+  if (overrides.earnedSundayPayDays != null) {
+    parts.push(`Extra ${number(overrides.earnedSundayPayDays)}`);
+  }
+  if (overrides.sundayPresentBonusDays != null) {
+    parts.push(`Sun+ ${number(overrides.sundayPresentBonusDays)}`);
+  }
+  return parts.join(" · ") || "Manual correction";
+}
+
 export function EmployeePageClient() {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -221,6 +264,9 @@ export function EmployeePageClient() {
   >([]);
   const [periodAttendance, setPeriodAttendance] = useState<
     Record<string, unknown>[]
+  >([]);
+  const [salaryCorrections, setSalaryCorrections] = useState<
+    SalarySheetOverrideRecord[]
   >([]);
   const now = new Date();
   const [calYear, setCalYear] = useState(now.getFullYear());
@@ -327,15 +373,17 @@ export function EmployeePageClient() {
     const monthStart = `${calYear}-${padM}-01`;
     const lastDay = new Date(calYear, calMonth + 1, 0).getDate();
     const monthEnd = `${calYear}-${padM}-${lastDay}`;
-    const [holidays, prods, att] = await Promise.all([
+    const [holidays, prods, att, corrections] = await Promise.all([
       getHolidaysInRange(monthStart, monthEnd),
       getProductionsByEmployee(id, monthStart, monthEnd),
       getAttendanceByEmployeeInRange(id, monthStart, monthEnd),
+      getSalarySheetOverridesByEmployeeMonth(id, calYear, calMonth),
     ]);
     if (gen !== calendarLoadGen.current) return;
     setFactoryHolidays(holidays.map((h) => h.date as string));
     setCalendarProductions(prods);
     setCalendarAttendance(att);
+    setSalaryCorrections(corrections);
   }, [id, calYear, calMonth]);
 
   useEffect(() => {
@@ -379,12 +427,8 @@ export function EmployeePageClient() {
 
   if (!ready) {
     return (
-      <AppShell>
+      <AppShell headerContent={<EmployeePageHeader />}>
         <main id="main" className="flex flex-col gap-8">
-          <div className="space-y-2">
-            <Skeleton className="h-4 w-24" />
-            <Skeleton className="h-9 w-64" />
-          </div>
           <div className="grid grid-cols-4 gap-4">
             {[1, 2, 3, 4].map((i) => (
               <Skeleton key={i} className="h-28 rounded-xl" />
@@ -407,7 +451,7 @@ export function EmployeePageClient() {
 
   if (!employee) {
     return (
-      <AppShell>
+      <AppShell headerContent={<EmployeePageHeader />}>
         <main id="main" className="flex flex-col gap-8">
           <p className="text-lg text-muted-foreground">Employee not found.</p>
         </main>
@@ -549,6 +593,12 @@ export function EmployeePageClient() {
     salaryRangeMode === "full-month"
       ? formatMonthYear(monthBounds.from)
       : salaryRange.label;
+  const salaryCorrectionItems = salaryCorrections.map((record) => ({
+    id: record.id,
+    periodLabel: getMonthRangeLabel(record.fromDate, record.toDate),
+    summary: summarizeSalaryCorrection(record),
+    reason: record.notes?.trim() || "No reason added",
+  }));
   const monthAttendanceBreakdown = buildMonthSalaryBreakdown({
     year: calYear,
     month: calMonth,
@@ -630,17 +680,13 @@ export function EmployeePageClient() {
   };
 
   return (
-    <AppShell>
+    <AppShell
+      headerContent={<EmployeePageHeader />}
+    >
       <main id="main" className="flex flex-col gap-8">
         <div className="animate-fade-in flex flex-wrap items-start justify-between gap-4">
           <div>
-            <Link
-              href="/"
-              className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded"
-            >
-              ← Dashboard
-            </Link>
-            <h1 className="mt-2 text-3xl font-bold text-foreground font-heading">
+            <h1 className="text-3xl font-semibold text-foreground">
               {employee.name as string}
             </h1>
           </div>
@@ -929,6 +975,45 @@ export function EmployeePageClient() {
                     </p>
                   </div>
                 </div>
+              </CardContent>
+            </Card>
+            <Card className="col-span-2 p-3">
+              <CardHeader className="p-0 pb-2">
+                <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                  <FileSpreadsheet className="size-3.5 text-primary shrink-0" />
+                  Salary corrections — {MONTH_NAMES[calMonth]} {calYear}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="p-0">
+                {salaryCorrectionItems.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    No saved corrections for the 1-15 or 16-end periods this month.
+                  </p>
+                ) : (
+                  <div className="grid gap-2 lg:grid-cols-2">
+                    {salaryCorrectionItems.map((item) => (
+                      <div
+                        key={item.id}
+                        className="rounded-xl border border-chart-1/20 bg-chart-1/10 px-3 py-2"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="rounded-full bg-chart-2/10 px-2 py-0.5 text-[10px] font-medium text-chart-4">
+                            {item.periodLabel}
+                          </span>
+                          <span className="text-[10px] font-medium text-chart-4">
+                            Correction saved
+                          </span>
+                        </div>
+                        <p className="mt-2 text-sm font-semibold text-foreground">
+                          {item.summary}
+                        </p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Reason: {item.reason}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </CardContent>
             </Card>
             <div className="grid grid-cols-2 gap-2">
