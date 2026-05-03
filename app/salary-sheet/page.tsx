@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
+import { Separator } from "@/components/ui/separator";
 import {
   Dialog,
   DialogContent,
@@ -99,6 +100,13 @@ function parseOptionalNumber(value: string): number | undefined {
   const parsed = Number(trimmed);
   if (!Number.isFinite(parsed)) return undefined;
   return Math.round(parsed * 100) / 100;
+}
+
+function formatCalculatedValue(
+  key: EditableOverrideField,
+  value: number,
+): string {
+  return key === "calculatedSalary" ? currency(value) : number(value);
 }
 
 function getMonthOptions(count = 24): { year: number; month: number; label: string }[] {
@@ -642,102 +650,164 @@ export default function SalarySheetPage() {
         </Card>
 
         <Dialog open={!!editingRow} onOpenChange={(open) => !open && closeAdjustModal()}>
-          <DialogContent className="max-w-3xl">
-            <DialogHeader>
-              <DialogTitle>
-                Adjust payroll values{editingRow ? ` · ${editingRow.name}` : ""}
-              </DialogTitle>
-              <DialogDescription>
-                Blank fields stay automatic. Filled fields are saved permanently for this exact period: {from} to {to}.
-              </DialogDescription>
-            </DialogHeader>
-
+          <DialogContent className="w-[min(96vw,72rem)] max-w-none gap-0 overflow-hidden border-border p-0">
             {editingRow && (
-              <div className="grid gap-4">
-                <div className="rounded-xl border bg-muted/30 p-4 text-sm text-muted-foreground">
-                  <p>
-                    Effective values drive the salary sheet and print output. Calculated values stay visible here so manual corrections remain traceable.
-                  </p>
-                  {editingRow.overrideUpdatedAt ? (
-                    <p className="mt-2">
-                      Last adjusted: {editingRow.overrideUpdatedAt}
-                    </p>
-                  ) : null}
-                </div>
+              <>
+                <DialogHeader className="sticky top-0 z-10 gap-3 border-b bg-background/95 px-5 py-4 backdrop-blur sm:px-7">
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                    <div className="space-y-1.5">
+                      <DialogTitle className="text-xl font-semibold">
+                        Adjust payroll values · {editingRow.name}
+                      </DialogTitle>
+                      <DialogDescription className="max-w-3xl text-sm leading-6">
+                        Blank fields stay automatic. Filled fields are saved permanently for this exact period from {from} to {to}.
+                      </DialogDescription>
+                    </div>
+                    <Card className="min-w-[220px] rounded-2xl border-primary/20 bg-primary/5 shadow-none">
+                      <CardContent className="px-4 py-4">
+                        <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+                          Current salary
+                        </p>
+                        <p className="mt-1 text-2xl font-semibold tabular-nums text-foreground">
+                          {currency(editingRow.calculatedSalary)}
+                        </p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Auto base: {currency(editingRow.baseCalculatedSalary)}
+                        </p>
+                      </CardContent>
+                    </Card>
+                  </div>
+                </DialogHeader>
 
-                <div className="grid gap-4 sm:grid-cols-2">
-                  {OVERRIDE_FIELDS.map((field) => (
-                    <div key={field.key} className="rounded-xl border p-4">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="space-y-1">
-                          <Label htmlFor={`override-${field.key}`}>{field.label}</Label>
-                          <p className="text-xs text-muted-foreground">
-                            Calculated: {field.key === "calculatedSalary"
-                              ? currency(editingRow.calculatedValues[field.key])
-                              : number(editingRow.calculatedValues[field.key])}
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            Current sheet: {field.key === "calculatedSalary"
-                              ? currency(editingRow[field.key])
-                              : number(editingRow[field.key])}
+                <div className="max-h-[82vh] overflow-y-auto">
+                  <div className="space-y-6 px-5 py-5 sm:px-7 sm:py-6">
+                    <Card className="rounded-2xl border-border/80 bg-muted/20 shadow-none">
+                      <CardContent className="grid gap-4 px-5 py-5 lg:grid-cols-[minmax(0,1fr)_280px]">
+                        <div className="space-y-2 text-sm text-muted-foreground">
+                          <p className="font-medium text-foreground">How this editor works</p>
+                          <p>
+                            The sheet still calculates everything automatically. Only fields you fill here become permanent corrections for this employee and this exact salary-sheet range.
                           </p>
                         </div>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => resetDraftField(field.key)}
+                        <div className="grid gap-3 rounded-xl border bg-background p-4 text-sm">
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="text-muted-foreground">Override status</span>
+                            <span className="font-medium text-foreground">
+                              {editingRow.hasOverrides ? "Manual adjustments saved" : "Automatic only"}
+                            </span>
+                          </div>
+                          <Separator />
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="text-muted-foreground">Last adjusted</span>
+                            <span className="text-right text-foreground">
+                              {editingRow.overrideUpdatedAt || "Not adjusted yet"}
+                            </span>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+
+                    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                      {OVERRIDE_FIELDS.map((field) => (
+                        <Card
+                          key={field.key}
+                          className="rounded-2xl border-border/80 bg-card shadow-none"
                         >
-                          Auto
-                        </Button>
-                      </div>
-                      <Input
-                        id={`override-${field.key}`}
-                        type="number"
-                        step="0.01"
-                        inputMode="decimal"
-                        className="mt-3"
-                        placeholder={
-                          field.key === "calculatedSalary"
-                            ? String(editingRow.calculatedValues[field.key])
-                            : String(editingRow.calculatedValues[field.key])
-                        }
-                        value={draftOverrideValues[field.key] ?? ""}
-                        onChange={(event) =>
-                          setDraftOverrideValues((current) => ({
-                            ...current,
-                            [field.key]: event.target.value,
-                          }))
-                        }
-                      />
+                          <CardHeader className="px-5 pb-3 pt-5">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="space-y-1">
+                                <Label htmlFor={`override-${field.key}`} className="text-sm font-medium text-foreground">
+                                  {field.label}
+                                </Label>
+                                <p className="text-xs text-muted-foreground">
+                                  Calculated: {formatCalculatedValue(field.key, editingRow.calculatedValues[field.key])}
+                                </p>
+                                <p className="text-xs text-muted-foreground">
+                                  Current sheet: {formatCalculatedValue(field.key, editingRow[field.key])}
+                                </p>
+                              </div>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="h-8 shrink-0 px-2.5 text-xs"
+                                onClick={() => resetDraftField(field.key)}
+                              >
+                                Auto
+                              </Button>
+                            </div>
+                          </CardHeader>
+                          <CardContent className="px-5 pb-5">
+                            <Input
+                              id={`override-${field.key}`}
+                              type="number"
+                              step="0.01"
+                              inputMode="decimal"
+                              className="h-11 text-base tabular-nums"
+                              placeholder={String(editingRow.calculatedValues[field.key])}
+                              value={draftOverrideValues[field.key] ?? ""}
+                              onChange={(event) =>
+                                setDraftOverrideValues((current) => ({
+                                  ...current,
+                                  [field.key]: event.target.value,
+                                }))
+                              }
+                            />
+                          </CardContent>
+                        </Card>
+                      ))}
                     </div>
-                  ))}
+
+                    <Card className="rounded-2xl border-border/80 shadow-none">
+                      <CardHeader className="px-5 pb-3 pt-5">
+                        <CardTitle className="text-base font-semibold">Correction notes</CardTitle>
+                        <p className="text-sm text-muted-foreground">
+                          Record why this payroll row was adjusted so later review is easier.
+                        </p>
+                      </CardHeader>
+                      <CardContent className="px-5 pb-5">
+                        <Label htmlFor="override-notes" className="sr-only">
+                          Notes
+                        </Label>
+                        <textarea
+                          id="override-notes"
+                          className="min-h-28 w-full rounded-xl border-2 border-input bg-background px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                          placeholder="Why was this corrected?"
+                          value={draftNotes}
+                          onChange={(event) => setDraftNotes(event.target.value)}
+                        />
+                      </CardContent>
+                    </Card>
+                  </div>
                 </div>
 
-                <div className="rounded-xl border p-4">
-                  <Label htmlFor="override-notes">Notes</Label>
-                  <textarea
-                    id="override-notes"
-                    className="mt-3 min-h-24 w-full rounded-xl border-2 border-input bg-card px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-                    placeholder="Why was this corrected?"
-                    value={draftNotes}
-                    onChange={(event) => setDraftNotes(event.target.value)}
-                  />
-                </div>
-              </div>
+                <DialogFooter className="sticky bottom-0 z-10 border-t bg-background/95 px-5 py-4 backdrop-blur sm:px-7">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => closeAdjustModal()}
+                    disabled={savingOverride}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={resetAllDraftFields}
+                    disabled={savingOverride}
+                  >
+                    Reset all to auto
+                  </Button>
+                  <Button
+                    type="button"
+                    onClick={() => void saveAdjustments()}
+                    disabled={savingOverride}
+                  >
+                    {savingOverride ? "Saving..." : "Save adjustments"}
+                  </Button>
+                </DialogFooter>
+              </>
             )}
-
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => closeAdjustModal()} disabled={savingOverride}>
-                Cancel
-              </Button>
-              <Button type="button" variant="ghost" onClick={resetAllDraftFields} disabled={savingOverride}>
-                Reset all to auto
-              </Button>
-              <Button type="button" onClick={() => void saveAdjustments()} disabled={savingOverride}>
-                {savingOverride ? "Saving..." : "Save adjustments"}
-              </Button>
-            </DialogFooter>
           </DialogContent>
         </Dialog>
       </main>

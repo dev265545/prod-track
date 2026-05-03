@@ -232,7 +232,7 @@ export function EmployeeCalendar({
                     aria-hidden
                   />
                 )}
-                {isDayOff && !hasProd && !attStatus && (
+                {isDayOff && (
                   <span
                     className="size-1.5 rounded-full bg-muted-foreground"
                     title="Factory holiday"
@@ -271,7 +271,7 @@ export function EmployeeCalendar({
           Selected period
         </div>
         {onDateDoubleClick && (
-          <p className="text-[10px] italic">Double-click a date to mark present</p>
+          <p className="text-[10px] italic">Double-click a date to mark present or clear it</p>
         )}
       </div>
     </div>

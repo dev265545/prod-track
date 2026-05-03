@@ -844,12 +844,16 @@ export function EmployeePageClient() {
                 const existing = calendarAttendance.find(
                   (a) => (a.date as string) === date,
                 );
-                await saveAttendance({
-                  ...(existing?.id ? { id: existing.id as string } : {}),
-                  employeeId: id,
-                  date,
-                  status: "present",
-                });
+                if (existing?.status === "present" && existing?.id) {
+                  await deleteAttendance(existing.id as string);
+                } else {
+                  await saveAttendance({
+                    ...(existing?.id ? { id: existing.id as string } : {}),
+                    employeeId: id,
+                    date,
+                    status: "present",
+                  });
+                }
                 const padM = String(calMonth + 1).padStart(2, "0");
                 const monthStart = `${calYear}-${padM}-01`;
                 const lastDay = new Date(calYear, calMonth + 1, 0).getDate();
@@ -864,7 +868,11 @@ export function EmployeePageClient() {
                 if (from && to) setPeriodAttendance(periodAtt);
                 setSelectedDate(date);
                 refreshMissingData();
-                toast.success(`Marked present for ${dateDisplay(date)}`);
+                toast.success(
+                  existing?.status === "present"
+                    ? `Cleared attendance for ${dateDisplay(date)}`
+                    : `Marked present for ${dateDisplay(date)}`,
+                );
               }}
               periodFrom={from || ""}
               periodTo={to || ""}
