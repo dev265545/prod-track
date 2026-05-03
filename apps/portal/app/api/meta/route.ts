@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 
-import { portalCookie, sessionValid } from "@/lib/auth";
-import { resolveLatestPortableZip } from "@/lib/github";
+import { portalCookie, sessionValid } from "../../../lib/auth";
+import { resolveLatestPortableZip } from "../../../lib/github";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";

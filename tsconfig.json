@@ -16,5 +16,12 @@
     "paths": { "@/*": ["./*"] }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", "**/*.d.ts", ".next/types/**/*.ts"],
-  "exclude": ["node_modules", "js", "build.js", "dist", "references/daily-horizon-tracker"]
+  "exclude": [
+    "node_modules",
+    "js",
+    "build.js",
+    "dist",
+    "references/daily-horizon-tracker",
+    "apps/portal"
+  ]
 }

@@ -6,7 +6,7 @@ import {
   keysMatch,
   portalCookie,
   signedSessionValue,
-} from "@/lib/auth";
+} from "../../../lib/auth";
 
 export const runtime = "nodejs";
 

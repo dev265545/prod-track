@@ -1,8 +1,8 @@
 import { cookies } from "next/headers";
 
-import { portalCookie, sessionValid } from "@/lib/auth";
-import { resolveLatestPortableZip } from "@/lib/github";
-import { fetchZipUpstream } from "@/lib/streamZip";
+import { portalCookie, sessionValid } from "../../../lib/auth";
+import { resolveLatestPortableZip } from "../../../lib/github";
+import { fetchZipUpstream } from "../../../lib/streamZip";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";

@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/dialog";
 import { getHolidaysInRange } from "@/lib/services/factoryHolidayService";
 import { saveSalarySheetOverride } from "@/lib/services/salarySheetOverrideService";
+import type { SalarySheetRow } from "@/lib/services/salarySheetService";
 import {
   buildSalarySheetDraftState,
   buildSalarySheetOverrideValuesFromDraft,
