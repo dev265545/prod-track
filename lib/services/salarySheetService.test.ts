@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { applySalarySheetOverrides, type SalarySheetRow } from "./salarySheetService";
+import {
+  applySalarySheetOverrides,
+  salarySheetRowHasAdjustment,
+  type SalarySheetRow,
+} from "./salarySheetService";
 import type { SalarySheetOverrideRecord } from "./salarySheetOverrideService";
 
 function buildBaseRow(): SalarySheetRow {
@@ -94,5 +98,17 @@ describe("applySalarySheetOverrides", () => {
 
     expect(row.hasOverrides).toBe(true);
     expect(row.overrideNotes).toBe("Manual correction approved");
+  });
+});
+
+describe("salarySheetRowHasAdjustment", () => {
+  it("is true when totals differ from calculated attendance", () => {
+    const row = buildBaseRow();
+    row.presentDays = 14;
+    expect(salarySheetRowHasAdjustment(row)).toBe(true);
+  });
+
+  it("is false for a plain calculated row", () => {
+    expect(salarySheetRowHasAdjustment(buildBaseRow())).toBe(false);
   });
 });

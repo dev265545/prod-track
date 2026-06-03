@@ -24,7 +24,11 @@ vi.mock("@/lib/services/factoryHolidayService", () => ({
   getHolidaysInRange: mockGetHolidaysInRange,
 }));
 
-import { saveSalarySheetOverride } from "./salarySheetOverrideService";
+import {
+  getSalarySheetOverridesForMonth,
+  getSalarySheetOverridesTouchingMonth,
+  saveSalarySheetOverride,
+} from "./salarySheetOverrideService";
 
 describe("saveSalarySheetOverride", () => {
   beforeEach(() => {
@@ -93,5 +97,56 @@ describe("saveSalarySheetOverride", () => {
       overrides: { presentDays: number };
     };
     expect(saved.overrides.presentDays).toBe(10);
+  });
+});
+
+describe("getSalarySheetOverridesTouchingMonth", () => {
+  beforeEach(() => {
+    mockGetAll.mockReset();
+  });
+
+  it("loads overrides that overlap the calendar month even when year/month are strings", async () => {
+    mockGetAll.mockResolvedValue([
+      {
+        id: "o1",
+        employeeId: "e1",
+        year: "2026",
+        month: "3",
+        fromDate: "2026-04-01",
+        toDate: "2026-04-15",
+        overrides: { presentDays: 10 },
+      },
+      {
+        id: "o2",
+        employeeId: "e2",
+        fromDate: "2026-05-01",
+        toDate: "2026-05-15",
+        overrides: { presentDays: 8 },
+      },
+    ]);
+
+    const april = await getSalarySheetOverridesTouchingMonth(2026, 3);
+    expect(april).toHaveLength(1);
+    expect(april[0].employeeId).toBe("e1");
+    expect(april[0].year).toBe(2026);
+    expect(april[0].month).toBe(3);
+    expect(april[0].overrides.presentDays).toBe(10);
+  });
+
+  it("getSalarySheetOverridesForMonth delegates to overlap lookup", async () => {
+    mockGetAll.mockResolvedValue([
+      {
+        id: "o1",
+        employeeId: "e1",
+        year: 2026,
+        month: 3,
+        fromDate: "2026-04-16",
+        toDate: "2026-04-30",
+        overrides: { presentDays: 9 },
+      },
+    ]);
+    const rows = await getSalarySheetOverridesForMonth(2026, 3);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].fromDate).toBe("2026-04-16");
   });
 });

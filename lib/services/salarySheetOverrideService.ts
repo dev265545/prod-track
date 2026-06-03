@@ -2,7 +2,9 @@ import { getAll, put, remove, STORES } from "@/lib/db/adapter";
 import { getHolidaysInRange } from "@/lib/services/factoryHolidayService";
 import {
   clampPayrollDriverFieldsToPeriod,
+  getMonthRange,
   getMonthRangePresets,
+  getYearMonthFromIsoDate,
 } from "@/lib/utils/date";
 
 const STORE = STORES.SALARY_SHEET_OVERRIDES;
@@ -54,6 +56,48 @@ function round2(value: number): number {
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
+}
+
+function mapOverrideRow(
+  row: Record<string, unknown>,
+): SalarySheetOverrideRecord {
+  const fromDate = String(row.fromDate ?? "");
+  const anchor = getYearMonthFromIsoDate(fromDate);
+  return {
+    id: row.id as string,
+    employeeId: row.employeeId as string,
+    year: Number.isFinite(Number(row.year))
+      ? Number(row.year)
+      : (anchor?.year ?? 0),
+    month: Number.isFinite(Number(row.month))
+      ? Number(row.month)
+      : (anchor?.month ?? 0),
+    fromDate,
+    toDate: String(row.toDate ?? ""),
+    notes: (row.notes as string | undefined) ?? "",
+    updatedAt: (row.updatedAt as string) ?? "",
+    overrides: sanitizeSalarySheetOverrideValues(
+      (row.overrides as SalarySheetOverrideValues | undefined) ?? {},
+    ),
+  };
+}
+
+/** Overrides whose date range overlaps a calendar month (robust to string year/month in DB). */
+export function getSalarySheetOverridesTouchingMonth(
+  year: number,
+  month: number,
+): Promise<SalarySheetOverrideRecord[]> {
+  const { from: monthFrom, to: monthTo } = getMonthRange(year, month);
+  return getAll(STORE).then((all) =>
+    all
+      .filter((row) => {
+        const fromDate = String(row.fromDate ?? "");
+        const toDate = String(row.toDate ?? "");
+        if (!fromDate || !toDate) return false;
+        return toDate >= monthFrom && fromDate <= monthTo;
+      })
+      .map(mapOverrideRow),
+  );
 }
 
 export function buildSalarySheetOverrideId(input: {
@@ -121,50 +165,20 @@ export async function getSalarySheetOverride(
   const match = all.find(
     (row) =>
       (row.employeeId as string) === employeeId &&
-      (row.year as number) === year &&
-      (row.month as number) === month &&
+      Number(row.year) === year &&
+      Number(row.month) === month &&
       (row.fromDate as string) === fromDate &&
       (row.toDate as string) === toDate,
   );
   if (!match) return null;
-  return {
-    id: match.id as string,
-    employeeId: match.employeeId as string,
-    year: match.year as number,
-    month: match.month as number,
-    fromDate: match.fromDate as string,
-    toDate: match.toDate as string,
-    notes: (match.notes as string | undefined) ?? "",
-    updatedAt: (match.updatedAt as string) ?? "",
-    overrides: sanitizeSalarySheetOverrideValues(
-      (match.overrides as SalarySheetOverrideValues | undefined) ?? {},
-    ),
-  };
+  return mapOverrideRow(match);
 }
 
 export async function getSalarySheetOverridesForMonth(
   year: number,
   month: number,
 ): Promise<SalarySheetOverrideRecord[]> {
-  const all = await getAll(STORE);
-  return all
-    .filter(
-      (row) =>
-        (row.year as number) === year && (row.month as number) === month,
-    )
-    .map((row) => ({
-      id: row.id as string,
-      employeeId: row.employeeId as string,
-      year: row.year as number,
-      month: row.month as number,
-      fromDate: row.fromDate as string,
-      toDate: row.toDate as string,
-      notes: (row.notes as string | undefined) ?? "",
-      updatedAt: (row.updatedAt as string) ?? "",
-      overrides: sanitizeSalarySheetOverrideValues(
-        (row.overrides as SalarySheetOverrideValues | undefined) ?? {},
-      ),
-    }));
+  return getSalarySheetOverridesTouchingMonth(year, month);
 }
 
 export async function getSalarySheetOverridesForRange(
@@ -188,28 +202,13 @@ export async function getSalarySheetOverridesByEmployeeMonth(
   const periodKeys = new Set(
     periods.map((period) => `${period.fromDate}:${period.toDate}`),
   );
-  const all = await getAll(STORE);
-  return all
+  const monthOverrides = await getSalarySheetOverridesTouchingMonth(year, month);
+  return monthOverrides
     .filter(
       (row) =>
-        (row.employeeId as string) === employeeId &&
-        (row.year as number) === year &&
-        (row.month as number) === month &&
-        periodKeys.has(`${row.fromDate as string}:${row.toDate as string}`),
+        row.employeeId === employeeId &&
+        periodKeys.has(`${row.fromDate}:${row.toDate}`),
     )
-    .map((row) => ({
-      id: row.id as string,
-      employeeId: row.employeeId as string,
-      year: row.year as number,
-      month: row.month as number,
-      fromDate: row.fromDate as string,
-      toDate: row.toDate as string,
-      notes: (row.notes as string | undefined) ?? "",
-      updatedAt: (row.updatedAt as string) ?? "",
-      overrides: sanitizeSalarySheetOverrideValues(
-        (row.overrides as SalarySheetOverrideValues | undefined) ?? {},
-      ),
-    }))
     .sort((a, b) => a.fromDate.localeCompare(b.fromDate));
 }
 
