@@ -76,7 +76,7 @@ const PAYROLL_NUMERIC_FIELDS = [
 /** True when payroll adjustment should drive UI/print instead of raw attendance. */
 export function salarySheetRowHasAdjustment(
   row: SalarySheetRow | null | undefined,
-): boolean {
+): row is SalarySheetRow {
   if (!row) return false;
   if (row.hasOverrides) return true;
   const cv = row.calculatedValues;
