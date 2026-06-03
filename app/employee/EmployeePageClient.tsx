@@ -743,7 +743,7 @@ export function EmployeePageClient() {
     salarySheetRowForSalaryRange,
   )
     ? salarySheetRowToAttendanceSummary(
-        salarySheetRowForSalaryRange!,
+        salarySheetRowForSalaryRange,
         salaryRangeSummary.totalHoursWorked,
       )
     : salaryRangeSummary;
