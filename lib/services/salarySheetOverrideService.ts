@@ -142,20 +142,15 @@ export async function getSalarySheetOverride(
   };
 }
 
-export async function getSalarySheetOverridesForRange(
+export async function getSalarySheetOverridesForMonth(
   year: number,
   month: number,
-  fromDate: string,
-  toDate: string,
 ): Promise<SalarySheetOverrideRecord[]> {
   const all = await getAll(STORE);
   return all
     .filter(
       (row) =>
-        (row.year as number) === year &&
-        (row.month as number) === month &&
-        (row.fromDate as string) === fromDate &&
-        (row.toDate as string) === toDate,
+        (row.year as number) === year && (row.month as number) === month,
     )
     .map((row) => ({
       id: row.id as string,
@@ -170,6 +165,18 @@ export async function getSalarySheetOverridesForRange(
         (row.overrides as SalarySheetOverrideValues | undefined) ?? {},
       ),
     }));
+}
+
+export async function getSalarySheetOverridesForRange(
+  year: number,
+  month: number,
+  fromDate: string,
+  toDate: string,
+): Promise<SalarySheetOverrideRecord[]> {
+  const monthOverrides = await getSalarySheetOverridesForMonth(year, month);
+  return monthOverrides.filter(
+    (row) => row.fromDate === fromDate && row.toDate === toDate,
+  );
 }
 
 export async function getSalarySheetOverridesByEmployeeMonth(

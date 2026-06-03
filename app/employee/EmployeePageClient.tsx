@@ -90,6 +90,10 @@ import {
   computeHoursInRange,
 } from "@/lib/utils/attendanceStats";
 import {
+  applySalaryTargetsToDayRows,
+  salarySheetRowToAttendanceSummary,
+} from "@/lib/utils/salarySheetDayDisplay";
+import {
   clampDateToMonth,
   getMonthRange,
   getMonthRangeLabel,
@@ -261,8 +265,12 @@ export function EmployeePageClient() {
   const [hoursExtraInput, setHoursExtraInput] = useState("");
   const [salarySheetRowForPeriod, setSalarySheetRowForPeriod] =
     useState<SalarySheetRow | null>(null);
+  const [salarySheetRowForSalaryRange, setSalarySheetRowForSalaryRange] =
+    useState<SalarySheetRow | null>(null);
   const [salarySheetRowLoading, setSalarySheetRowLoading] = useState(false);
+  const [salaryRangeRowLoading, setSalaryRangeRowLoading] = useState(false);
   const [payrollAdjustOpen, setPayrollAdjustOpen] = useState(false);
+  const [salaryRangeAdjustOpen, setSalaryRangeAdjustOpen] = useState(false);
 
   const load = async () => {
     const emp = await getEmployee(id);
@@ -436,6 +444,82 @@ export function EmployeePageClient() {
     };
   }, [id, from, to]);
 
+  const salaryRangeBounds = useMemo(
+    () => getMonthRange(calYear, calMonth),
+    [calYear, calMonth],
+  );
+
+  const resolvedSalaryRange = useMemo(() => {
+    const presets = getMonthRangePresets(calYear, calMonth, locale);
+    if (salaryRangeMode === "custom") {
+      const resolvedFrom = clampDateToMonth(
+        salaryCustomFrom || salaryRangeBounds.from,
+        calYear,
+        calMonth,
+      );
+      const resolvedTo = clampDateToMonth(
+        salaryCustomTo || salaryRangeBounds.to,
+        calYear,
+        calMonth,
+      );
+      const from =
+        resolvedFrom <= resolvedTo ? resolvedFrom : resolvedTo;
+      const to =
+        resolvedFrom <= resolvedTo ? resolvedTo : resolvedFrom;
+      return {
+        from,
+        to,
+        label: getMonthRangeLabel(from, to, locale),
+      };
+    }
+    return presets.find((preset) => preset.mode === salaryRangeMode) ?? presets[0];
+  }, [
+    calYear,
+    calMonth,
+    locale,
+    salaryCustomFrom,
+    salaryCustomTo,
+    salaryRangeBounds.from,
+    salaryRangeBounds.to,
+    salaryRangeMode,
+  ]);
+
+  useEffect(() => {
+    setSalaryRangeAdjustOpen(false);
+  }, [resolvedSalaryRange.from, resolvedSalaryRange.to, calYear, calMonth]);
+
+  useEffect(() => {
+    if (!id || !resolvedSalaryRange.from || !resolvedSalaryRange.to) {
+      setSalarySheetRowForSalaryRange(null);
+      setSalaryRangeRowLoading(false);
+      return;
+    }
+    const ym = getYearMonthFromIsoDate(resolvedSalaryRange.from);
+    if (!ym) {
+      setSalarySheetRowForSalaryRange(null);
+      setSalaryRangeRowLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setSalaryRangeRowLoading(true);
+    void getSalarySheetRowForEmployee(
+      id,
+      ym.year,
+      ym.month,
+      resolvedSalaryRange.from,
+      resolvedSalaryRange.to,
+    )
+      .then((row) => {
+        if (!cancelled) setSalarySheetRowForSalaryRange(row);
+      })
+      .finally(() => {
+        if (!cancelled) setSalaryRangeRowLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [id, resolvedSalaryRange.from, resolvedSalaryRange.to]);
+
   const openPayrollAdjust = useCallback(() => {
     if (!from || !to) {
       toast.message(t("empPayrollToastSelectDate"));
@@ -461,6 +545,37 @@ export function EmployeePageClient() {
     salarySheetRowForPeriod,
     t,
   ]);
+
+  const openSalaryRangeAdjust = useCallback(() => {
+    if (!resolvedSalaryRange.from || !resolvedSalaryRange.to) {
+      toast.message(t("empPayrollToastSelectDate"));
+      return;
+    }
+    if (!getYearMonthFromIsoDate(resolvedSalaryRange.from)) {
+      toast.error(t("empPayrollToastLoadFailed"));
+      return;
+    }
+    if (salaryRangeRowLoading) {
+      toast.message(t("empPayrollToastLoading"));
+      return;
+    }
+    if (!salarySheetRowForSalaryRange) {
+      toast.error(t("empPayrollToastLoadFailed"));
+      return;
+    }
+    setSalaryRangeAdjustOpen(true);
+  }, [
+    resolvedSalaryRange.from,
+    resolvedSalaryRange.to,
+    salaryRangeRowLoading,
+    salarySheetRowForSalaryRange,
+    t,
+  ]);
+
+  const salaryRangeSheetYearMonth = useMemo(
+    () => getYearMonthFromIsoDate(resolvedSalaryRange.from),
+    [resolvedSalaryRange.from],
+  );
 
   const payrollSheetYearMonth = useMemo(
     () => (from ? getYearMonthFromIsoDate(from) : null),
@@ -582,41 +697,8 @@ export function EmployeePageClient() {
     Math.round(totalPaidDays * ratePerDay * 100) / 100;
 
   const monthSheetOptions = monthPickerOptions(36, locale);
-  const monthBounds = getMonthRange(calYear, calMonth);
-  const salaryRangePresets = getMonthRangePresets(calYear, calMonth, locale);
-  const resolvedSalaryCustomFrom = clampDateToMonth(
-    salaryCustomFrom || monthBounds.from,
-    calYear,
-    calMonth,
-  );
-  const resolvedSalaryCustomTo = clampDateToMonth(
-    salaryCustomTo || monthBounds.to,
-    calYear,
-    calMonth,
-  );
-  const salaryRange =
-    salaryRangeMode === "custom"
-      ? {
-          from:
-            resolvedSalaryCustomFrom <= resolvedSalaryCustomTo
-              ? resolvedSalaryCustomFrom
-              : resolvedSalaryCustomTo,
-          to:
-            resolvedSalaryCustomFrom <= resolvedSalaryCustomTo
-              ? resolvedSalaryCustomTo
-              : resolvedSalaryCustomFrom,
-          label: getMonthRangeLabel(
-            resolvedSalaryCustomFrom <= resolvedSalaryCustomTo
-              ? resolvedSalaryCustomFrom
-              : resolvedSalaryCustomTo,
-            resolvedSalaryCustomFrom <= resolvedSalaryCustomTo
-              ? resolvedSalaryCustomTo
-              : resolvedSalaryCustomFrom,
-            locale,
-          ),
-        }
-      : salaryRangePresets.find((preset) => preset.mode === salaryRangeMode) ??
-        salaryRangePresets[0];
+  const monthBounds = salaryRangeBounds;
+  const salaryRange = resolvedSalaryRange;
   const salaryRangeSummary = buildAttendanceSalarySummaryForRange({
     fromDate: salaryRange.from,
     toDate: salaryRange.to,
@@ -656,6 +738,28 @@ export function EmployeePageClient() {
   const salaryRangeDayRows = monthAttendanceBreakdown.days.filter(
     (row) => row.date >= salaryRange.from && row.date <= salaryRange.to,
   );
+  const effectiveSalaryRangeSummary = salarySheetRowForSalaryRange?.hasOverrides
+    ? salarySheetRowToAttendanceSummary(
+        salarySheetRowForSalaryRange,
+        salaryRangeSummary.totalHoursWorked,
+      )
+    : salaryRangeSummary;
+  const effectiveSalaryRangeDayRows = salarySheetRowForSalaryRange?.hasOverrides
+    ? applySalaryTargetsToDayRows(
+        salaryRangeDayRows,
+        {
+          presentDays: salarySheetRowForSalaryRange.presentDays,
+          holidayPresentDays: salarySheetRowForSalaryRange.holidayPresentDays,
+          sundayPresentBonusDays:
+            salarySheetRowForSalaryRange.sundayPresentBonusDays,
+          hoursExtraTotal: salarySheetRowForSalaryRange.hoursExtraTotal,
+          hoursReducedTotal: salarySheetRowForSalaryRange.hoursReducedTotal,
+        },
+        ratePerDay,
+        hoursPerDay,
+        `${id}:${salaryRange.from}:${salaryRange.to}`,
+      )
+    : salaryRangeDayRows;
   const currentPeriodLabel =
     from && to ? getMonthRangeLabel(from, to, locale) : "";
 
@@ -1590,12 +1694,12 @@ export function EmployeePageClient() {
                   </CardTitle>
                   {currentPeriodLabel ? (
                     <PayrollPeriodBadge
-                      label={currentPeriodLabel}
+                      label={salaryRangeLabel}
                       adjusted={
-                        salarySheetRowForPeriod?.hasOverrides ?? false
+                        salarySheetRowForSalaryRange?.hasOverrides ?? false
                       }
-                      loading={salarySheetRowLoading}
-                      onClick={openPayrollAdjust}
+                      loading={salaryRangeRowLoading}
+                      onClick={openSalaryRangeAdjust}
                     />
                   ) : null}
                 </div>
@@ -1704,8 +1808,8 @@ export function EmployeePageClient() {
                       monthlySalary,
                       ratePerDay,
                       ratePerHour,
-                      summary: salaryRangeSummary,
-                      dayRows: salaryRangeDayRows,
+                      summary: effectiveSalaryRangeSummary,
+                      dayRows: effectiveSalaryRangeDayRows,
                     });
                     await printHtml(html);
                   }}
@@ -1734,7 +1838,7 @@ export function EmployeePageClient() {
                   {t("empPresentAbsent")}
                 </p>
                 <p className="mt-1 text-sm font-semibold tabular-nums text-foreground">
-                  {number(salaryRangeSummary.presentDays)} / {number(salaryRangeSummary.absentDays)}
+                  {number(effectiveSalaryRangeSummary.presentDays)} / {number(effectiveSalaryRangeSummary.absentDays)}
                 </p>
               </div>
               <div className="rounded-xl border bg-muted/30 p-4">
@@ -1742,7 +1846,7 @@ export function EmployeePageClient() {
                   {t("empEarnedSundayShort")}
                 </p>
                 <p className="mt-1 text-sm font-semibold tabular-nums text-foreground">
-                  {number(salaryRangeSummary.earnedSundayPayDays)} / {number(salaryRangeSummary.sundayPresentBonusDays)}
+                  {number(effectiveSalaryRangeSummary.earnedSundayPayDays)} / {number(effectiveSalaryRangeSummary.sundayPresentBonusDays)}
                 </p>
               </div>
               <div className="rounded-xl border-2 border-primary/25 bg-primary/10 p-4">
@@ -1750,13 +1854,13 @@ export function EmployeePageClient() {
                   {t("empSalaryContribution")}
                 </p>
                 <p className="mt-1 text-lg font-bold tabular-nums text-foreground">
-                  {currency(salaryRangeSummary.calculatedSalary)}
+                  {currency(effectiveSalaryRangeSummary.calculatedSalary)}
                 </p>
                 <p className="text-xs text-muted-foreground mt-1">
                   {t("empPaidDaysHoursSummary", {
-                    paid: number(salaryRangeSummary.totalPaidDays),
-                    extra: number(salaryRangeSummary.hoursExtraTotal),
-                    reduced: number(salaryRangeSummary.hoursReducedTotal),
+                    paid: number(effectiveSalaryRangeSummary.totalPaidDays),
+                    extra: number(effectiveSalaryRangeSummary.hoursExtraTotal),
+                    reduced: number(effectiveSalaryRangeSummary.hoursReducedTotal),
                   })}
                 </p>
               </div>
@@ -2554,6 +2658,27 @@ export function EmployeePageClient() {
               to,
             );
             setSalarySheetRowForPeriod(row);
+          }}
+        />
+        <SalarySheetAdjustDialog
+          open={salaryRangeAdjustOpen}
+          onOpenChange={setSalaryRangeAdjustOpen}
+          row={salarySheetRowForSalaryRange}
+          year={salaryRangeSheetYearMonth?.year ?? calYear}
+          month={salaryRangeSheetYearMonth?.month ?? calMonth}
+          periodFrom={resolvedSalaryRange.from}
+          periodTo={resolvedSalaryRange.to}
+          onSaved={async () => {
+            const ym = getYearMonthFromIsoDate(resolvedSalaryRange.from);
+            if (!ym) return;
+            const row = await getSalarySheetRowForEmployee(
+              id,
+              ym.year,
+              ym.month,
+              resolvedSalaryRange.from,
+              resolvedSalaryRange.to,
+            );
+            setSalarySheetRowForSalaryRange(row);
           }}
         />
       </main>
