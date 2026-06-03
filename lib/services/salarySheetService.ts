@@ -7,10 +7,11 @@ import {
   resolveSundayCategoryRule,
 } from "./sundayCategoryService";
 import {
-  getSalarySheetOverridesForRange,
+  getSalarySheetOverridesForMonth,
   type SalarySheetOverrideRecord,
   type SalarySheetOverrideValues,
 } from "./salarySheetOverrideService";
+import { resolveEffectiveSalarySheetRow } from "./salarySheetComposite";
 import {
   getCalendarDaysInMonth,
   getRatePerDay,
@@ -130,14 +131,15 @@ export async function getSalarySheetForRange(
   holidayDates: string[];
   calendarDaysInMonth: number;
 }> {
-  const [employees, attendance, holidays, shifts, sundayCategories, overrides] = await Promise.all([
-    getEmployees(true),
-    getAttendanceInRange(from, to),
-    getHolidaysInRange(from, to),
-    getShifts(),
-    getSundayCategories(),
-    getSalarySheetOverridesForRange(year, month, from, to),
-  ]);
+  const [employees, attendance, holidays, shifts, sundayCategories, monthOverrides] =
+    await Promise.all([
+      getEmployees(true),
+      getAttendanceInRange(from, to),
+      getHolidaysInRange(from, to),
+      getShifts(),
+      getSundayCategories(),
+      getSalarySheetOverridesForMonth(year, month),
+    ]);
 
   const shiftMap = Object.fromEntries(
     shifts.map((s) => [s.id as string, (s.hoursPerDay as number) ?? 8])
@@ -148,9 +150,12 @@ export async function getSalarySheetForRange(
 
   const holidayDates = holidays.map((h) => h.date as string);
   const calendarDaysInMonth = getCalendarDaysInMonth(year, month);
-  const overrideByEmployeeId = new Map(
-    overrides.map((record) => [record.employeeId, record]),
-  );
+  const overridesByEmployeeId = new Map<string, SalarySheetOverrideRecord[]>();
+  monthOverrides.forEach((record) => {
+    const list = overridesByEmployeeId.get(record.employeeId) ?? [];
+    list.push(record);
+    overridesByEmployeeId.set(record.employeeId, list);
+  });
 
   // Attendance by employee+date
   const attByEmpDate = new Map<
@@ -169,7 +174,11 @@ export async function getSalarySheetForRange(
     });
   });
 
-  const rows: SalarySheetRow[] = employees.map((emp) => {
+  const buildBaseRowForEmployee = (
+    emp: Record<string, unknown>,
+    rangeFrom: string,
+    rangeTo: string,
+  ): SalarySheetRow => {
     const empId = emp.id as string;
     const monthlySalary = (emp.monthlySalary as number) ?? 0;
     const ratePerDay = getRatePerDay(monthlySalary, calendarDaysInMonth);
@@ -183,27 +192,29 @@ export async function getSalarySheetForRange(
     const ratePerHour = getRatePerHour(
       monthlySalary,
       calendarDaysInMonth,
-      hoursPerDay
+      hoursPerDay,
     );
     const empAtt = attByEmpDate.get(empId) ?? new Map();
-    const attendance = Array.from(empAtt.entries()).map(([date, att]) => ({
-      date,
-      status: att.status,
-      hoursWorked: att.hoursWorked,
-      hoursReduced: att.hoursReduced,
-      hoursExtra: att.hoursExtra,
-    }));
+    const attendanceForRange = Array.from(empAtt.entries())
+      .filter(([date]) => date >= rangeFrom && date <= rangeTo)
+      .map(([date, att]) => ({
+        date,
+        status: att.status,
+        hoursWorked: att.hoursWorked,
+        hoursReduced: att.hoursReduced,
+        hoursExtra: att.hoursExtra,
+      }));
     const summary = buildAttendanceSalarySummaryForRange({
-      fromDate: from,
-      toDate: to,
+      fromDate: rangeFrom,
+      toDate: rangeTo,
       holidayDates,
-      attendance,
+      attendance: attendanceForRange,
       hoursPerDay,
       ratePerDay,
       sundayCategoryRule,
     });
 
-    const baseRow: SalarySheetRow = {
+    return {
       id: empId,
       name: (emp.name as string) || "Unknown",
       presentDays: summary.presentDays,
@@ -235,9 +246,19 @@ export async function getSalarySheetForRange(
         calculatedSalary: summary.calculatedSalary,
       },
     };
-    return applySalarySheetOverrides(
+  };
+
+  const rows: SalarySheetRow[] = employees.map((emp) => {
+    const empId = emp.id as string;
+    const baseRow = buildBaseRowForEmployee(emp, from, to);
+    return resolveEffectiveSalarySheetRow(
       baseRow,
-      overrideByEmployeeId.get(empId) ?? null,
+      overridesByEmployeeId.get(empId) ?? [],
+      year,
+      month,
+      from,
+      to,
+      (rangeFrom, rangeTo) => buildBaseRowForEmployee(emp, rangeFrom, rangeTo),
     );
   });
 
