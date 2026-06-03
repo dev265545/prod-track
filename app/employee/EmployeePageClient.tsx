@@ -93,6 +93,7 @@ import {
   applySalaryTargetsToDayRows,
   salarySheetRowToAttendanceSummary,
 } from "@/lib/utils/salarySheetDayDisplay";
+import { salarySheetRowHasAdjustment } from "@/lib/services/salarySheetService";
 import {
   clampDateToMonth,
   getMonthRange,
@@ -738,13 +739,17 @@ export function EmployeePageClient() {
   const salaryRangeDayRows = monthAttendanceBreakdown.days.filter(
     (row) => row.date >= salaryRange.from && row.date <= salaryRange.to,
   );
-  const effectiveSalaryRangeSummary = salarySheetRowForSalaryRange?.hasOverrides
+  const effectiveSalaryRangeSummary = salarySheetRowHasAdjustment(
+    salarySheetRowForSalaryRange,
+  )
     ? salarySheetRowToAttendanceSummary(
-        salarySheetRowForSalaryRange,
+        salarySheetRowForSalaryRange!,
         salaryRangeSummary.totalHoursWorked,
       )
     : salaryRangeSummary;
-  const effectiveSalaryRangeDayRows = salarySheetRowForSalaryRange?.hasOverrides
+  const effectiveSalaryRangeDayRows = salarySheetRowHasAdjustment(
+    salarySheetRowForSalaryRange,
+  )
     ? applySalaryTargetsToDayRows(
         salaryRangeDayRows,
         {
@@ -1084,7 +1089,7 @@ export function EmployeePageClient() {
               periodFrom={from || ""}
               periodTo={to || ""}
               periodStatusLabel={currentPeriodLabel}
-              periodAdjusted={salarySheetRowForPeriod?.hasOverrides ?? false}
+              periodAdjusted={salarySheetRowHasAdjustment(salarySheetRowForPeriod)}
               onPeriodBadgeClick={openPayrollAdjust}
               periodBadgeLoading={salarySheetRowLoading}
             />
@@ -1696,7 +1701,7 @@ export function EmployeePageClient() {
                     <PayrollPeriodBadge
                       label={salaryRangeLabel}
                       adjusted={
-                        salarySheetRowForSalaryRange?.hasOverrides ?? false
+                        salarySheetRowHasAdjustment(salarySheetRowForSalaryRange)
                       }
                       loading={salaryRangeRowLoading}
                       onClick={openSalaryRangeAdjust}

@@ -1,4 +1,9 @@
-import type { MonthSalaryDayRow } from "@/lib/utils/attendanceStats";
+import type {
+  MonthSalaryBreakdown,
+  MonthSalaryDayRow,
+} from "@/lib/utils/attendanceStats";
+import type { SalarySheetRow } from "@/lib/services/salarySheetService";
+import { salarySheetRowHasAdjustment } from "@/lib/services/salarySheetService";
 
 function round2(value: number): number {
   return Math.round(value * 100) / 100;
@@ -189,6 +194,57 @@ export function applySalaryTargetsToDayRows(
     }
     return row;
   });
+}
+
+/** Apply payroll adjustment totals to a full-month attendance breakdown (print/UI). */
+export function applySalarySheetRowToMonthBreakdown(
+  breakdown: MonthSalaryBreakdown,
+  salarySheetRow: SalarySheetRow | null,
+  employeeId: string,
+  from: string,
+  to: string,
+  ratePerDay: number,
+  hoursPerDay: number,
+): MonthSalaryBreakdown {
+  if (!salarySheetRowHasAdjustment(salarySheetRow) || !salarySheetRow) {
+    return breakdown;
+  }
+
+  const adjustedDays = applySalaryTargetsToDayRows(
+    breakdown.days,
+    {
+      presentDays: salarySheetRow.presentDays,
+      holidayPresentDays: salarySheetRow.holidayPresentDays,
+      sundayPresentBonusDays: salarySheetRow.sundayPresentBonusDays,
+      hoursExtraTotal: salarySheetRow.hoursExtraTotal,
+      hoursReducedTotal: salarySheetRow.hoursReducedTotal,
+    },
+    ratePerDay,
+    hoursPerDay,
+    `${employeeId}:${from}:${to}`,
+  );
+  const earnedSundayPoolPay = round2(
+    salarySheetRow.earnedSundayPayDays * ratePerDay,
+  );
+  const sundayMarkBonusPay = round2(
+    salarySheetRow.sundayPresentBonusDays * ratePerDay,
+  );
+
+  return {
+    ...breakdown,
+    days: adjustedDays,
+    paidWorkingDays: salarySheetRow.presentDays,
+    absentDays: salarySheetRow.absentDays,
+    holidayPresentDays: salarySheetRow.holidayPresentDays,
+    earnedSundayPayDays: salarySheetRow.earnedSundayPayDays,
+    earnedSundayPoolPay,
+    sundayPresentBonusDays: salarySheetRow.sundayPresentBonusDays,
+    sundayMarkBonusPay,
+    totalPaidDays: salarySheetRow.totalPaidDays,
+    totalBaseSalary: salarySheetRow.calculatedSalary,
+    sumHoursExtra: salarySheetRow.hoursExtraTotal,
+    sumHoursReduced: salarySheetRow.hoursReducedTotal,
+  };
 }
 
 export function salarySheetRowToAttendanceSummary(

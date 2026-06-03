@@ -23,7 +23,10 @@ import type {
   AttendanceSalarySummaryForRange,
   MonthSalaryDayRow,
 } from "@/lib/utils/attendanceStats";
-import { applySalaryTargetsToDayRows } from "@/lib/utils/salarySheetDayDisplay";
+import {
+  applySalarySheetRowToMonthBreakdown,
+} from "@/lib/utils/salarySheetDayDisplay";
+import { salarySheetRowHasAdjustment } from "@/lib/services/salarySheetService";
 
 export interface ProductionRow {
   date: string;
@@ -165,10 +168,6 @@ export async function getPrintableSalaryHtml(
 }
 
 /** Printable full-month attendance & salary grid for one employee (attendance only; no production earnings). */
-function round2(value: number): number {
-  return Math.round(value * 100) / 100;
-}
-
 export async function getPrintableMonthlyAttendanceSheetHtml(
   employeeId: string,
   year: number,
@@ -241,45 +240,15 @@ export async function getPrintableMonthlyAttendanceSheetHtml(
     from,
     to,
   );
-  const effectiveBreakdown =
-    salarySheetRow?.hasOverrides
-      ? (() => {
-          const adjustedDays = applySalaryTargetsToDayRows(
-            breakdown.days,
-            {
-              presentDays: salarySheetRow.presentDays,
-              holidayPresentDays: salarySheetRow.holidayPresentDays,
-              sundayPresentBonusDays: salarySheetRow.sundayPresentBonusDays,
-              hoursExtraTotal: salarySheetRow.hoursExtraTotal,
-              hoursReducedTotal: salarySheetRow.hoursReducedTotal,
-            },
-            ratePerDay,
-            hoursPerDay,
-            `${employeeId}:${from}:${to}`,
-          );
-          const earnedSundayPoolPay = round2(
-            salarySheetRow.earnedSundayPayDays * ratePerDay,
-          );
-          const sundayMarkBonusPay = round2(
-            salarySheetRow.sundayPresentBonusDays * ratePerDay,
-          );
-          return {
-            ...breakdown,
-            days: adjustedDays,
-            paidWorkingDays: salarySheetRow.presentDays,
-            absentDays: salarySheetRow.absentDays,
-            holidayPresentDays: salarySheetRow.holidayPresentDays,
-            earnedSundayPayDays: salarySheetRow.earnedSundayPayDays,
-            earnedSundayPoolPay,
-            sundayPresentBonusDays: salarySheetRow.sundayPresentBonusDays,
-            sundayMarkBonusPay,
-            totalPaidDays: salarySheetRow.totalPaidDays,
-            totalBaseSalary: salarySheetRow.calculatedSalary,
-            sumHoursExtra: salarySheetRow.hoursExtraTotal,
-            sumHoursReduced: salarySheetRow.hoursReducedTotal,
-          };
-        })()
-      : breakdown;
+  const effectiveBreakdown = applySalarySheetRowToMonthBreakdown(
+    breakdown,
+    salarySheetRow,
+    employeeId,
+    from,
+    to,
+    ratePerDay,
+    hoursPerDay,
+  );
 
   const monthTitle = formatMonthYear(from);
   const dayRows = effectiveBreakdown.days
@@ -303,7 +272,7 @@ export async function getPrintableMonthlyAttendanceSheetHtml(
     <p style="margin:0 0 4px"><strong>Monthly salary:</strong> ${currency(monthlySalary)} · <strong>Rate / day:</strong> ${currency(ratePerDay)} · <strong>Rate / hour:</strong> ${currency(ratePerHour)} · <strong>${number(hoursPerDay)}h</strong> shift · <strong>${number(calendarDaysInMonth)}</strong> calendar days in month</p>
     <p style="margin:0 0 4px"><strong>Paid working days (fraction):</strong> ${number(effectiveBreakdown.paidWorkingDays)} · <strong>Absent:</strong> ${number(effectiveBreakdown.absentDays)} · <strong>Holiday present:</strong> ${number(effectiveBreakdown.holidayPresentDays)} · <strong>Earned extra days (15-day cycles, max 4/mo):</strong> ${number(effectiveBreakdown.earnedSundayPayDays)} (${currency(effectiveBreakdown.earnedSundayPoolPay)}) · <strong>Sunday marked present:</strong> ${number(effectiveBreakdown.sundayPresentBonusDays)} (${currency(effectiveBreakdown.sundayMarkBonusPay)}) · <strong>Total paid days:</strong> ${number(effectiveBreakdown.totalPaidDays)}</p>
     <p style="margin:0 0 4px"><strong>Extra hours (sum):</strong> ${number(effectiveBreakdown.sumHoursExtra)} · <strong>Hours reduced (sum):</strong> ${number(effectiveBreakdown.sumHoursReduced)}</p>
-    <p style="margin:0"><strong>Total (attendance):</strong> ${currency(effectiveBreakdown.totalBaseSalary)}${salarySheetRow?.hasOverrides ? " · <em>Includes payroll adjustment</em>" : ""}</p>
+    <p style="margin:0"><strong>Total (attendance):</strong> ${currency(effectiveBreakdown.totalBaseSalary)}${salarySheetRowHasAdjustment(salarySheetRow) ? " · <em>Includes payroll adjustment</em>" : ""}</p>
   </div>`;
 
   const html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Monthly attendance — ${name}</title><style>${printStyles}</style></head><body id="printArea"><div style="margin:0 auto"><div style="display:flex;justify-content:space-between;margin-bottom:12px"><div><h1 class="text-2xl">ProdTrack Lite</h1><p class="text-sm text-gray-600">Monthly attendance &amp; salary</p></div><div class="text-sm text-right"><p><strong>Employee:</strong> ${name}</p><p><strong>Month:</strong> ${monthTitle}</p></div></div>${summary}<table class="table"><thead><tr><th class="border">Date</th><th class="border">Day</th><th class="border">Status</th><th class="border text-right">Hrs worked</th><th class="border text-right">Extra hrs</th><th class="border text-right">Less hrs</th><th class="border text-right">Equiv. hrs</th><th class="border text-right">Paid day %</th><th class="border text-right">Day pay</th></tr></thead><tbody>${dayRows}</tbody></table></div></body></html>`;
