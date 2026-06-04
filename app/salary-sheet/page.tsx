@@ -39,7 +39,10 @@ import { Spinner } from "@/components/ui/spinner";
 import { openDB } from "@/lib/db/adapter";
 import { isLoggedIn, checkExpiry } from "@/lib/auth";
 import { saveEmployeeSortOrder } from "@/lib/services/employeeService";
-import { getSalarySheetForRange } from "@/lib/services/salarySheetService";
+import {
+  getSalarySheetForRange,
+  salarySheetRowHasAdjustment,
+} from "@/lib/services/salarySheetService";
 import type { SalarySheetRow } from "@/lib/services/salarySheetService";
 import {
   clampDateToMonth,
@@ -240,7 +243,7 @@ export default function SalarySheetPage() {
     if (nextTo < nextFrom) setCustomFrom(nextTo);
   };
 
-  const handlePrint = () => {
+  const handlePrint = async () => {
     console.log("[print] Print button clicked (salary sheet)");
     const titleLabel =
       rangeMode === "full-month"
@@ -249,9 +252,21 @@ export default function SalarySheetPage() {
             locale,
           )
         : selectedRange.label;
-    const html = buildPrintableHtml(rows, titleLabel, from, to, tr);
+    const fresh = await getSalarySheetForRange(
+      year,
+      month,
+      selectedRange.from,
+      selectedRange.to,
+    );
+    const html = buildPrintableHtml(
+      fresh.rows,
+      titleLabel,
+      fresh.from,
+      fresh.to,
+      tr,
+    );
     console.log("[print] Got HTML, length:", html?.length ?? 0);
-    printHtml(html);
+    await printHtml(html);
   };
 
   const moveRow = async (index: number, direction: -1 | 1) => {
@@ -500,7 +515,14 @@ export default function SalarySheetPage() {
                             </div>
                           </TableCell>
                         )}
-                        <TableCell className="font-medium">{r.name}</TableCell>
+                        <TableCell className="font-medium">
+                          {r.name}
+                          {salarySheetRowHasAdjustment(r) ? (
+                            <span className="ml-2 text-xs font-normal text-amber-700 dark:text-amber-400">
+                              ({tr("salarySheetAdjustedBadge")})
+                            </span>
+                          ) : null}
+                        </TableCell>
                         <TableCell className="text-right tabular-nums">{number(r.presentDays)}</TableCell>
                         <TableCell className="text-right tabular-nums">{number(r.absentDays)}</TableCell>
                         <TableCell className="text-right tabular-nums">{number(r.holidayPresentDays)}</TableCell>
