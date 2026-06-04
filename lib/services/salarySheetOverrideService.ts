@@ -212,15 +212,28 @@ export async function getSalarySheetOverridesByEmployeeMonth(
     .sort((a, b) => a.fromDate.localeCompare(b.fromDate));
 }
 
+function anchorOverrideMonthFromDates(
+  input: SaveSalarySheetOverrideInput,
+): SaveSalarySheetOverrideInput {
+  const anchor = getYearMonthFromIsoDate(input.fromDate);
+  if (!anchor) return input;
+  return {
+    ...input,
+    year: anchor.year,
+    month: anchor.month,
+  };
+}
+
 export async function saveSalarySheetOverride(
   input: SaveSalarySheetOverrideInput,
 ): Promise<SalarySheetOverrideRecord> {
-  const sanitized = sanitizeSalarySheetOverrideValues(input.overrides);
-  const holidays = await getHolidaysInRange(input.fromDate, input.toDate);
+  const anchored = anchorOverrideMonthFromDates(input);
+  const sanitized = sanitizeSalarySheetOverrideValues(anchored.overrides);
+  const holidays = await getHolidaysInRange(anchored.fromDate, anchored.toDate);
   const holidayDates = holidays.map((h) => h.date as string);
   const cappedDrivers = clampPayrollDriverFieldsToPeriod(
-    input.fromDate,
-    input.toDate,
+    anchored.fromDate,
+    anchored.toDate,
     holidayDates,
     {
       presentDays:
@@ -249,18 +262,28 @@ export async function saveSalarySheetOverride(
   if (typeof sanitized.sundayPresentBonusDays === "number") {
     sanitized.sundayPresentBonusDays = cappedDrivers.sundayPresentBonusDays;
   }
-  const notes = input.notes?.trim() ?? "";
-  const id = buildSalarySheetOverrideId(input);
+  const notes = anchored.notes?.trim() ?? "";
+  const id = buildSalarySheetOverrideId(anchored);
 
   if (Object.keys(sanitized).length === 0 && !notes) {
     await remove(STORE, id);
+    const stale = await getSalarySheetOverride(
+      anchored.employeeId,
+      anchored.year,
+      anchored.month,
+      anchored.fromDate,
+      anchored.toDate,
+    );
+    if (stale && stale.id !== id) {
+      await remove(STORE, stale.id);
+    }
     return {
       id,
-      employeeId: input.employeeId,
-      year: input.year,
-      month: input.month,
-      fromDate: input.fromDate,
-      toDate: input.toDate,
+      employeeId: anchored.employeeId,
+      year: anchored.year,
+      month: anchored.month,
+      fromDate: anchored.fromDate,
+      toDate: anchored.toDate,
       notes: "",
       updatedAt: "",
       overrides: {},
@@ -269,11 +292,11 @@ export async function saveSalarySheetOverride(
 
   const record: SalarySheetOverrideRecord = {
     id,
-    employeeId: input.employeeId,
-    year: input.year,
-    month: input.month,
-    fromDate: input.fromDate,
-    toDate: input.toDate,
+    employeeId: anchored.employeeId,
+    year: anchored.year,
+    month: anchored.month,
+    fromDate: anchored.fromDate,
+    toDate: anchored.toDate,
     notes,
     updatedAt: new Date().toISOString(),
     overrides: sanitized,
@@ -289,8 +312,33 @@ export async function clearSalarySheetOverride(
   fromDate: string,
   toDate: string,
 ): Promise<void> {
-  await remove(
-    STORE,
-    buildSalarySheetOverrideId({ employeeId, year, month, fromDate, toDate }),
+  const anchored = anchorOverrideMonthFromDates({
+    employeeId,
+    year,
+    month,
+    fromDate,
+    toDate,
+    overrides: {},
+  });
+  const exact = await getSalarySheetOverride(
+    anchored.employeeId,
+    anchored.year,
+    anchored.month,
+    anchored.fromDate,
+    anchored.toDate,
   );
+  if (exact) {
+    await remove(STORE, exact.id);
+    return;
+  }
+  const all = await getAll(STORE);
+  for (const row of all) {
+    if (
+      (row.employeeId as string) === anchored.employeeId &&
+      (row.fromDate as string) === anchored.fromDate &&
+      (row.toDate as string) === anchored.toDate
+    ) {
+      await remove(STORE, row.id as string);
+    }
+  }
 }

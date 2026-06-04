@@ -66,7 +66,7 @@ import {
 } from "@/lib/services/salarySheetService";
 import {
   calculateSalary,
-  buildPrintableAttendanceSalaryRangeHtml,
+  getPrintableAttendanceSalaryRangeHtml,
   getPrintableSalaryHtml,
   getPrintableMonthlyAttendanceSheetHtml,
 } from "@/lib/services/salaryService";
@@ -747,24 +747,6 @@ export function EmployeePageClient() {
         salaryRangeSummary.totalHoursWorked,
       )
     : salaryRangeSummary;
-  const effectiveSalaryRangeDayRows = salarySheetRowHasAdjustment(
-    salarySheetRowForSalaryRange,
-  )
-    ? applySalaryTargetsToDayRows(
-        salaryRangeDayRows,
-        {
-          presentDays: salarySheetRowForSalaryRange.presentDays,
-          holidayPresentDays: salarySheetRowForSalaryRange.holidayPresentDays,
-          sundayPresentBonusDays:
-            salarySheetRowForSalaryRange.sundayPresentBonusDays,
-          hoursExtraTotal: salarySheetRowForSalaryRange.hoursExtraTotal,
-          hoursReducedTotal: salarySheetRowForSalaryRange.hoursReducedTotal,
-        },
-        ratePerDay,
-        hoursPerDay,
-        `${id}:${salaryRange.from}:${salaryRange.to}`,
-      )
-    : salaryRangeDayRows;
   const currentPeriodLabel =
     from && to ? getMonthRangeLabel(from, to, locale) : "";
 
@@ -1804,18 +1786,18 @@ export function EmployeePageClient() {
                   type="button"
                   className="min-h-12 px-6"
                   onClick={async () => {
-                    const html = buildPrintableAttendanceSalaryRangeHtml({
-                      employeeName: (employee.name as string) ?? t("empUnknownEmployee"),
-                      monthLabel: formatMonthYear(monthBounds.from, locale),
-                      rangeLabel: salaryRangeLabel,
-                      fromDate: salaryRange.from,
-                      toDate: salaryRange.to,
-                      monthlySalary,
-                      ratePerDay,
-                      ratePerHour,
-                      summary: effectiveSalaryRangeSummary,
-                      dayRows: effectiveSalaryRangeDayRows,
-                    });
+                    const ym = getYearMonthFromIsoDate(salaryRange.from);
+                    if (!ym) {
+                      toast.error(t("empPayrollToastLoadFailed"));
+                      return;
+                    }
+                    const html = await getPrintableAttendanceSalaryRangeHtml(
+                      id,
+                      ym.year,
+                      ym.month,
+                      salaryRange.from,
+                      salaryRange.to,
+                    );
                     await printHtml(html);
                   }}
                 >
