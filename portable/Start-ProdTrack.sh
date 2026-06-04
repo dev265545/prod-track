@@ -13,9 +13,7 @@ if [[ ! -f "${WEB_DIR}/index.html" ]]; then
   exit 1
 fi
 
-if [[ -f "${WEB_DIR}/wasm/sql-wasm.wasm" ]]; then
-  :
-else
+if [[ ! -f "${WEB_DIR}/wasm/sql-wasm.wasm" ]]; then
   echo "WARNING: Missing web/wasm/sql-wasm.wasm (SQLite file mode will fail)."
 fi
 
@@ -29,24 +27,9 @@ else
   exit 1
 fi
 
+export PRODTRACK_PORT="${PORT}"
+export PRODTRACK_OPEN_BROWSER=1
+
 echo "Serving ${WEB_DIR} at ${URL}"
-cd "${WEB_DIR}"
-"${PY_CMD}" -m http.server "${PORT}" --bind 127.0.0.1 >/dev/null 2>&1 &
-SERVER_PID=$!
-
-cleanup() {
-  if kill -0 "${SERVER_PID}" >/dev/null 2>&1; then
-    kill "${SERVER_PID}" >/dev/null 2>&1 || true
-  fi
-}
-trap cleanup EXIT INT TERM
-
-sleep 1
-if command -v xdg-open >/dev/null 2>&1; then
-  xdg-open "${URL}" >/dev/null 2>&1 || true
-else
-  echo "Open this URL in your browser: ${URL}"
-fi
-
-echo "ProdTrack portable server running. Press Ctrl+C to stop."
-wait "${SERVER_PID}"
+echo "(Routes like /employees map to employees.html — use this launcher, not plain http.server)"
+exec "${PY_CMD}" "${SCRIPT_DIR}/serve.py"
