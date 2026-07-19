@@ -11,6 +11,7 @@ function buildRow(overrides: Partial<SalarySheetRow> = {}): SalarySheetRow {
   return {
     id: "emp_1",
     name: "Asha",
+    employeeType: "salaried",
     presentDays: 10,
     absentDays: 2,
     holidayPresentDays: 0,
@@ -24,6 +25,8 @@ function buildRow(overrides: Partial<SalarySheetRow> = {}): SalarySheetRow {
     hoursReducedTotal: 0.5,
     baseCalculatedSalary: 3600,
     calculatedSalary: 3600,
+    advanceDeduction: 0,
+    netCalculatedSalary: 3600,
     hasOverrides: false,
     overrideNotes: "",
     overrideUpdatedAt: "",
@@ -38,6 +41,8 @@ function buildRow(overrides: Partial<SalarySheetRow> = {}): SalarySheetRow {
       hoursExtraTotal: 1,
       hoursReducedTotal: 0.5,
       calculatedSalary: 3600,
+      advanceDeduction: 0,
+      netCalculatedSalary: 3600,
     },
     ...overrides,
   };
@@ -97,6 +102,8 @@ describe("resolveEffectiveSalarySheetRow", () => {
         hoursExtraTotal: 2,
         hoursReducedTotal: 1,
         calculatedSalary: 8100,
+        advanceDeduction: 0,
+        netCalculatedSalary: 8100,
       },
     });
 
@@ -134,6 +141,8 @@ describe("resolveEffectiveSalarySheetRow", () => {
               hoursExtraTotal: 1,
               hoursReducedTotal: 0.5,
               calculatedSalary: 3900,
+              advanceDeduction: 0,
+              netCalculatedSalary: 3900,
             },
           });
         }
@@ -154,6 +163,8 @@ describe("resolveEffectiveSalarySheetRow", () => {
             hoursExtraTotal: 1,
             hoursReducedTotal: 0.5,
             calculatedSalary: 4200,
+            advanceDeduction: 0,
+            netCalculatedSalary: 4200,
           },
         });
       },
@@ -198,5 +209,51 @@ describe("mergeSalarySheetRows", () => {
     expect(merged.presentDays).toBe(18);
     expect(merged.calculatedSalary).toBe(5400);
     expect(merged.hasOverrides).toBe(true);
+  });
+
+  it("sums advanceDeduction and netCalculatedSalary across slices instead of taking the first slice's value", () => {
+    const merged = mergeSalarySheetRows([
+      buildRow({
+        calculatedSalary: 2400,
+        advanceDeduction: 300,
+        netCalculatedSalary: 2100,
+        calculatedValues: {
+          presentDays: 10,
+          absentDays: 2,
+          holidayPresentDays: 0,
+          earnedSundayPayDays: 1,
+          sundayPresentBonusDays: 1,
+          totalPaidDays: 12,
+          hoursExtraTotal: 1,
+          hoursReducedTotal: 0.5,
+          calculatedSalary: 2400,
+          advanceDeduction: 300,
+          netCalculatedSalary: 2100,
+        },
+      }),
+      buildRow({
+        calculatedSalary: 3000,
+        advanceDeduction: 200,
+        netCalculatedSalary: 2800,
+        calculatedValues: {
+          presentDays: 10,
+          absentDays: 2,
+          holidayPresentDays: 0,
+          earnedSundayPayDays: 1,
+          sundayPresentBonusDays: 1,
+          totalPaidDays: 12,
+          hoursExtraTotal: 1,
+          hoursReducedTotal: 0.5,
+          calculatedSalary: 3000,
+          advanceDeduction: 200,
+          netCalculatedSalary: 2800,
+        },
+      }),
+    ]);
+
+    expect(merged.advanceDeduction).toBe(500);
+    expect(merged.netCalculatedSalary).toBe(4900);
+    expect(merged.calculatedValues.advanceDeduction).toBe(500);
+    expect(merged.calculatedValues.netCalculatedSalary).toBe(4900);
   });
 });

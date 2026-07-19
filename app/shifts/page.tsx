@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import {
   Card,
@@ -29,8 +28,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { CalendarDays, Clock, Trash2 } from "lucide-react";
-import { openDB } from "@/lib/db/adapter";
-import { isLoggedIn, checkExpiry } from "@/lib/auth";
+import { useAuthGuard } from "@/lib/hooks/useAuthGuard";
 import { getShifts, saveShift, deleteShift } from "@/lib/services/shiftService";
 import {
   deleteSundayCategory,
@@ -54,9 +52,10 @@ import { AppLoadingScreen } from "@/components/app-loading-screen";
 import { useLanguage } from "@/components/language-provider";
 
 export default function ShiftsPage() {
-  const router = useRouter();
+  const { ready: guardReady } = useAuthGuard();
   const { t } = useLanguage();
-  const [ready, setReady] = useState(false);
+  const [dataLoaded, setDataLoaded] = useState(false);
+  const ready = guardReady && dataLoaded;
   const [shifts, setShifts] = useState<Record<string, unknown>[]>([]);
   const [shiftName, setShiftName] = useState("");
   const [shiftHours, setShiftHours] = useState(8);
@@ -83,17 +82,9 @@ export default function ShiftsPage() {
   };
 
   useEffect(() => {
-    openDB()
-      .then(async () => {
-        if (!isLoggedIn() || checkExpiry()) {
-          router.replace("/login");
-          return;
-        }
-        await load();
-        setReady(true);
-      })
-      .catch(() => setReady(true));
-  }, [router]);
+    if (!guardReady) return;
+    load().then(() => setDataLoaded(true));
+  }, [guardReady]);
 
   if (!ready) {
     return (

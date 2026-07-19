@@ -21,7 +21,21 @@ export async function getEmployee(
   return get(STORE, id);
 }
 
-/** Saves employee. Supports shiftId (string) and monthlySalary (number) for rate calculation. */
+/**
+ * Saves employee. Supports shiftId (string) and monthlySalary (number) for rate calculation.
+ *
+ * Employees may also carry the following optional fields (no dedicated interface exists;
+ * employees are stored as `Record<string, unknown>` throughout the app):
+ * - `employeeType?: "salaried" | "production" | "operator"` - classification used to drive
+ *   type-specific salary/attendance logic. See `lib/services/employeeTypeMigration.ts` for
+ *   the inference rule used to backfill this on existing employees.
+ * - `employeeTypeConfirmed?: boolean` - true once a human has confirmed an inferred
+ *   `employeeType`; false when it was auto-inferred and not yet reviewed.
+ * - `requiredPresentDays?: number` - operator-only. Number of present days required for
+ *   full pay in a period, default 26.
+ * - `sundayMultiplier?: number` - operator-only. Pay multiplier applied for Sunday work,
+ *   e.g. 1.2 or 1.5.
+ */
 export async function saveEmployee(
   emp: Record<string, unknown>
 ): Promise<Record<string, unknown>> {

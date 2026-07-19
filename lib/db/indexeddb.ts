@@ -61,6 +61,15 @@ function createSchema(db: IDBDatabase) {
   if (!db.objectStoreNames.contains(STORES.SUNDAY_CATEGORIES)) {
     db.createObjectStore(STORES.SUNDAY_CATEGORIES, { keyPath: "id" });
   }
+  if (!db.objectStoreNames.contains(STORES.OPERATOR_NATIONAL_HOLIDAYS)) {
+    db.createObjectStore(STORES.OPERATOR_NATIONAL_HOLIDAYS, { keyPath: "id" });
+  }
+  if (!db.objectStoreNames.contains(STORES.MACHINES)) {
+    db.createObjectStore(STORES.MACHINES, { keyPath: "id" });
+  }
+  if (!db.objectStoreNames.contains(STORES.ITEM_COMBOS)) {
+    db.createObjectStore(STORES.ITEM_COMBOS, { keyPath: "id" });
+  }
 }
 
 function getStore(

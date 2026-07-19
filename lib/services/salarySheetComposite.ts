@@ -73,6 +73,10 @@ export function mergeSalarySheetRows(rows: SalarySheetRow[]): SalarySheetRow {
     hoursExtraTotal: sum((row) => row.calculatedValues.hoursExtraTotal),
     hoursReducedTotal: sum((row) => row.calculatedValues.hoursReducedTotal),
     calculatedSalary: sum((row) => row.calculatedValues.calculatedSalary),
+    advanceDeduction: sum((row) => row.calculatedValues.advanceDeduction),
+    netCalculatedSalary: sum(
+      (row) => row.calculatedValues.netCalculatedSalary,
+    ),
   };
 
   const overrideNotes = rows
@@ -92,6 +96,8 @@ export function mergeSalarySheetRows(rows: SalarySheetRow[]): SalarySheetRow {
     hoursReducedTotal: sum((row) => row.hoursReducedTotal),
     baseCalculatedSalary: calculatedValues.calculatedSalary,
     calculatedSalary: sum((row) => row.calculatedSalary),
+    advanceDeduction: sum((row) => row.advanceDeduction),
+    netCalculatedSalary: sum((row) => row.netCalculatedSalary),
     hasOverrides: rows.some((row) => row.hasOverrides),
     overrideNotes,
     overrideUpdatedAt:

@@ -36,8 +36,8 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty";
 import { Spinner } from "@/components/ui/spinner";
-import { openDB } from "@/lib/db/adapter";
-import { isLoggedIn, checkExpiry } from "@/lib/auth";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useAuthGuard } from "@/lib/hooks/useAuthGuard";
 import { saveEmployeeSortOrder } from "@/lib/services/employeeService";
 import {
   getSalarySheetForRange,
@@ -79,6 +79,15 @@ function getMonthOptions(
   }
   return options;
 }
+
+type SalarySheetCategory = "all" | "salaried" | "production" | "operator";
+
+const CATEGORY_TABS: { value: SalarySheetCategory; labelKey: MessageKey }[] = [
+  { value: "all", labelKey: "salarySheetTabAll" },
+  { value: "salaried", labelKey: "employeeTypeSalaried" },
+  { value: "production", labelKey: "employeeTypeProduction" },
+  { value: "operator", labelKey: "employeeTypeOperator" },
+];
 
 function buildPrintableHtml(
   rows: SalarySheetRow[],
@@ -134,7 +143,7 @@ function buildPrintableHtml(
 export default function SalarySheetPage() {
   const router = useRouter();
   const { t: tr, locale } = useLanguage();
-  const [ready, setReady] = useState(false);
+  const { ready } = useAuthGuard({ requireAdmin: true });
   const [loading, setLoading] = useState(true);
   const [year, setYear] = useState(() => {
     const t = new Date();
@@ -152,6 +161,7 @@ export default function SalarySheetPage() {
   const [to, setTo] = useState("");
   const [reorderMode, setReorderMode] = useState(false);
   const [savingOrder, setSavingOrder] = useState(false);
+  const [category, setCategory] = useState<SalarySheetCategory>("all");
 
   const monthOptions = getMonthOptions(24, locale);
   const monthBounds = getMonthRange(year, month);
@@ -207,18 +217,6 @@ export default function SalarySheetPage() {
   }, [year, month, selectedRange.from, selectedRange.to]);
 
   useEffect(() => {
-    openDB()
-      .then(() => {
-        if (!isLoggedIn() || checkExpiry()) {
-          router.replace("/login");
-          return;
-        }
-        setReady(true);
-      })
-      .catch(() => setReady(true));
-  }, [router]);
-
-  useEffect(() => {
     if (!ready) return;
     load();
   }, [ready, load]);
@@ -258,9 +256,17 @@ export default function SalarySheetPage() {
       selectedRange.from,
       selectedRange.to,
     );
+    const freshVisibleRows =
+      category === "all"
+        ? fresh.rows
+        : fresh.rows.filter((r) => r.employeeType === category);
+    const categoryLabel =
+      category === "all"
+        ? ""
+        : ` – ${tr(CATEGORY_TABS.find((c) => c.value === category)!.labelKey)}`;
     const html = buildPrintableHtml(
-      fresh.rows,
-      titleLabel,
+      freshVisibleRows,
+      `${titleLabel}${categoryLabel}`,
       fresh.from,
       fresh.to,
       tr,
@@ -305,7 +311,9 @@ export default function SalarySheetPage() {
     `${year}-${String(month + 1).padStart(2, "0")}-01`,
     locale,
   );
-  const hasNoEmployees = rows.length === 0 && !loading;
+  const visibleRows =
+    category === "all" ? rows : rows.filter((r) => r.employeeType === category);
+  const hasNoEmployees = visibleRows.length === 0 && !loading;
 
   return (
     <AppShell>
@@ -411,6 +419,19 @@ export default function SalarySheetPage() {
           </div>
         </div>
 
+        <Tabs
+          value={category}
+          onValueChange={(value) => setCategory(value as SalarySheetCategory)}
+        >
+          <TabsList>
+            {CATEGORY_TABS.map((tab) => (
+              <TabsTrigger key={tab.value} value={tab.value}>
+                {tr(tab.labelKey)}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
+
         <Card className="p-6 sm:p-8">
           <CardHeader className="p-0 mb-5">
             <CardTitle className="text-xl font-semibold font-heading flex items-center gap-2">
@@ -468,7 +489,7 @@ export default function SalarySheetPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {rows.map((r) => (
+                    {visibleRows.map((r) => (
                       <TableRow
                         key={r.id}
                         className="cursor-pointer hover:bg-muted/50 transition-colors"
@@ -496,7 +517,7 @@ export default function SalarySheetPage() {
                                 type="button"
                                 variant="ghost"
                                 size="icon-sm"
-                                disabled={savingOrder || rows[0]?.id === r.id}
+                                disabled={savingOrder || visibleRows[0]?.id === r.id}
                                 onClick={() => void moveRow(rows.findIndex((row) => row.id === r.id), -1)}
                                 aria-label={tr("salarySheetMoveUpAria", { name: r.name })}
                               >
@@ -506,7 +527,7 @@ export default function SalarySheetPage() {
                                 type="button"
                                 variant="ghost"
                                 size="icon-sm"
-                                disabled={savingOrder || rows[rows.length - 1]?.id === r.id}
+                                disabled={savingOrder || visibleRows[visibleRows.length - 1]?.id === r.id}
                                 onClick={() => void moveRow(rows.findIndex((row) => row.id === r.id), 1)}
                                 aria-label={tr("salarySheetMoveDownAria", { name: r.name })}
                               >

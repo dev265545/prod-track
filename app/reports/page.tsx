@@ -26,8 +26,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { openDB } from "@/lib/db/adapter";
-import { isLoggedIn, checkExpiry } from "@/lib/auth";
+import { useAuthGuard } from "@/lib/hooks/useAuthGuard";
 import {
   getProductionsInRange,
   getProductions,
@@ -35,7 +34,6 @@ import {
 import { getItems } from "@/lib/services/itemService";
 import { getPeriodForDate, getPeriodsWithData } from "@/lib/utils/date";
 import { number, dateDisplay } from "@/lib/utils/formatter";
-import { useRouter } from "next/navigation";
 import { printHtml } from "@/lib/utils/print";
 import { Package, BarChart2 } from "lucide-react";
 import { useLanguage } from "@/components/language-provider";
@@ -51,9 +49,9 @@ interface CumulativeRow {
 }
 
 export default function ReportsPage() {
-  const router = useRouter();
+  const { ready: guardReady } = useAuthGuard();
   const { locale, t } = useLanguage();
-  const [ready, setReady] = useState(false);
+  const [periodsLoaded, setPeriodsLoaded] = useState(false);
   const [periods, setPeriods] = useState<
     { from: string; to: string; label: string }[]
   >([]);
@@ -62,34 +60,28 @@ export default function ReportsPage() {
   const [printScope, setPrintScope] = useState<PrintScope>("both");
   const [productions, setProductions] = useState<Record<string, unknown>[]>([]);
   const [items, setItems] = useState<Record<string, unknown>[]>([]);
+  const ready = guardReady && periodsLoaded;
 
   useEffect(() => {
-    openDB()
-      .then(() => {
-        if (!isLoggedIn() || checkExpiry()) {
-          router.replace("/login");
-          return;
-        }
-        getProductions().then((prods) => {
-          const withData = getPeriodsWithData(prods, 24, locale);
-          setPeriods(withData);
-          const current = getPeriodForDate(
-            new Date().toISOString().slice(0, 10),
-            locale,
-          );
-          const selected = withData.some((p) => p.from === current.from)
-            ? current.from
-            : (withData[withData.length - 1]?.from ?? "");
-          const period = withData.find((p) => p.from === selected);
-          if (period) {
-            setFrom(period.from);
-            setTo(period.to);
-          }
-          setReady(true);
-        });
-      })
-      .catch(() => setReady(true));
-  }, [router, locale]);
+    if (!guardReady) return;
+    getProductions().then((prods) => {
+      const withData = getPeriodsWithData(prods, 24, locale);
+      setPeriods(withData);
+      const current = getPeriodForDate(
+        new Date().toISOString().slice(0, 10),
+        locale,
+      );
+      const selected = withData.some((p) => p.from === current.from)
+        ? current.from
+        : (withData[withData.length - 1]?.from ?? "");
+      const period = withData.find((p) => p.from === selected);
+      if (period) {
+        setFrom(period.from);
+        setTo(period.to);
+      }
+      setPeriodsLoaded(true);
+    });
+  }, [guardReady, locale]);
 
   useEffect(() => {
     if (!ready || !from || !to) return;

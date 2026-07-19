@@ -350,6 +350,16 @@ export function buildMonthSalaryBreakdown(input: {
   /** When false, per-day production earnings are omitted (attendance sheet only). Default true. */
   includeProductionPay?: boolean;
   sundayCategoryRule?: SundayCategoryRule;
+  /**
+   * Optional Operator-only rule: once the running count of present working/holiday
+   * days so far in the month reaches `requiredPresentDays`, a present Sunday is paid
+   * `ratePerDay * sundayMultiplier` instead of the flat `ratePerDay`. Undefined
+   * preserves today's behavior exactly (flat rate for every present Sunday).
+   */
+  operatorSundayRule?: {
+    requiredPresentDays: number;
+    sundayMultiplier: number;
+  };
 }): MonthSalaryBreakdown {
   const {
     year,
@@ -361,6 +371,7 @@ export function buildMonthSalaryBreakdown(input: {
     ratePerDay,
     includeProductionPay = true,
     sundayCategoryRule = DEFAULT_SUNDAY_CATEGORY_RULE,
+    operatorSundayRule,
   } = input;
 
   const holidaySet = new Set(holidayDates);
@@ -384,6 +395,10 @@ export function buildMonthSalaryBreakdown(input: {
   let sumHoursExtra = 0;
   let sumHoursReduced = 0;
   let sundayPresentBonusDays = 0;
+  // Running count of present working/holiday days so far in the month, used only
+  // by the optional Operator Sunday-multiplier rule. Sundays never contribute to
+  // this count since they are not "working days".
+  let presentWorkingDayCountSoFar = 0;
 
   for (let d = 1; d <= lastDay; d++) {
     const dateStr = `${year}-${pad2(month + 1)}-${pad2(d)}`;
@@ -396,8 +411,16 @@ export function buildMonthSalaryBreakdown(input: {
       const att = attByDate.get(dateStr);
       const sundayPresent = att?.status === "present";
       if (sundayPresent) sundayPresentBonusDays += 1;
+      const sundayMultiplierApplies =
+        sundayPresent &&
+        operatorSundayRule != null &&
+        presentWorkingDayCountSoFar >= operatorSundayRule.requiredPresentDays;
       const bonusPay = sundayPresent
-        ? Math.round(ratePerDay * 100) / 100
+        ? sundayMultiplierApplies
+          ? Math.round(
+              ratePerDay * operatorSundayRule!.sundayMultiplier * 100,
+            ) / 100
+          : Math.round(ratePerDay * 100) / 100
         : 0;
       if (sundayPresent) {
         const ex = att.hoursExtra ?? 0;
@@ -445,6 +468,7 @@ export function buildMonthSalaryBreakdown(input: {
         const red = att.hoursReduced ?? 0;
         paidWorkingDays += frac;
         holidayPresentCount += 1;
+        presentWorkingDayCountSoFar += 1;
         if (ex > 0) sumHoursExtra += ex;
         if (red > 0) sumHoursReduced += red;
         days.push({
@@ -489,6 +513,7 @@ export function buildMonthSalaryBreakdown(input: {
     if (att?.status === "present") {
       const frac = computeDayPayFraction(att, hoursPerDay);
       paidWorkingDays += frac;
+      presentWorkingDayCountSoFar += 1;
       const ex = att.hoursExtra ?? 0;
       const red = att.hoursReduced ?? 0;
       if (ex > 0) sumHoursExtra += ex;
@@ -561,8 +586,15 @@ export function buildMonthSalaryBreakdown(input: {
     ) / 100;
   const earnedSundayPoolPay =
     Math.round(earnedSundayPayDays * ratePerDay * 100) / 100;
+  // Sum actual per-row Sunday bonus pay rather than `sundayPresentBonusDays * ratePerDay`,
+  // since the operator Sunday-multiplier rule can make individual Sundays' bonusPay differ
+  // from the flat rate within the same month.
   const sundayMarkBonusPay =
-    Math.round(sundayPresentBonusDays * ratePerDay * 100) / 100;
+    Math.round(
+      days
+        .filter((r) => r.rowKind === "sunday")
+        .reduce((s, r) => s + r.basePay, 0) * 100,
+    ) / 100;
   const rowPaySum =
     Math.round(
       days.reduce((s, r) => s + r.basePay, 0) * 100

@@ -7,6 +7,8 @@ export type AppDbRecord = {
   onboardingComplete: boolean;
   /** SHA-256 hex of app password; null for legacy DBs before metadata existed. */
   passwordHash: string | null;
+  /** SHA-256 hex of worker password; null/undefined until an admin sets one. */
+  workerPasswordHash?: string | null;
 };
 
 /** After opening an existing workspace file, should we go to login instead of setup wizard? */

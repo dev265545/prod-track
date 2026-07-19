@@ -9,7 +9,15 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -20,19 +28,19 @@ import {
 } from "@/components/ui/table";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { DatePicker } from "@/components/ui/date-picker";
-import { Trash2, Download, ShieldAlert, Calendar } from "lucide-react";
-import { openDB } from "@/lib/db/adapter";
-import {
-  isLoggedIn,
-  checkExpiry,
-  verifyMasterPassword,
-  setAppPassword,
-} from "@/lib/auth";
+import { Trash2, Download, ShieldAlert, Calendar, KeyRound, CalendarHeart } from "lucide-react";
+import { verifyMasterPassword, setAppPassword, setWorkerPassword } from "@/lib/auth";
+import { useAuthGuard } from "@/lib/hooks/useAuthGuard";
 import {
   getAllHolidays,
   saveHoliday,
   deleteHoliday,
 } from "@/lib/services/factoryHolidayService";
+import {
+  getAllOperatorHolidays,
+  saveOperatorHoliday,
+  deleteOperatorHoliday,
+} from "@/lib/services/operatorHolidayService";
 import { deleteProductionsBefore } from "@/lib/services/productionService";
 import { deleteAdvancesBefore } from "@/lib/services/advanceService";
 import { isTauri } from "@/lib/db/adapter";
@@ -48,7 +56,6 @@ import {
   exportDatabaseToSqlite,
   importDatabaseFromSqliteBuffer,
 } from "@/lib/db/sqliteBrowser";
-import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
   AlertDialog,
@@ -64,11 +71,31 @@ import {
 import { AppLoadingScreen } from "@/components/app-loading-screen";
 import { useLanguage } from "@/components/language-provider";
 
+const OPERATOR_HOLIDAY_NAMES = [
+  "Republic Day",
+  "Holi",
+  "Independence Day",
+  "Gandhi Jayanti",
+  "Diwali",
+  "Dussehra",
+  "Eid-ul-Fitr",
+  "Eid-ul-Adha",
+  "Good Friday",
+  "Christmas",
+  "Guru Nanak Jayanti",
+  "Raksha Bandhan",
+];
+const OPERATOR_HOLIDAY_OTHER = "_other";
+
 export default function SettingsPage() {
-  const router = useRouter();
   const { t } = useLanguage();
-  const [ready, setReady] = useState(false);
+  const { ready: guardReady } = useAuthGuard({ requireAdmin: true });
+  const [dataLoaded, setDataLoaded] = useState(false);
+  const ready = guardReady && dataLoaded;
   const [factoryHolidays, setFactoryHolidays] = useState<
+    Record<string, unknown>[]
+  >([]);
+  const [operatorHolidays, setOperatorHolidays] = useState<
     Record<string, unknown>[]
   >([]);
   const [holidayDate, setHolidayDate] = useState("");
@@ -76,30 +103,35 @@ export default function SettingsPage() {
   const [deleteResult, setDeleteResult] = useState("");
   const [exportResult, setExportResult] = useState("");
   const [securityResult, setSecurityResult] = useState("");
+  const [workerPasswordResult, setWorkerPasswordResult] = useState("");
+  const [workerPasswordInput, setWorkerPasswordInput] = useState("");
+  const [operatorHolidayDate, setOperatorHolidayDate] = useState("");
+  const [operatorHolidayNameChoice, setOperatorHolidayNameChoice] =
+    useState<string>(OPERATOR_HOLIDAY_NAMES[0]);
+  const [operatorHolidayCustomName, setOperatorHolidayCustomName] =
+    useState("");
   const [dbPath, setDbPath] = useState<string | null>(null);
   const importJsonInputRef = useRef<HTMLInputElement>(null);
 
   const load = async () => {
-    const h = await getAllHolidays();
+    const [h, oh] = await Promise.all([
+      getAllHolidays(),
+      getAllOperatorHolidays(),
+    ]);
     setFactoryHolidays(h);
+    setOperatorHolidays(oh as unknown as Record<string, unknown>[]);
   };
 
   useEffect(() => {
-    openDB()
-      .then(async () => {
-        if (!isLoggedIn() || checkExpiry()) {
-          router.replace("/login");
-          return;
-        }
-        await load();
-        if (isTauri()) {
-          const { getDbPath } = await import("@/lib/db/tauriDb");
-          getDbPath().then(setDbPath).catch(() => setDbPath(null));
-        }
-        setReady(true);
-      })
-      .catch(() => setReady(true));
-  }, [router]);
+    if (!guardReady) return;
+    load().then(async () => {
+      if (isTauri()) {
+        const { getDbPath } = await import("@/lib/db/tauriDb");
+        getDbPath().then(setDbPath).catch(() => setDbPath(null));
+      }
+      setDataLoaded(true);
+    });
+  }, [guardReady]);
 
   if (!ready) {
     return (
@@ -505,6 +537,214 @@ export default function SettingsPage() {
               <AlertDescription>{securityResult}</AlertDescription>
             </Alert>
           )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className={headingClass + " flex items-center gap-2"}>
+              <KeyRound className="size-5 text-primary" />
+              {t("settingsWorkerPasswordTitle")}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+          <p className={paraClassMuted}>
+            {t("settingsWorkerPasswordIntro")}
+          </p>
+          <div className="flex flex-wrap gap-3 items-end">
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="workerPassword">
+                {t("settingsWorkerPasswordLabel")}
+              </Label>
+              <Input
+                id="workerPassword"
+                type="password"
+                autoComplete="off"
+                value={workerPasswordInput}
+                onChange={(e) => setWorkerPasswordInput(e.target.value)}
+                className="w-56 min-h-[44px]"
+                placeholder={t("settingsWorkerPasswordPlaceholder")}
+              />
+            </div>
+            <Button
+              type="button"
+              className={btnPrimaryClass}
+              disabled={!workerPasswordInput.trim()}
+              onClick={async () => {
+                await setWorkerPassword(workerPasswordInput.trim());
+                setWorkerPasswordInput("");
+                setWorkerPasswordResult(t("settingsWorkerPasswordUpdated"));
+                toast.success(t("settingsWorkerPasswordUpdated"));
+              }}
+            >
+              {t("settingsWorkerPasswordButton")}
+            </Button>
+          </div>
+          {workerPasswordResult && (
+            <Alert className="mt-4">
+              <AlertDescription>{workerPasswordResult}</AlertDescription>
+            </Alert>
+          )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className={headingClass + " flex items-center gap-2"}>
+              <CalendarHeart className="size-5 text-primary" />
+              {t("settingsOperatorHolidaysTitle")}
+            </CardTitle>
+            <p className="text-sm text-muted-foreground mt-1">
+              {t("settingsOperatorHolidaysIntro")}
+            </p>
+          </CardHeader>
+          <CardContent>
+          <div className="overflow-x-auto mb-6">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t("settingsHolidayColDate")}</TableHead>
+                  <TableHead>{t("settingsOperatorHolidayColName")}</TableHead>
+                  <TableHead className="w-16" />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {[...operatorHolidays]
+                  .sort((a, b) =>
+                    (a.date as string).localeCompare(b.date as string)
+                  )
+                  .map((h) => (
+                    <TableRow key={h.id as string}>
+                      <TableCell className="tabular-nums">
+                        {h.date as string}
+                      </TableCell>
+                      <TableCell>{h.name as string}</TableCell>
+                      <TableCell>
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button
+                              type="button"
+                              variant="destructive"
+                              size="icon"
+                              title={t("settingsHolidayDeleteTitle")}
+                              aria-label={t("settingsHolidayDeleteAria", {
+                                date: String(h.date),
+                              })}
+                            >
+                              <Trash2 data-icon="inline-start" aria-hidden />
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>{t("settingsHolidayDeleteTitle")}</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                {t("settingsHolidayDeleteDesc", {
+                                  date: String(h.date),
+                                })}
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>{t("commonCancel")}</AlertDialogCancel>
+                              <AlertDialogAction
+                                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                onClick={async () => {
+                                  try {
+                                    await deleteOperatorHoliday(h.id as string);
+                                    await load();
+                                    toast.success(t("settingsHolidayDeleteSuccess"));
+                                  } catch {
+                                    toast.error(t("settingsHolidayDeleteFail"));
+                                  }
+                                }}
+                              >
+                                {t("commonDelete")}
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+              </TableBody>
+            </Table>
+          </div>
+          <form
+            className="flex flex-wrap gap-4 items-end"
+            onSubmit={async (e) => {
+              e.preventDefault();
+              if (!operatorHolidayDate.trim()) return;
+              const name =
+                operatorHolidayNameChoice === OPERATOR_HOLIDAY_OTHER
+                  ? operatorHolidayCustomName.trim()
+                  : operatorHolidayNameChoice;
+              if (!name) return;
+              try {
+                await saveOperatorHoliday({
+                  date: operatorHolidayDate.trim(),
+                  name,
+                });
+                setOperatorHolidayDate("");
+                setOperatorHolidayCustomName("");
+                setOperatorHolidayNameChoice(OPERATOR_HOLIDAY_NAMES[0]);
+                await load();
+                toast.success(t("settingsHolidayAddSuccess"));
+              } catch {
+                toast.error(t("settingsHolidayAddFail"));
+              }
+            }}
+          >
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="operator-holiday-name">
+                {t("settingsOperatorHolidayColName")}
+              </Label>
+              <Select
+                value={operatorHolidayNameChoice}
+                onValueChange={setOperatorHolidayNameChoice}
+              >
+                <SelectTrigger id="operator-holiday-name" className="w-56 min-h-[44px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {OPERATOR_HOLIDAY_NAMES.map((name) => (
+                    <SelectItem key={name} value={name}>
+                      {name}
+                    </SelectItem>
+                  ))}
+                  <SelectItem value={OPERATOR_HOLIDAY_OTHER}>
+                    {t("settingsOperatorHolidayOther")}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {operatorHolidayNameChoice === OPERATOR_HOLIDAY_OTHER && (
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="operator-holiday-custom-name">
+                  {t("settingsOperatorHolidayCustomNameLabel")}
+                </Label>
+                <Input
+                  id="operator-holiday-custom-name"
+                  type="text"
+                  value={operatorHolidayCustomName}
+                  onChange={(e) => setOperatorHolidayCustomName(e.target.value)}
+                  className="w-56 min-h-[44px]"
+                  required
+                />
+              </div>
+            )}
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="operator-holiday-date">{t("settingsHolidayAddLabel")}</Label>
+              <DatePicker
+                id="operator-holiday-date"
+                value={operatorHolidayDate}
+                onChange={setOperatorHolidayDate}
+                placeholder={t("settingsHolidayDatePlaceholder")}
+                className="w-48 min-h-[44px]"
+              />
+            </div>
+            <Button type="submit" className={btnPrimaryClass}>
+              {t("settingsHolidayAddButton")}
+            </Button>
+          </form>
           </CardContent>
         </Card>
 

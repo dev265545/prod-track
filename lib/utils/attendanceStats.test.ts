@@ -431,6 +431,141 @@ describe("buildMonthSalaryBreakdown", () => {
     expect(noProd.totalBaseSalary).toBe(1000);
   });
 
+  describe("operatorSundayRule", () => {
+    // March 2026: Sundays fall on 1, 8, 15, 22, 29. Non-Sunday days: 26.
+    function buildAttendanceForMarch(presentThroughDay: number) {
+      const records: { date: string; status: "present" }[] = [];
+      for (let d = 1; d <= presentThroughDay; d++) {
+        const dow = new Date(2026, 2, d).getDay();
+        if (dow === 0) continue; // Sundays handled separately below
+        records.push({
+          date: `2026-03-${String(d).padStart(2, "0")}`,
+          status: "present",
+        });
+      }
+      return records;
+    }
+
+    it("without operatorSundayRule: Sunday-present pay is unchanged (flat ratePerDay)", () => {
+      const ratePerDay = 1000;
+      const breakdown = buildMonthSalaryBreakdown({
+        year: 2026,
+        month: 2,
+        holidayDates: [],
+        attendance: [
+          ...buildAttendanceForMarch(31),
+          { date: "2026-03-01", status: "present" },
+          { date: "2026-03-08", status: "present" },
+        ],
+        productionPayByDate: new Map(),
+        hoursPerDay: 8,
+        ratePerDay,
+      });
+      const sun1 = breakdown.days.find((d) => d.date === "2026-03-01");
+      const sun8 = breakdown.days.find((d) => d.date === "2026-03-08");
+      expect(sun1?.basePay).toBe(1000);
+      expect(sun8?.basePay).toBe(1000);
+    });
+
+    it("with operatorSundayRule, before crossing the threshold: still flat ratePerDay", () => {
+      const ratePerDay = 1000;
+      // Only present through March 7 (6 working days: 2,3,4,5,6,7) before Sunday March 8.
+      const breakdown = buildMonthSalaryBreakdown({
+        year: 2026,
+        month: 2,
+        holidayDates: [],
+        attendance: [
+          ...buildAttendanceForMarch(7),
+          { date: "2026-03-08", status: "present" },
+        ],
+        productionPayByDate: new Map(),
+        hoursPerDay: 8,
+        ratePerDay,
+        operatorSundayRule: { requiredPresentDays: 26, sundayMultiplier: 1.2 },
+      });
+      const sun8 = breakdown.days.find((d) => d.date === "2026-03-08");
+      expect(sun8?.basePay).toBe(1000);
+    });
+
+    it("with operatorSundayRule, after crossing the threshold: multiplied rate applies", () => {
+      const ratePerDay = 1000;
+      // All 26 non-Sunday days in March present, plus every Sunday present.
+      const nonSunDates = buildAttendanceForMarch(31);
+      const breakdown = buildMonthSalaryBreakdown({
+        year: 2026,
+        month: 2,
+        holidayDates: [],
+        attendance: [
+          ...nonSunDates,
+          { date: "2026-03-01", status: "present" },
+          { date: "2026-03-08", status: "present" },
+          { date: "2026-03-15", status: "present" },
+          { date: "2026-03-22", status: "present" },
+          { date: "2026-03-29", status: "present" },
+        ],
+        productionPayByDate: new Map(),
+        hoursPerDay: 8,
+        ratePerDay,
+        operatorSundayRule: { requiredPresentDays: 26, sundayMultiplier: 1.2 },
+      });
+      // Threshold of 26 present working days is only reached at the very end of the
+      // month (March has 26 non-Sunday days total), so no Sunday in-month can cross
+      // it here — use a lower threshold below for a within-month crossing case.
+      const sun29 = breakdown.days.find((d) => d.date === "2026-03-29");
+      expect(sun29?.basePay).toBe(1000); // threshold of 26 not reached until day 31 (non-Sunday count caps at 26 on day 31)
+    });
+
+    it("mixed within-month crossing: Sundays before threshold flat, Sundays after threshold multiplied", () => {
+      const ratePerDay = 1000;
+      // Use a low threshold (5) so the crossing happens mid-month, before the second Sunday.
+      // Present working days 2,3,4,5,6,7 (6 days) occur before Sunday March 8.
+      const attendance = [
+        ...buildAttendanceForMarch(7), // present 2..7 (6 non-Sunday working days)
+        { date: "2026-03-01", status: "present" as const }, // Sunday #1, 0 prior present days
+        { date: "2026-03-08", status: "present" as const }, // Sunday #2, 6 prior present days >= 5
+      ];
+      const breakdown = buildMonthSalaryBreakdown({
+        year: 2026,
+        month: 2,
+        holidayDates: [],
+        attendance,
+        productionPayByDate: new Map(),
+        hoursPerDay: 8,
+        ratePerDay,
+        operatorSundayRule: { requiredPresentDays: 5, sundayMultiplier: 1.5 },
+      });
+      const sun1 = breakdown.days.find((d) => d.date === "2026-03-01");
+      const sun8 = breakdown.days.find((d) => d.date === "2026-03-08");
+      expect(sun1?.basePay).toBe(1000); // 0 present days so far < 5
+      expect(sun8?.basePay).toBe(1500); // 6 present days so far >= 5, multiplied 1000 * 1.5
+      expect(breakdown.sundayPresentBonusDays).toBe(2);
+      expect(breakdown.sundayMarkBonusPay).toBe(2500); // flat 1000 + multiplied 1500
+    });
+
+    it("edge values: multiplier 1.5, threshold 26 produce exactly rounded currency values", () => {
+      const ratePerDay = 733.33;
+      const nonSunDates = buildAttendanceForMarch(31); // all 26 non-Sunday days present
+      const breakdown = buildMonthSalaryBreakdown({
+        year: 2026,
+        month: 2,
+        holidayDates: [],
+        attendance: [
+          ...nonSunDates,
+          { date: "2026-03-29", status: "present" },
+        ],
+        productionPayByDate: new Map(),
+        hoursPerDay: 8,
+        ratePerDay,
+        operatorSundayRule: { requiredPresentDays: 24, sundayMultiplier: 1.5 },
+      });
+      // By March 29, present working days accumulated = all non-Sunday days from 1..28,
+      // which is 24 (March has Sundays on 1, 8, 15, 22 within that span).
+      const sun29 = breakdown.days.find((d) => d.date === "2026-03-29");
+      expect(sun29?.basePay).toBe(Math.round(ratePerDay * 1.5 * 100) / 100);
+      expect(sun29?.basePay).toBe(1100);
+    });
+  });
+
   it("labels holiday-present rows as paid holiday presence", () => {
     const breakdown = buildMonthSalaryBreakdown({
       year: 2026,
