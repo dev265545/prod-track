@@ -1,5 +1,6 @@
 import { getAll, put, remove, STORES } from "@/lib/db/adapter";
 import { getHolidaysInRange } from "@/lib/services/factoryHolidayService";
+import { getAdvancesByEmployee } from "@/lib/services/advanceService";
 import {
   clampPayrollDriverFieldsToPeriod,
   getMonthRange,
@@ -19,6 +20,8 @@ export interface SalarySheetOverrideValues {
   hoursExtraTotal?: number;
   hoursReducedTotal?: number;
   calculatedSalary?: number;
+  advanceDeduction?: number;
+  netCalculatedSalary?: number;
 }
 
 export interface SalarySheetOverrideRecord {
@@ -261,6 +264,23 @@ export async function saveSalarySheetOverride(
   }
   if (typeof sanitized.sundayPresentBonusDays === "number") {
     sanitized.sundayPresentBonusDays = cappedDrivers.sundayPresentBonusDays;
+  }
+  // advanceDeduction: clamp to >= 0. An upper bound of "total advances given in
+  // this period" would need `getAdvancesByEmployee`, which we fetch below —
+  // but only when an advanceDeduction override is actually present, to avoid
+  // an extra DB round trip on every save.
+  if (typeof sanitized.advanceDeduction === "number") {
+    const lowerClamped = Math.max(0, sanitized.advanceDeduction);
+    const advances = await getAdvancesByEmployee(
+      anchored.employeeId,
+      anchored.fromDate,
+      anchored.toDate,
+    );
+    const totalAdvancesInPeriod = advances.reduce(
+      (sum, a) => sum + ((a.amount as number) || 0),
+      0,
+    );
+    sanitized.advanceDeduction = Math.min(lowerClamped, totalAdvancesInPeriod);
   }
   const notes = anchored.notes?.trim() ?? "";
   const id = buildSalarySheetOverrideId(anchored);

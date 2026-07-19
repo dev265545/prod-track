@@ -13,7 +13,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { login } from "@/lib/auth";
+import { loginAs } from "@/lib/auth";
 import { useLanguage } from "@/components/language-provider";
 import { AppHeaderActions } from "@/components/app-header-actions";
 
@@ -37,8 +37,8 @@ export default function LoginPage() {
     setError("");
     setLoading(true);
     try {
-      const ok = await login(password.trim());
-      if (ok) {
+      const role = await loginAs(password.trim());
+      if (role !== null) {
         router.replace("/");
         return;
       }

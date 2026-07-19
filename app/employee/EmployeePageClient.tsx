@@ -33,8 +33,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { DatePicker } from "@/components/ui/date-picker";
-import { openDB } from "@/lib/db/adapter";
-import { isLoggedIn, checkExpiry } from "@/lib/auth";
+import { isAdmin } from "@/lib/auth";
+import { useAuthGuard } from "@/lib/hooks/useAuthGuard";
 import { getEmployee } from "@/lib/services/employeeService";
 import {
   getProductionsByEmployee,
@@ -204,7 +204,9 @@ export function EmployeePageClient() {
   const { locale, t } = useLanguage();
   /** Static export: real IDs are passed via ?id= (only /employee is pre-rendered). */
   const id = searchParams?.get("id") ?? "";
-  const [ready, setReady] = useState(false);
+  const { ready: guardReady } = useAuthGuard();
+  const [dataLoaded, setDataLoaded] = useState(false);
+  const ready = guardReady && dataLoaded;
   const [employee, setEmployee] = useState<Record<string, unknown> | null>(
     null,
   );
@@ -324,16 +326,9 @@ export function EmployeePageClient() {
       router.replace("/employees");
       return;
     }
-    openDB()
-      .then(() => {
-        if (!isLoggedIn() || checkExpiry()) {
-          router.replace("/login");
-          return;
-        }
-        load().then(() => setReady(true));
-      })
-      .catch(() => setReady(true));
-  }, [router, id, locale]);
+    if (!guardReady) return;
+    load().then(() => setDataLoaded(true));
+  }, [router, id, locale, guardReady]);
 
   useEffect(() => {
     if (!id || !from || !to) return;
@@ -617,6 +612,15 @@ export function EmployeePageClient() {
     );
   }
 
+  const employeeType = ((employee.employeeType as string) || "salaried") as
+    | "salaried"
+    | "production"
+    | "operator";
+  const isProductionEmp = employeeType === "production";
+  const isOperatorEmp = employeeType === "operator";
+  const admin = isAdmin();
+  const hideOperatorRates = isOperatorEmp && !admin;
+
   const itemMap = Object.fromEntries(
     items.map((i) => [i.id as string, i]),
   ) as Record<string, Record<string, unknown>>;
@@ -870,6 +874,7 @@ export function EmployeePageClient() {
             </Popover>
           )}
         </div>
+        {!isProductionEmp && (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5 xl:flex-1 xl:min-w-0 animate-fade-in animate-stagger-1">
           <Card className="p-5 sm:p-6">
             <CardHeader className="p-0 pb-2">
@@ -937,6 +942,7 @@ export function EmployeePageClient() {
               </Select>
             </CardContent>
           </Card>
+          {!hideOperatorRates && (
           <Card className="p-5 sm:p-6">
             <CardHeader className="p-0 pb-2">
               <div className="flex items-center gap-2">
@@ -968,6 +974,8 @@ export function EmployeePageClient() {
               />
             </CardContent>
           </Card>
+          )}
+          {!hideOperatorRates && (
           <Card className="p-5 sm:p-6">
             <CardHeader className="p-0 pb-2">
               <div className="flex items-center gap-2">
@@ -990,6 +998,8 @@ export function EmployeePageClient() {
               </p>
             </CardContent>
           </Card>
+          )}
+          {!hideOperatorRates && (
           <Card className="p-5 sm:p-6">
             <CardHeader className="p-0 pb-2">
               <div className="flex items-center gap-2">
@@ -1008,7 +1018,75 @@ export function EmployeePageClient() {
               </p>
             </CardContent>
           </Card>
+          )}
         </div>
+        )}
+
+        {isOperatorEmp && admin && (
+          <Card className="p-5 sm:p-6 animate-fade-in animate-stagger-1">
+            <CardHeader className="p-0 pb-2">
+              <CardTitle className="text-base font-semibold font-heading">
+                {t("empOperatorSettingsTitle")}
+              </CardTitle>
+              <p className="text-sm text-muted-foreground">
+                {t("empOperatorSettingsDesc")}
+              </p>
+            </CardHeader>
+            <CardContent className="p-0 pt-2">
+              <div className="flex flex-wrap gap-4">
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor="emp-required-present-days">
+                    {t("empRequiredPresentDays")}
+                  </Label>
+                  <Input
+                    id="emp-required-present-days"
+                    type="number"
+                    min={1}
+                    value={(employee.requiredPresentDays as number) ?? 26}
+                    onChange={(e) => {
+                      const v = parseInt(e.target.value, 10) || 26;
+                      setEmployee({ ...employee, requiredPresentDays: v });
+                    }}
+                    onBlur={async (e) => {
+                      const v =
+                        parseInt((e.target as HTMLInputElement).value, 10) ||
+                        26;
+                      const updated = { ...employee, requiredPresentDays: v };
+                      await saveEmployee(updated);
+                      setEmployee(updated);
+                    }}
+                    className="w-40 min-h-10"
+                  />
+                </div>
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor="emp-sunday-multiplier">
+                    {t("empSundayMultiplier")}
+                  </Label>
+                  <Input
+                    id="emp-sunday-multiplier"
+                    type="number"
+                    min={1}
+                    step={0.1}
+                    value={(employee.sundayMultiplier as number) ?? 1.2}
+                    onChange={(e) => {
+                      const v = parseFloat(e.target.value) || 1.2;
+                      setEmployee({ ...employee, sundayMultiplier: v });
+                    }}
+                    onBlur={async (e) => {
+                      const v =
+                        parseFloat((e.target as HTMLInputElement).value) ||
+                        1.2;
+                      const updated = { ...employee, sundayMultiplier: v };
+                      await saveEmployee(updated);
+                      setEmployee(updated);
+                    }}
+                    className="w-40 min-h-10"
+                  />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         <div className="flex flex-col xl:flex-row gap-4 xl:items-stretch animate-fade-in animate-stagger-2">
           <div className="xl:shrink-0 xl:min-w-[350px] xl:w-[350px]">
@@ -1118,6 +1196,7 @@ export function EmployeePageClient() {
                       {totalPaidDays}
                     </p>
                   </div>
+                  {!hideOperatorRates && (
                   <div className="col-span-2 rounded-lg border-2 border-primary/30 bg-primary/10 px-2 py-2">
                     <p className="text-muted-foreground text-[10px] font-medium">
                       {t("salarySheetColSalary")}
@@ -1126,6 +1205,7 @@ export function EmployeePageClient() {
                       {currency(calculatedSalary)}
                     </p>
                   </div>
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -1146,9 +1226,11 @@ export function EmployeePageClient() {
                   <p className="text-xl font-bold tabular-nums leading-tight">
                     {number(periodHours)}h
                   </p>
+                  {!hideOperatorRates && (
                   <p className="text-xs text-muted-foreground">
                     {currency(periodHours * ratePerHour)}
                   </p>
+                  )}
                 </CardContent>
               </Card>
               <Card className="p-3">
@@ -1167,9 +1249,11 @@ export function EmployeePageClient() {
                   <p className="text-xl font-bold tabular-nums leading-tight">
                     {number(periodProdQty)}
                   </p>
+                  {!hideOperatorRates && (
                   <p className="text-xs text-muted-foreground">
                     {currency(periodProdValue)}
                   </p>
+                  )}
                 </CardContent>
               </Card>
               <Card className="p-3">
@@ -1186,9 +1270,11 @@ export function EmployeePageClient() {
                   <p className="text-xl font-bold tabular-nums leading-tight">
                     {number(monthHours)}h
                   </p>
+                  {!hideOperatorRates && (
                   <p className="text-xs text-muted-foreground">
                     {currency(monthHours * ratePerHour)}
                   </p>
+                  )}
                 </CardContent>
               </Card>
               <Card className="p-3">
@@ -1205,9 +1291,11 @@ export function EmployeePageClient() {
                   <p className="text-xl font-bold tabular-nums leading-tight">
                     {number(monthProdQty)}
                   </p>
+                  {!hideOperatorRates && (
                   <p className="text-xs text-muted-foreground">
                     {currency(monthProdValue)}
                   </p>
+                  )}
                 </CardContent>
               </Card>
             </div>
@@ -1481,11 +1569,13 @@ export function EmployeePageClient() {
                             />
                           </div>
                         </div>
+                        {!hideOperatorRates && (
                         <p className="text-xs text-muted-foreground">
                           {t("empRatePerHourLine", {
                             rate: currency(ratePerHour),
                           })}
                         </p>
+                        )}
                         {(() => {
                           const rec = calendarAttendance.find(
                             (a) => (a.date as string) === selectedDate,
@@ -1586,9 +1676,11 @@ export function EmployeePageClient() {
                   <p className="text-xl font-bold tabular-nums leading-tight">
                     {number(dayHours)}h
                   </p>
+                  {!hideOperatorRates && (
                   <p className="text-xs text-muted-foreground">
                     {currency(dayHours * ratePerHour)}
                   </p>
+                  )}
                 </CardContent>
               </Card>
               <Card className="p-3">
@@ -1605,15 +1697,19 @@ export function EmployeePageClient() {
                   <p className="text-xl font-bold tabular-nums leading-tight">
                     {number(dayProdQty)}
                   </p>
+                  {!hideOperatorRates && (
                   <p className="text-xs text-muted-foreground">
                     {currency(dayProdValue)}
                   </p>
+                  )}
                 </CardContent>
               </Card>
             </div>
           </div>
         </div>
 
+        {!isProductionEmp && (
+        <>
         <Card className="p-6 sm:p-8 transition-all duration-300 ease-out animate-fade-in animate-stagger-3">
           <CardHeader className="p-0 mb-4 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div>
@@ -1836,6 +1932,7 @@ export function EmployeePageClient() {
                   {number(effectiveSalaryRangeSummary.earnedSundayPayDays)} / {number(effectiveSalaryRangeSummary.sundayPresentBonusDays)}
                 </p>
               </div>
+              {!hideOperatorRates && (
               <div className="rounded-xl border-2 border-primary/25 bg-primary/10 p-4">
                 <p className="text-xs font-medium text-muted-foreground">
                   {t("empSalaryContribution")}
@@ -1851,10 +1948,14 @@ export function EmployeePageClient() {
                   })}
                 </p>
               </div>
+              )}
             </div>
           </CardContent>
         </Card>
+        </>
+        )}
 
+        {isProductionEmp && (
         <Card className="p-6 sm:p-8 transition-all duration-300 ease-out animate-fade-in animate-stagger-4">
           <CardHeader className="p-0 mb-5">
             <CardTitle className="text-xl font-semibold font-heading">
@@ -1927,6 +2028,7 @@ export function EmployeePageClient() {
             )}
           </CardContent>
         </Card>
+        )}
 
         <Card className="p-6 sm:p-8 transition-all duration-300 ease-out animate-fade-in animate-stagger-5">
           <CardHeader className="p-0 mb-4">
@@ -2037,7 +2139,7 @@ export function EmployeePageClient() {
           </CardContent>
         </Card>
 
-        {storedSalaryRecords.length > 0 && (
+        {admin && storedSalaryRecords.length > 0 && (
           <Card className="p-6 sm:p-8">
             <CardHeader className="p-0 mb-4">
               <CardTitle className="text-xl font-semibold font-heading">
@@ -2084,6 +2186,7 @@ export function EmployeePageClient() {
           </Card>
         )}
 
+        {isProductionEmp && (
         <Card className="p-6 sm:p-8">
           <CardHeader className="p-0 mb-5">
             <CardTitle className="text-xl font-semibold font-heading">
@@ -2196,6 +2299,7 @@ export function EmployeePageClient() {
             </form>
           </CardContent>
         </Card>
+        )}
 
         <Card className="p-6 sm:p-8">
           <CardHeader className="p-0 mb-5">
@@ -2267,6 +2371,7 @@ export function EmployeePageClient() {
           </CardContent>
         </Card>
 
+        {isProductionEmp && (
         <Dialog open={productionsModalOpen} onOpenChange={setProductionsModalOpen}>
           <DialogTrigger asChild>
             <Card className="p-6 sm:p-8 cursor-pointer transition-all duration-200 ease-out hover:ring-2 hover:ring-primary/20 focus-within:ring-2 focus-within:ring-primary/20 focus:outline-none">
@@ -2411,6 +2516,7 @@ export function EmployeePageClient() {
             </div>
           </DialogContent>
         </Dialog>
+        )}
 
         <Dialog open={advancesModalOpen} onOpenChange={setAdvancesModalOpen}>
           <DialogTrigger asChild>

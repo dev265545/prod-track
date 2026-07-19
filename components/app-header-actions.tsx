@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
 import { LogOut, Moon, Sun } from "lucide-react";
 import { useLanguage } from "@/components/language-provider";
-import { logout } from "@/lib/auth";
+import { logout, getCurrentRole, type AppRole } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
@@ -18,8 +18,12 @@ export function AppHeaderActions({ showLogout = true }: { showLogout?: boolean }
   const { theme, setTheme } = useTheme();
   const { locale, toggleLocale, t, mounted: langMounted } = useLanguage();
   const [mounted, setMounted] = React.useState(false);
+  const [role, setRole] = React.useState<AppRole | null>(null);
 
-  React.useEffect(() => setMounted(true), []);
+  React.useEffect(() => {
+    setMounted(true);
+    setRole(getCurrentRole());
+  }, []);
 
   const handleLogout = () => {
     logout();
@@ -41,7 +45,19 @@ export function AppHeaderActions({ showLogout = true }: { showLogout?: boolean }
         : t("languageUseEnglish");
 
   return (
-    <div className="flex items-center gap-0.5">
+    <div className="flex items-center gap-1.5">
+      {mounted && role ? (
+        <span
+          className={
+            "rounded-full px-2.5 py-1 text-xs font-semibold leading-none " +
+            (role === "admin"
+              ? "bg-primary/15 text-primary"
+              : "bg-muted text-muted-foreground")
+          }
+        >
+          {role === "admin" ? t("roleBadgeAdmin") : t("roleBadgeWorker")}
+        </span>
+      ) : null}
       <Tooltip>
         <TooltipTrigger asChild>
           <Button

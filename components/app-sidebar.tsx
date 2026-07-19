@@ -11,6 +11,7 @@ import {
   FileSpreadsheet,
   UsersRound,
   SlidersHorizontal,
+  Cog,
 } from "lucide-react";
 import {
   SidebarContent,
@@ -22,29 +23,40 @@ import {
   SidebarTrigger,
 } from "@/components/ui/sidebar";
 import { useLanguage } from "@/components/language-provider";
+import { isAdmin } from "@/lib/auth";
 import type { MessageKey } from "@/lib/i18n/messages";
 
 const navLinks = [
   { href: "/", icon: LayoutGrid, labelKey: "navDashboard" as const },
   { href: "/items", icon: Boxes, labelKey: "navItems" as const },
   { href: "/shifts", icon: Clock, labelKey: "navShifts" as const },
+  { href: "/machine", icon: Cog, labelKey: "navMachine" as const },
   { href: "/reports", icon: FileBarChart, labelKey: "navReports" as const },
   {
     href: "/salary-sheet",
     icon: FileSpreadsheet,
     labelKey: "navSalarySheet" as const,
+    adminOnly: true,
   },
   { href: "/employees", icon: UsersRound, labelKey: "navEmployees" as const },
   {
     href: "/settings",
     icon: SlidersHorizontal,
     labelKey: "navSettings" as const,
+    adminOnly: true,
   },
-] satisfies { href: string; icon: typeof LayoutGrid; labelKey: MessageKey }[];
+] satisfies {
+  href: string;
+  icon: typeof LayoutGrid;
+  labelKey: MessageKey;
+  adminOnly?: boolean;
+}[];
 
 export function AppSidebar() {
   const pathname = usePathname();
   const { t } = useLanguage();
+  const admin = isAdmin();
+  const visibleLinks = navLinks.filter((link) => !link.adminOnly || admin);
 
   return (
     <>
@@ -66,7 +78,7 @@ export function AppSidebar() {
       <SidebarContent>
         <SidebarGroup className="group-data-[collapsible=icon]:px-1.5">
           <SidebarMenu>
-            {navLinks.map(({ href, icon: Icon, labelKey }) => {
+            {visibleLinks.map(({ href, icon: Icon, labelKey }) => {
               const label = t(labelKey);
               return (
                 <SidebarMenuItem key={href}>

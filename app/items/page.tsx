@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import {
   Card,
@@ -22,8 +21,7 @@ import {
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Package, Trash2 } from "lucide-react";
-import { openDB } from "@/lib/db/adapter";
-import { isLoggedIn, checkExpiry } from "@/lib/auth";
+import { useAuthGuard } from "@/lib/hooks/useAuthGuard";
 import { getItems, saveItem, deleteItem } from "@/lib/services/itemService";
 import { toast } from "sonner";
 import {
@@ -41,12 +39,14 @@ import { AppLoadingScreen } from "@/components/app-loading-screen";
 import { useLanguage } from "@/components/language-provider";
 
 export default function ItemsPage() {
-  const router = useRouter();
+  const { ready: guardReady } = useAuthGuard();
   const { t } = useLanguage();
-  const [ready, setReady] = useState(false);
+  const [dataLoaded, setDataLoaded] = useState(false);
+  const ready = guardReady && dataLoaded;
   const [items, setItems] = useState<Record<string, unknown>[]>([]);
   const [itemName, setItemName] = useState("");
   const [itemRate, setItemRate] = useState(0);
+  const [itemStock, setItemStock] = useState(0);
 
   const load = async () => {
     const list = await getItems();
@@ -54,17 +54,9 @@ export default function ItemsPage() {
   };
 
   useEffect(() => {
-    openDB()
-      .then(async () => {
-        if (!isLoggedIn() || checkExpiry()) {
-          router.replace("/login");
-          return;
-        }
-        await load();
-        setReady(true);
-      })
-      .catch(() => setReady(true));
-  }, [router]);
+    if (!guardReady) return;
+    load().then(() => setDataLoaded(true));
+  }, [guardReady]);
 
   if (!ready) {
     return (
@@ -108,13 +100,16 @@ export default function ItemsPage() {
                     <TableHead className="text-right tabular-nums">
                       {t("itemsColPrice")}
                     </TableHead>
+                    <TableHead className="text-right tabular-nums">
+                      {t("itemsColStock")}
+                    </TableHead>
                     <TableHead className="w-16" />
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {items.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={3} className="h-24 text-center">
+                      <TableCell colSpan={4} className="h-24 text-center">
                         <div className="flex flex-col items-center gap-2 py-4">
                           <Skeleton className="h-4 w-48 rounded-md" />
                           <span className="text-sm text-muted-foreground">
@@ -134,6 +129,34 @@ export default function ItemsPage() {
                         </TableCell>
                         <TableCell className="text-right tabular-nums">
                           {i.rate as number}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          <Input
+                            type="number"
+                            min={0}
+                            step={1}
+                            value={(i.stock as number) ?? 0}
+                            aria-label={t("itemsFormStockLabel")}
+                            onChange={(e) => {
+                              const v = parseFloat(e.target.value) || 0;
+                              setItems((prev) =>
+                                prev.map((it) =>
+                                  it.id === i.id ? { ...it, stock: v } : it,
+                                ),
+                              );
+                            }}
+                            onBlur={async (e) => {
+                              const v = parseFloat(e.target.value) || 0;
+                              try {
+                                await saveItem({ ...i, stock: v });
+                                toast.success(t("itemsStockUpdateSuccess"));
+                              } catch {
+                                toast.error(t("itemsStockUpdateFail"));
+                                await load();
+                              }
+                            }}
+                            className="w-24 min-h-[36px] text-right ml-auto"
+                          />
                         </TableCell>
                         <TableCell>
                           <AlertDialog>
@@ -198,9 +221,11 @@ export default function ItemsPage() {
                   await saveItem({
                     name: itemName.trim(),
                     rate: itemRate,
+                    stock: itemStock,
                   });
                   setItemName("");
                   setItemRate(0);
+                  setItemStock(0);
                   await load();
                   toast.success(t("itemsAddSuccess"));
                 } catch {
@@ -230,6 +255,20 @@ export default function ItemsPage() {
                   value={itemRate}
                   onChange={(e) =>
                     setItemRate(parseFloat(e.target.value) || 0)
+                  }
+                  className="w-28 min-h-[44px]"
+                />
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="itemStock">{t("itemsFormStockLabel")}</Label>
+                <Input
+                  id="itemStock"
+                  type="number"
+                  min={0}
+                  step={1}
+                  value={itemStock}
+                  onChange={(e) =>
+                    setItemStock(parseFloat(e.target.value) || 0)
                   }
                   className="w-28 min-h-[44px]"
                 />

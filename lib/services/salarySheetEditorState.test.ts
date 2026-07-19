@@ -11,6 +11,7 @@ function buildRow(): SalarySheetRow {
   return {
     id: "emp_1",
     name: "Asha",
+    employeeType: "salaried",
     presentDays: 12,
     absentDays: 14,
     holidayPresentDays: 1,
@@ -24,6 +25,8 @@ function buildRow(): SalarySheetRow {
     hoursReducedTotal: 0,
     baseCalculatedSalary: 3600,
     calculatedSalary: 3600,
+    advanceDeduction: 0,
+    netCalculatedSalary: 3600,
     hasOverrides: false,
     overrideNotes: "",
     overrideUpdatedAt: "",
@@ -38,6 +41,8 @@ function buildRow(): SalarySheetRow {
       hoursExtraTotal: 0,
       hoursReducedTotal: 0,
       calculatedSalary: 3600,
+      advanceDeduction: 0,
+      netCalculatedSalary: 3600,
     },
   };
 }

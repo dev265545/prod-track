@@ -21,6 +21,8 @@ function normalizeAppRow(row: Record<string, unknown> | null): AppDbRecord | nul
     onboardingComplete: !!row.onboardingComplete,
     passwordHash:
       typeof row.passwordHash === "string" ? row.passwordHash : null,
+    workerPasswordHash:
+      typeof row.workerPasswordHash === "string" ? row.workerPasswordHash : null,
   };
 }
 

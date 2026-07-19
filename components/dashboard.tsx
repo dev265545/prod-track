@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { AppShell } from "@/components/app-shell";
 import { Spinner } from "@/components/ui/spinner";
 import { Input } from "@/components/ui/input";
@@ -74,6 +75,7 @@ import {
   LayoutGrid,
   Receipt,
   AlertTriangle,
+  UserCog,
 } from "lucide-react";
 import {
   Dialog,
@@ -425,6 +427,54 @@ export function Dashboard() {
                 </Dialog>
               );
             })()}
+            {(() => {
+              const unconfirmed = employees.filter(
+                (e) => e.employeeTypeConfirmed !== true,
+              );
+              if (unconfirmed.length === 0) return null;
+              return (
+                <Dialog>
+                  <DialogTrigger asChild>
+                    <button
+                      type="button"
+                      className="relative flex items-center justify-center rounded-lg p-2 text-primary hover:bg-primary/10 focus:outline-none focus:ring-2 focus:ring-primary/30 transition-colors"
+                      aria-label={t("dashboardUnconfirmedTypesAria", {
+                        count: unconfirmed.length,
+                      })}
+                    >
+                      <UserCog className="size-5" />
+                      <span className="absolute -top-0.5 -right-0.5 flex size-4 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground animate-pulse">
+                        {unconfirmed.length > 9 ? "9+" : unconfirmed.length}
+                      </span>
+                    </button>
+                  </DialogTrigger>
+                  <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                      <DialogTitle>
+                        {t("dashboardUnconfirmedTypesTitle")}
+                      </DialogTitle>
+                      <p className="text-sm text-muted-foreground">
+                        {t("dashboardUnconfirmedTypesIntro", {
+                          count: unconfirmed.length,
+                        })}
+                      </p>
+                    </DialogHeader>
+                    <ul className="flex flex-col gap-2 text-sm max-h-60 overflow-y-auto">
+                      {unconfirmed.map((e) => (
+                        <li key={e.id as string}>
+                          <Link
+                            href={`/employee?id=${encodeURIComponent(String(e.id))}`}
+                            className="text-primary underline underline-offset-2 hover:no-underline"
+                          >
+                            {e.name as string}
+                          </Link>
+                        </li>
+                      ))}
+                    </ul>
+                  </DialogContent>
+                </Dialog>
+              );
+            })()}
           </div>
           <div className="flex flex-col gap-2">
             <Label
@@ -659,11 +709,13 @@ export function Dashboard() {
                   <SelectValue placeholder={t("selectPlaceholder")} />
                 </SelectTrigger>
                 <SelectContent>
-                  {employees.map((e) => (
-                    <SelectItem key={e.id as string} value={e.id as string}>
-                      {e.name as string}
-                    </SelectItem>
-                  ))}
+                  {employees
+                    .filter((e) => e.employeeType === "production")
+                    .map((e) => (
+                      <SelectItem key={e.id as string} value={e.id as string}>
+                        {e.name as string}
+                      </SelectItem>
+                    ))}
                 </SelectContent>
               </Select>
             </div>

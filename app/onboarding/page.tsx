@@ -241,7 +241,7 @@ export default function OnboardingPage() {
     try {
       await setAppPassword(p);
       setFirstRunComplete();
-      startSession();
+      startSession("admin");
       router.replace("/");
     } catch (err) {
       setPasswordError((err as Error).message);

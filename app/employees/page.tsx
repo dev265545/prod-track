@@ -28,8 +28,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
-import { openDB } from "@/lib/db/adapter";
-import { isLoggedIn, checkExpiry } from "@/lib/auth";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { isAdmin } from "@/lib/auth";
+import { useAuthGuard } from "@/lib/hooks/useAuthGuard";
 import {
   getEmployees,
   saveEmployee,
@@ -61,14 +68,20 @@ const HEADING_CLASS =
 export default function EmployeesPage() {
   const router = useRouter();
   const { t } = useLanguage();
-  const [ready, setReady] = useState(false);
+  const { ready: guardReady } = useAuthGuard();
+  const [dataLoaded, setDataLoaded] = useState(false);
+  const ready = guardReady && dataLoaded;
   const [employees, setEmployees] = useState<Record<string, unknown>[]>([]);
   const [shifts, setShifts] = useState<Record<string, unknown>[]>([]);
   const [sundayCategories, setSundayCategories] = useState<SundayCategory[]>(
     [],
   );
   const [employeeName, setEmployeeName] = useState("");
+  const [employeeType, setEmployeeType] = useState<
+    "salaried" | "production" | "operator"
+  >("salaried");
   const [submitting, setSubmitting] = useState(false);
+  const admin = isAdmin();
 
   const load = async () => {
     const [list, shiftList, sundayCategoryList] = await Promise.all([
@@ -82,17 +95,9 @@ export default function EmployeesPage() {
   };
 
   useEffect(() => {
-    openDB()
-      .then(async () => {
-        if (!isLoggedIn() || checkExpiry()) {
-          router.replace("/login");
-          return;
-        }
-        await load();
-        setReady(true);
-      })
-      .catch(() => setReady(true));
-  }, [router]);
+    if (!guardReady) return;
+    load().then(() => setDataLoaded(true));
+  }, [guardReady]);
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -103,12 +108,15 @@ export default function EmployeesPage() {
         await saveEmployee({
           name: employeeName.trim(),
           isActive: true,
+          employeeType,
+          employeeTypeConfirmed: true,
         });
       } catch {
         toast.error(t("employeesAddFail"));
         return;
       }
       setEmployeeName("");
+      setEmployeeType("salaried");
       await load();
       toast.success(t("employeesAddSuccess"));
     } finally {
@@ -161,6 +169,7 @@ export default function EmployeesPage() {
                 <TableHeader>
                   <TableRow>
                     <TableHead scope="col">{t("employeesColName")}</TableHead>
+                    <TableHead scope="col">{t("employeesColType")}</TableHead>
                     <TableHead scope="col">{t("employeesColShift")}</TableHead>
                     <TableHead scope="col">{t("employeesColSundayCat")}</TableHead>
                     <TableHead scope="col">{t("employeesColStatus")}</TableHead>
@@ -195,6 +204,40 @@ export default function EmployeesPage() {
                     >
                       <TableCell className="font-medium">
                         {e.name as string}
+                      </TableCell>
+                      <TableCell
+                        className="text-muted-foreground"
+                        onClick={(ev) => ev.stopPropagation()}
+                        onKeyDown={(ev) => ev.stopPropagation()}
+                      >
+                        <Select
+                          value={(e.employeeType as string) ?? "salaried"}
+                          onValueChange={async (v) => {
+                            await saveEmployee({
+                              ...e,
+                              employeeType: v,
+                              employeeTypeConfirmed: true,
+                            });
+                            await load();
+                          }}
+                        >
+                          <SelectTrigger className="w-36 min-h-9">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="salaried">
+                              {t("employeeTypeSalaried")}
+                            </SelectItem>
+                            <SelectItem value="production">
+                              {t("employeeTypeProduction")}
+                            </SelectItem>
+                            {(admin || e.employeeType === "operator") && (
+                              <SelectItem value="operator">
+                                {t("employeeTypeOperator")}
+                              </SelectItem>
+                            )}
+                          </SelectContent>
+                        </Select>
                       </TableCell>
                       <TableCell className="text-muted-foreground">
                         {(e.shiftId as string)
@@ -294,6 +337,32 @@ export default function EmployeesPage() {
                 disabled={submitting}
                 autoComplete="off"
               />
+            </div>
+            <div className="flex flex-col gap-2 min-w-0 sm:min-w-[180px]">
+              <Label htmlFor="employee-type">{t("employeesColType")}</Label>
+              <Select
+                value={employeeType}
+                onValueChange={(v) =>
+                  setEmployeeType(v as "salaried" | "production" | "operator")
+                }
+              >
+                <SelectTrigger id="employee-type" className="min-h-[44px] w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="salaried">
+                    {t("employeeTypeSalaried")}
+                  </SelectItem>
+                  <SelectItem value="production">
+                    {t("employeeTypeProduction")}
+                  </SelectItem>
+                  {admin && (
+                    <SelectItem value="operator">
+                      {t("employeeTypeOperator")}
+                    </SelectItem>
+                  )}
+                </SelectContent>
+              </Select>
             </div>
             <Button type="submit" className="min-h-[44px] px-6 py-3 text-base" disabled={submitting}>
               {submitting ? (

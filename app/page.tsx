@@ -1,32 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import { openDB } from "@/lib/db/adapter";
-import { isLoggedIn, checkExpiry } from "@/lib/auth";
+import { useLanguage } from "@/components/language-provider";
 import { Dashboard } from "@/components/dashboard";
 import { Spinner } from "@/components/ui/spinner";
-import { useLanguage } from "@/components/language-provider";
+import { useAuthGuard } from "@/lib/hooks/useAuthGuard";
 
 export default function Home() {
-  const router = useRouter();
   const { t } = useLanguage();
-  const [ready, setReady] = useState(false);
-
-  useEffect(() => {
-    openDB()
-      .then(() => {
-        if (!isLoggedIn() || checkExpiry()) {
-          router.replace("/login");
-          return;
-        }
-        setReady(true);
-      })
-      .catch((e) => {
-        console.error(e);
-        setReady(true);
-      });
-  }, [router]);
+  const { ready } = useAuthGuard();
 
   if (!ready) {
     return (

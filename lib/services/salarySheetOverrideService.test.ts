@@ -6,11 +6,13 @@ const {
   mockRemove,
   mockGetAll,
   mockGetHolidaysInRange,
+  mockGetAdvancesByEmployee,
 } = vi.hoisted(() => ({
   mockPut: vi.fn(),
   mockRemove: vi.fn(),
   mockGetAll: vi.fn(),
   mockGetHolidaysInRange: vi.fn(),
+  mockGetAdvancesByEmployee: vi.fn(),
 }));
 
 vi.mock("@/lib/db/adapter", () => ({
@@ -22,6 +24,10 @@ vi.mock("@/lib/db/adapter", () => ({
 
 vi.mock("@/lib/services/factoryHolidayService", () => ({
   getHolidaysInRange: mockGetHolidaysInRange,
+}));
+
+vi.mock("@/lib/services/advanceService", () => ({
+  getAdvancesByEmployee: mockGetAdvancesByEmployee,
 }));
 
 import {
@@ -37,6 +43,8 @@ describe("saveSalarySheetOverride", () => {
     mockGetAll.mockReset();
     mockGetHolidaysInRange.mockReset();
     mockGetHolidaysInRange.mockResolvedValue([]);
+    mockGetAdvancesByEmployee.mockReset();
+    mockGetAdvancesByEmployee.mockResolvedValue([]);
   });
 
   it("clamps present days to Mon–Sat workdays in the period", async () => {
@@ -97,6 +105,45 @@ describe("saveSalarySheetOverride", () => {
       overrides: { presentDays: number };
     };
     expect(saved.overrides.presentDays).toBe(10);
+  });
+
+  it("clamps a negative advanceDeduction override to zero", async () => {
+    mockGetAdvancesByEmployee.mockResolvedValue([
+      { amount: 500, date: "2026-03-05" },
+    ]);
+    await saveSalarySheetOverride({
+      employeeId: "e1",
+      year: 2026,
+      month: 2,
+      fromDate: "2026-03-01",
+      toDate: "2026-03-15",
+      notes: "note",
+      overrides: { advanceDeduction: -200 },
+    });
+    const saved = mockPut.mock.calls[0][1] as {
+      overrides: { advanceDeduction: number };
+    };
+    expect(saved.overrides.advanceDeduction).toBe(0);
+  });
+
+  it("clamps an advanceDeduction override to the total advances given in the period", async () => {
+    mockGetAdvancesByEmployee.mockResolvedValue([
+      { amount: 200, date: "2026-03-02" },
+      { amount: 100, date: "2026-03-10" },
+    ]);
+    await saveSalarySheetOverride({
+      employeeId: "e1",
+      year: 2026,
+      month: 2,
+      fromDate: "2026-03-01",
+      toDate: "2026-03-15",
+      notes: "note",
+      overrides: { advanceDeduction: 900 },
+    });
+    const saved = mockPut.mock.calls[0][1] as {
+      overrides: { advanceDeduction: number };
+    };
+    expect(saved.overrides.advanceDeduction).toBe(300);
   });
 });
 
