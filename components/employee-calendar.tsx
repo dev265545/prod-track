@@ -227,7 +227,7 @@ export function EmployeeCalendar({
               <div className="mt-0.5 flex gap-0.5">
                 {hasProd && (
                   <span
-                    className="size-1.5 rounded-full bg-[hsl(var(--success))]"
+                    className="size-1.5 rounded-full bg-success"
                     title={t("calTitleProductionEntry")}
                     aria-hidden
                   />
@@ -248,7 +248,7 @@ export function EmployeeCalendar({
                 )}
                 {hasExtra && (
                   <span
-                    className="size-1.5 rounded-full bg-blue-500"
+                    className="size-1.5 rounded-full bg-chart-2"
                     title={t("calTitleExtraHours", {
                       h: hoursAdjust?.extra ?? 0,
                     })}
@@ -257,7 +257,7 @@ export function EmployeeCalendar({
                 )}
                 {hasReduced && (
                   <span
-                    className="size-1.5 rounded-full bg-amber-500"
+                    className="size-1.5 rounded-full bg-warning"
                     title={t("calTitleReducedHours", {
                       h: hoursAdjust?.reduced ?? 0,
                     })}
@@ -279,7 +279,7 @@ export function EmployeeCalendar({
 
       <div className="mt-auto flex flex-wrap gap-3 pt-3 text-[10px] text-muted-foreground">
         <div className="flex items-center gap-1.5">
-          <span className="size-2 rounded-full bg-[hsl(var(--success))]" />{" "}
+          <span className="size-2 rounded-full bg-success" />{" "}
           {t("empLegendProduction")}
         </div>
         <div className="flex items-center gap-1.5">
@@ -291,11 +291,11 @@ export function EmployeeCalendar({
           {t("empLegendAbsent")}
         </div>
         <div className="flex items-center gap-1.5">
-          <span className="size-2 rounded-full bg-blue-500" />{" "}
+          <span className="size-2 rounded-full bg-chart-2" />{" "}
           {t("empLegendExtraH")}
         </div>
         <div className="flex items-center gap-1.5">
-          <span className="size-2 rounded-full bg-amber-500" />{" "}
+          <span className="size-2 rounded-full bg-warning" />{" "}
           {t("empLegendLessH")}
         </div>
         <div className="flex items-center gap-1.5">

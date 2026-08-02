@@ -9,6 +9,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { NumberInput } from "@/components/ui/number-input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import {
@@ -286,7 +287,7 @@ export default function MachinePage() {
                               <AlertDialogFooter>
                                 <AlertDialogCancel>{t("commonCancel")}</AlertDialogCancel>
                                 <AlertDialogAction
-                                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                  variant="destructive"
                                   onClick={async () => {
                                     try {
                                       await deleteMachine(m.id);
@@ -346,32 +347,44 @@ export default function MachinePage() {
                 <Label htmlFor="machineCavities">
                   {t("machineFormCavitiesLabel")}
                 </Label>
-                <Input
+                <NumberInput
                   id="machineCavities"
-                  type="number"
                   min={1}
                   value={machineCavities}
                   onChange={(e) =>
                     setMachineCavities(parseInt(e.target.value, 10) || 1)
                   }
                   className="w-32 min-h-[44px]"
+                  aria-describedby="machineCavitiesHelp"
                 />
+                <p
+                  id="machineCavitiesHelp"
+                  className="max-w-56 text-xs text-muted-foreground"
+                >
+                  {t("plainMachineCavitiesHelp")}
+                </p>
               </div>
               <div className="flex flex-col gap-2">
                 <Label htmlFor="machineCycleTime">
                   {t("machineFormCycleTimeLabel")}
                 </Label>
-                <Input
+                <NumberInput
                   id="machineCycleTime"
-                  type="number"
+                  decimal
                   min={0.1}
-                  step={0.1}
                   value={machineCycleTime}
                   onChange={(e) =>
                     setMachineCycleTime(parseFloat(e.target.value) || 1.0)
                   }
                   className="w-32 min-h-[44px]"
+                  aria-describedby="machineCycleTimeHelp"
                 />
+                <p
+                  id="machineCycleTimeHelp"
+                  className="max-w-56 text-xs text-muted-foreground"
+                >
+                  {t("plainMachineCycleTimeHelp")}
+                </p>
               </div>
               <Button type="submit" className={btnPrimaryClass}>
                 {t("machineFormSubmit")}
@@ -452,7 +465,7 @@ export default function MachinePage() {
                               <AlertDialogFooter>
                                 <AlertDialogCancel>{t("commonCancel")}</AlertDialogCancel>
                                 <AlertDialogAction
-                                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                  variant="destructive"
                                   onClick={async () => {
                                     try {
                                       await deleteItemCombo(c.id);
@@ -536,10 +549,9 @@ export default function MachinePage() {
                         ))}
                       </SelectContent>
                     </Select>
-                    <Input
-                      type="number"
+                    <NumberInput
+                      decimal
                       min={0.01}
-                      step={0.01}
                       value={comp.ratio}
                       onChange={(e) =>
                         updateComponent(index, {
@@ -712,9 +724,8 @@ export default function MachinePage() {
                   <Label htmlFor="calcTargetQty">
                     {t("runtimeCalcTargetQtyLabel")}
                   </Label>
-                  <Input
+                  <NumberInput
                     id="calcTargetQty"
-                    type="number"
                     min={0}
                     value={targetQty}
                     onChange={(e) =>

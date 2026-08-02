@@ -8,12 +8,30 @@ See `README.md` for build/architecture details; this file tracks *features*.
 
 ## Feature inventory
 
-**Auth** (`lib/auth.ts`) — Single shared app password (no user accounts),
-stored as a SHA-256 hash in the `_metadata` DB store. Default password
-`1968`; a hardcoded master password `9319123410` resets it via Settings.
-Session = a `localStorage` timestamp valid 5 hours. `app/login/page.tsx`
-prompts for the password; `app/page.tsx` is the dashboard gate that checks
-login/expiry and redirects.
+**Auth** (`lib/auth.ts`) — Single shared app password per role (admin /
+worker; no user accounts), stored in the `_app` row of the `_metadata` DB
+store as a PBKDF2-SHA256 record (`{algo, salt, iterations, hash}`, 200k
+iterations, per-install 16-byte random salt). Legacy unsalted SHA-256 hashes
+still verify and are silently re-hashed to PBKDF2 on the next successful
+login. Minimum password length 6, enforced in `setAppPassword`.
+There is **no default password and no master/backdoor password**: an install
+with no stored hash goes to onboarding, and a forgotten password is recovered
+only by restoring a backup. Destructive Settings actions (change password,
+delete all data) require re-entering the *current* admin password.
+Session = `localStorage` timestamp with a 5-hour absolute cap, a 30-minute
+idle timeout refreshed on activity, plus a `sessionNonce` on the `_app` row
+that `setAppPassword` rotates so a password change signs everyone out.
+`app/login/page.tsx` prompts for the password; `app/page.tsx` and
+`lib/hooks/useAuthGuard.ts` gate authenticated pages.
+Caveat: these are client-side controls only — the session marker is a
+localStorage value and the data layer enforces nothing.
+
+**Audit log** (`lib/services/auditService.ts`) — Append-only `audit_log`
+store; `record(action, entity, entityId, summary, diff?)` stamps role +
+timestamp (and a reserved `userId`, null until real accounts exist). Wired
+into login success/failure, logout, password change, data import/export and
+`clearAllData()`. `clearAllData()` deliberately skips `audit_log` and
+`_metadata`.
 
 **Onboarding** (`app/onboarding/page.tsx`) — First-run wizard: pick
 SQLite-file vs IndexedDB storage (Tauri only), set the app password,
@@ -82,7 +100,7 @@ Salary Sheet.
 **i18n** (`lib/i18n/`) — English (`en`) and Hindi (`hi`) locales, persisted
 in `localStorage`, driven by `useLanguage()` / `t()`.
 
-**Data model** (`lib/db/schema.ts`, schema version 7) — Stores: `items`,
+**Data model** (`lib/db/schema.ts`, schema version 10) — Stores: `audit_log`, `items`,
 `employees`, `productions`, `advances`, `advance_deductions`, `shifts`,
 `salary_records`, `salary_sheet_overrides`, `factory_holidays`,
 `attendance`, `sunday_categories`, `_metadata`.

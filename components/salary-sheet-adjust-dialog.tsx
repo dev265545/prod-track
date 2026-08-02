@@ -9,7 +9,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
-import { Input } from "@/components/ui/input";
+import { NumberInput } from "@/components/ui/number-input";
 import { Separator } from "@/components/ui/separator";
 import {
   Dialog,
@@ -324,16 +324,18 @@ export function SalarySheetAdjustDialog({
                               >
                                 {t(field.labelKey)}
                               </Label>
+                              {/*
+                                Only one reference number: what the app itself
+                                counted. The box below already shows the value
+                                that will be saved, so a third "current sheet"
+                                number just confuses the clerk.
+                              */}
                               <p className="text-xs text-muted-foreground">
                                 {t("salaryAdjustCalculatedLabel")}{" "}
                                 {formatCalculatedValue(
                                   field.key,
                                   row.calculatedValues[field.key],
                                 )}
-                              </p>
-                              <p className="text-xs text-muted-foreground">
-                                {t("salaryAdjustCurrentSheetLabel")}{" "}
-                                {formatCalculatedValue(field.key, row[field.key])}
                               </p>
                               {field.key === "presentDays" &&
                               periodRangeValid &&
@@ -396,11 +398,8 @@ export function SalarySheetAdjustDialog({
                             >
                               -
                             </Button>
-                            <Input
+                            <NumberInput
                               id={`payroll-override-${field.key}`}
-                              type="number"
-                              step="1"
-                              inputMode="numeric"
                               min={0}
                               max={maxForAdjustDriver(field.key)}
                               className="h-11 border-chart-1/30 bg-background text-center text-base tabular-nums"
@@ -480,7 +479,7 @@ export function SalarySheetAdjustDialog({
                             key={key}
                             className={`rounded-xl border p-4 transition-colors ${
                               isChanged
-                                ? "border-chart-2/35 bg-chart-1/15 shadow-[inset_0_0_0_1px_color-mix(in_oklab,var(--color-chart-2)_18%,white)]"
+                                ? "border-chart-2/35 bg-chart-1/15 ring-1 ring-inset ring-chart-2/20"
                                 : "border-chart-1/15 bg-background"
                             }`}
                           >

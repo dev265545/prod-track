@@ -16,6 +16,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
+import { NumberInput } from "@/components/ui/number-input";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -38,9 +39,10 @@ import { useAuthGuard } from "@/lib/hooks/useAuthGuard";
 import { getEmployee } from "@/lib/services/employeeService";
 import {
   getProductionsByEmployee,
-  saveProduction,
   deleteProduction,
 } from "@/lib/services/productionService";
+import { saveProductionEntry } from "@/lib/services/productionEntryService";
+import { describeMissingComponents } from "@/components/inventory/forms/produce-form";
 import {
   getAdvancesByEmployee,
   saveAdvance,
@@ -186,7 +188,19 @@ function EmployeePageHeader() {
       <BreadcrumbList>
         <BreadcrumbItem>
           <BreadcrumbLink asChild>
-            <Link href="/">{t("navDashboard")}</Link>
+            <Link href="/">{t("navHome")}</Link>
+          </BreadcrumbLink>
+        </BreadcrumbItem>
+        <BreadcrumbSeparator />
+        <BreadcrumbItem>
+          <BreadcrumbLink asChild>
+            <Link href="/employees">{t("navModuleAttendance")}</Link>
+          </BreadcrumbLink>
+        </BreadcrumbItem>
+        <BreadcrumbSeparator />
+        <BreadcrumbItem>
+          <BreadcrumbLink asChild>
+            <Link href="/employees">{t("navEmployees")}</Link>
           </BreadcrumbLink>
         </BreadcrumbItem>
         <BreadcrumbSeparator />
@@ -953,9 +967,8 @@ export function EmployeePageClient() {
               </div>
             </CardHeader>
             <CardContent className="p-0">
-              <Input
+              <NumberInput
                 id="emp-monthly-salary"
-                type="number"
                 min={0}
                 value={monthlySalary}
                 onChange={(e) => {
@@ -1038,9 +1051,8 @@ export function EmployeePageClient() {
                   <Label htmlFor="emp-required-present-days">
                     {t("empRequiredPresentDays")}
                   </Label>
-                  <Input
+                  <NumberInput
                     id="emp-required-present-days"
-                    type="number"
                     min={1}
                     value={(employee.requiredPresentDays as number) ?? 26}
                     onChange={(e) => {
@@ -1062,11 +1074,10 @@ export function EmployeePageClient() {
                   <Label htmlFor="emp-sunday-multiplier">
                     {t("empSundayMultiplier")}
                   </Label>
-                  <Input
+                  <NumberInput
                     id="emp-sunday-multiplier"
-                    type="number"
+                    decimal
                     min={1}
-                    step={0.1}
                     value={(employee.sundayMultiplier as number) ?? 1.2}
                     onChange={(e) => {
                       const v = parseFloat(e.target.value) || 1.2;
@@ -1533,12 +1544,11 @@ export function EmployeePageClient() {
                             >
                               {t("empHoursLessLabel")}
                             </Label>
-                            <Input
+                            <NumberInput
                               id="hours-reduced"
-                              type="number"
+                              decimal
                               min={0}
                               max={24}
-                              step={0.5}
                               placeholder="0"
                               className="h-10 w-full text-base tabular-nums"
                               value={hoursReducedInput}
@@ -1554,12 +1564,11 @@ export function EmployeePageClient() {
                             >
                               {t("empHoursExtraShortLabel")}
                             </Label>
-                            <Input
+                            <NumberInput
                               id="hours-extra"
-                              type="number"
+                              decimal
                               min={0}
                               max={24}
-                              step={0.5}
                               placeholder="0"
                               className="h-10 w-full text-base tabular-nums"
                               value={hoursExtraInput}
@@ -2067,11 +2076,9 @@ export function EmployeePageClient() {
                   <Label htmlFor="advance-to-cut">
                     {t("empAdvanceToCutThisPeriod")}
                   </Label>
-                  <Input
+                  <NumberInput
                     id="advance-to-cut"
-                    type="number"
                     min={0}
-                    step={1}
                     className="w-full max-w-[200px] min-h-12"
                     value={advanceToCutInput}
                     onChange={(e) =>
@@ -2205,14 +2212,25 @@ export function EmployeePageClient() {
                   toast.error(t("empToastProdHolidayBlock"));
                   return;
                 }
+                let missingParts = "";
                 try {
-                  await saveProduction({
+                  // saveProductionEntry, never the raw saveProduction: writing
+                  // work down here has to draw the material out of stock too,
+                  // exactly as the production screen does. Two entry paths that
+                  // disagree about stock is the bug this replaces.
+                  const { inventory } = await saveProductionEntry({
                     employeeId: id,
                     itemId: prodItem,
                     date: prodDate,
                     quantity: prodQty,
                     shift: prodShift,
                   });
+                  if (inventory && inventory.missing.length > 0) {
+                    missingParts = describeMissingComponents(
+                      inventory.missing,
+                      t,
+                    );
+                  }
                 } catch {
                   toast.error(t("empToastProdAddFail"));
                   return;
@@ -2236,6 +2254,11 @@ export function EmployeePageClient() {
                 await loadCalendarMonth();
                 refreshMissingData();
                 toast.success(t("empToastProdAdded"));
+                if (missingParts) {
+                  toast.warning(t("invSvcNotDeducted", { parts: missingParts }), {
+                    duration: 10000,
+                  });
+                }
               }}
             >
               <div className="flex flex-col gap-2">
@@ -2273,9 +2296,8 @@ export function EmployeePageClient() {
               </div>
               <div className="flex flex-col gap-2">
                 <Label htmlFor="prod-qty">{t("labelQty")}</Label>
-                <Input
+                <NumberInput
                   id="prod-qty"
-                  type="number"
                   min={1}
                   value={prodQty}
                   onChange={(e) =>
@@ -2344,9 +2366,8 @@ export function EmployeePageClient() {
             >
               <div className="flex flex-col gap-2">
                 <Label htmlFor="adv-amount">{t("empAmountRupee")}</Label>
-                <Input
+                <NumberInput
                   id="adv-amount"
-                  type="number"
                   min={0}
                   value={advAmount}
                   onChange={(e) =>

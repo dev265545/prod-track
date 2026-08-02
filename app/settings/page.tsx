@@ -1,137 +1,38 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import * as React from "react";
 import { AppShell } from "@/components/app-shell";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Label } from "@/components/ui/label";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { DatePicker } from "@/components/ui/date-picker";
-import { Trash2, Download, ShieldAlert, Calendar, KeyRound, CalendarHeart } from "lucide-react";
-import { verifyMasterPassword, setAppPassword, setWorkerPassword } from "@/lib/auth";
-import { useAuthGuard } from "@/lib/hooks/useAuthGuard";
-import {
-  getAllHolidays,
-  saveHoliday,
-  deleteHoliday,
-} from "@/lib/services/factoryHolidayService";
-import {
-  getAllOperatorHolidays,
-  saveOperatorHoliday,
-  deleteOperatorHoliday,
-} from "@/lib/services/operatorHolidayService";
-import { deleteProductionsBefore } from "@/lib/services/productionService";
-import { deleteAdvancesBefore } from "@/lib/services/advanceService";
-import { isTauri } from "@/lib/db/adapter";
-import {
-  exportDatabase,
-  importDatabase,
-  validateExportData,
-  fetchAutoImportData,
-  clearAllData,
-  AUTO_IMPORT_PATH,
-} from "@/lib/db/exportImport";
-import {
-  exportDatabaseToSqlite,
-  importDatabaseFromSqliteBuffer,
-} from "@/lib/db/sqliteBrowser";
-import { toast } from "sonner";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
 import { AppLoadingScreen } from "@/components/app-loading-screen";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Boxes, CalendarOff, Database, Info, KeyRound } from "lucide-react";
+import { useAuthGuard } from "@/lib/hooks/useAuthGuard";
 import { useLanguage } from "@/components/language-provider";
+import type { MessageKey } from "@/lib/i18n/messages";
+import { AboutCard } from "@/components/settings/about-card";
+import { BackupCard } from "@/components/settings/backup-card";
+import { CalendarsTab } from "@/components/settings/calendars-tab";
+import { CleanupCard } from "@/components/settings/cleanup-card";
+import { DangerZoneCard } from "@/components/settings/danger-zone-card";
+import { OwnerPasswordCard } from "@/components/settings/owner-password-card";
+import { ProductionLinkCard } from "@/components/settings/production-link-card";
+import { RestoreCard } from "@/components/settings/restore-card";
+import { WorkerPasswordCard } from "@/components/settings/worker-password-card";
 
-const OPERATOR_HOLIDAY_NAMES = [
-  "Republic Day",
-  "Holi",
-  "Independence Day",
-  "Gandhi Jayanti",
-  "Diwali",
-  "Dussehra",
-  "Eid-ul-Fitr",
-  "Eid-ul-Adha",
-  "Good Friday",
-  "Christmas",
-  "Guru Nanak Jayanti",
-  "Raksha Bandhan",
-];
-const OPERATOR_HOLIDAY_OTHER = "_other";
+const TABS: { value: string; labelKey: MessageKey; icon: React.ElementType }[] =
+  [
+    { value: "general", labelKey: "setgTabGeneral", icon: Info },
+    { value: "production", labelKey: "cfgTabProduction", icon: Boxes },
+    { value: "calendars", labelKey: "setgTabCalendars", icon: CalendarOff },
+    { value: "data", labelKey: "setgTabData", icon: Database },
+    { value: "security", labelKey: "setgTabSecurity", icon: KeyRound },
+  ];
 
 export default function SettingsPage() {
   const { t } = useLanguage();
-  const { ready: guardReady } = useAuthGuard({ requireAdmin: true });
-  const [dataLoaded, setDataLoaded] = useState(false);
-  const ready = guardReady && dataLoaded;
-  const [factoryHolidays, setFactoryHolidays] = useState<
-    Record<string, unknown>[]
-  >([]);
-  const [operatorHolidays, setOperatorHolidays] = useState<
-    Record<string, unknown>[]
-  >([]);
-  const [holidayDate, setHolidayDate] = useState("");
-  const [historyBefore, setHistoryBefore] = useState("");
-  const [deleteResult, setDeleteResult] = useState("");
-  const [exportResult, setExportResult] = useState("");
-  const [securityResult, setSecurityResult] = useState("");
-  const [workerPasswordResult, setWorkerPasswordResult] = useState("");
-  const [workerPasswordInput, setWorkerPasswordInput] = useState("");
-  const [operatorHolidayDate, setOperatorHolidayDate] = useState("");
-  const [operatorHolidayNameChoice, setOperatorHolidayNameChoice] =
-    useState<string>(OPERATOR_HOLIDAY_NAMES[0]);
-  const [operatorHolidayCustomName, setOperatorHolidayCustomName] =
-    useState("");
-  const [dbPath, setDbPath] = useState<string | null>(null);
-  const importJsonInputRef = useRef<HTMLInputElement>(null);
-
-  const load = async () => {
-    const [h, oh] = await Promise.all([
-      getAllHolidays(),
-      getAllOperatorHolidays(),
-    ]);
-    setFactoryHolidays(h);
-    setOperatorHolidays(oh as unknown as Record<string, unknown>[]);
-  };
-
-  useEffect(() => {
-    if (!guardReady) return;
-    load().then(async () => {
-      if (isTauri()) {
-        const { getDbPath } = await import("@/lib/db/tauriDb");
-        getDbPath().then(setDbPath).catch(() => setDbPath(null));
-      }
-      setDataLoaded(true);
-    });
-  }, [guardReady]);
+  const { ready } = useAuthGuard({ requireAdmin: true });
+  /** Bumped after a restore or a wipe so every tab re-reads from disk. */
+  const [dataVersion, setDataVersion] = React.useState(0);
+  const refresh = React.useCallback(() => setDataVersion((v) => v + 1), []);
 
   if (!ready) {
     return (
@@ -142,721 +43,64 @@ export default function SettingsPage() {
     );
   }
 
-  const headingClass =
-    "text-xl font-semibold text-foreground mb-2 font-heading";
-  const headingClassFirst =
-    "text-xl font-semibold mb-3 text-foreground font-heading";
-  const paraClass = "text-base text-muted-foreground mb-5 leading-relaxed";
-  const btnPrimaryClass = "min-h-[44px] px-6 py-3 text-base";
-  const paraClassMuted = "text-base text-muted-foreground mb-5";
-
   return (
     <AppShell>
-      <main className="flex flex-col gap-10 animate-fade-in">
+      <main className="animate-fade-in flex w-full min-w-0 flex-col gap-8">
         <header className="flex flex-col gap-2">
-          <h1 className="text-3xl font-bold text-foreground font-heading md:text-4xl">
+          <h1 className="font-heading text-3xl font-bold tracking-tight text-foreground md:text-4xl">
             {t("settingsPageTitle")}
           </h1>
-          <p className="max-w-2xl text-base text-muted-foreground leading-relaxed">
-            {t("settingsPageIntro")}
+          <p className="max-w-2xl text-base leading-relaxed text-muted-foreground">
+            {t("setgIntro")}
           </p>
         </header>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className={headingClassFirst + " flex items-center gap-2"}>
-              <Trash2 className="size-5 text-destructive" />
-              {t("settingsDeleteHistoryTitle")}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-          <p className={paraClass}>
-            {t("settingsDeleteHistoryBody")}
-          </p>
-          <div className="flex flex-wrap gap-4 items-end">
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="historyBefore">
-                {t("settingsDeleteHistoryDateLabel")}
-              </Label>
-              <input
-                id="historyBefore"
-                type="date"
-                value={historyBefore}
-                onChange={(e) => setHistoryBefore(e.target.value)}
-                className="flex h-11 w-full max-w-xs rounded-lg border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-              />
-            </div>
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button
-                  type="button"
-                  className={btnPrimaryClass}
-                  disabled={!historyBefore}
+        <Tabs defaultValue="general" className="w-full min-w-0 gap-8">
+          <div className="-mx-1 w-full min-w-0 overflow-x-auto px-1 pb-1">
+            <TabsList className="h-auto w-max gap-1 rounded-xl bg-surface-3 p-1.5">
+              {TABS.map(({ value, labelKey, icon: Icon }) => (
+                <TabsTrigger
+                  key={value}
+                  value={value}
+                  className="h-11 gap-2 rounded-lg px-4 text-base data-[state=active]:bg-card"
                 >
-                  {t("settingsDeleteHistoryButton")}
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>{t("settingsDeleteHistoryConfirmTitle")}</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    {t("settingsDeleteHistoryConfirmDesc", { date: historyBefore })}
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>{t("commonCancel")}</AlertDialogCancel>
-                  <AlertDialogAction
-                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                    onClick={async () => {
-                      if (!historyBefore) return;
-                      try {
-                        const [prodCount, advCount] = await Promise.all([
-                          deleteProductionsBefore(historyBefore),
-                          deleteAdvancesBefore(historyBefore),
-                        ]);
-                        setDeleteResult(
-                          t("settingsDeleteHistoryResult", {
-                            prodCount,
-                            advCount,
-                          }),
-                        );
-                        toast.success(
-                          t("settingsDeleteHistoryToast", {
-                            prodCount,
-                            advCount,
-                          }),
-                        );
-                      } catch (e) {
-                        setDeleteResult(
-                          t("commonErrorWithMessage", {
-                            msg: (e as Error).message,
-                          }),
-                        );
-                        toast.error(t("settingsDeleteHistoryFail"));
-                      }
-                    }}
-                  >
-                    {t("commonDelete")}
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
+                  <Icon className="size-5 shrink-0" aria-hidden />
+                  {t(labelKey)}
+                </TabsTrigger>
+              ))}
+            </TabsList>
           </div>
-          {deleteResult && (
-            <Alert className="mt-4" variant={deleteResult.startsWith("Error") || deleteResult.startsWith("गड़बड़") ? "destructive" : "default"}>
-              <AlertDescription>{deleteResult}</AlertDescription>
-            </Alert>
-          )}
-          </CardContent>
-        </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className={headingClass + " flex items-center gap-2"}>
-              <Download className="size-5 text-primary" />
-              {t("settingsExportImportTitle")}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-          {isTauri() && dbPath && (
-            <p className="text-sm text-muted-foreground mb-3 font-mono break-all">
-              {t("settingsDbFileLine", { path: dbPath })}
-            </p>
-          )}
-          <p className={paraClassMuted}>
-            {t("settingsExportIntro", { autoPath: AUTO_IMPORT_PATH })}
-          </p>
-          <div className="flex flex-wrap gap-3 items-center">
-            <Button
-              type="button"
-              onClick={async () => {
-                try {
-                  if (isTauri()) {
-                    const { exportDbToFile } = await import("@/lib/db/tauriDb");
-                    const result = await exportDbToFile();
-                    if (result.success)
-                      setExportResult(t("settingsExportDbSaved"));
-                    else setExportResult(t("settingsExportFailed", { msg: result.error ?? "" }));
-                  } else {
-                    const bytes = await exportDatabaseToSqlite();
-                    const blob = new Blob([new Uint8Array(bytes)], {
-                      type: "application/x-sqlite3",
-                    });
-                    const a = document.createElement("a");
-                    a.href = URL.createObjectURL(blob);
-                    a.download = `prodtrack-${new Date().toISOString().slice(0, 10)}.db`;
-                    a.click();
-                    URL.revokeObjectURL(a.href);
-                    setExportResult(t("settingsExportDbDownloaded"));
-                  }
-                } catch (e) {
-                  setExportResult(
-                    t("settingsExportFailed", { msg: (e as Error).message }),
-                  );
-                }
-              }}
-              className={btnPrimaryClass}
-            >
-              {t("settingsExportDb")}
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={async () => {
-                try {
-                  const data = await exportDatabase();
-                  const blob = new Blob([JSON.stringify(data, null, 2)], {
-                    type: "application/json",
-                  });
-                  const a = document.createElement("a");
-                  a.href = URL.createObjectURL(blob);
-                  a.download = `prodtrack-export-${new Date().toISOString().slice(0, 10)}.json`;
-                  a.click();
-                  URL.revokeObjectURL(a.href);
-                  setExportResult(t("settingsExportJsonDownloaded"));
-                } catch (e) {
-                  setExportResult(
-                    t("settingsExportFailed", { msg: (e as Error).message }),
-                  );
-                }
-              }}
-              className="rounded-xl min-h-[44px] px-6 py-3"
-            >
-              {t("settingsExportJson")}
-            </Button>
-            <input
-              ref={importJsonInputRef}
-              type="file"
-              accept=".json,.db,.sqlite,.sqlite3,application/json,application/x-sqlite3"
-              className="sr-only"
-              onChange={async (e) => {
-                const file = e.target.files?.[0];
-                e.target.value = "";
-                if (!file) return;
-                const name = file.name.toLowerCase();
-                const isDb =
-                  name.endsWith(".db") ||
-                  name.endsWith(".sqlite") ||
-                  name.endsWith(".sqlite3");
-                try {
-                  if (isDb) {
-                    const buf = await file.arrayBuffer();
-                    const data = await importDatabaseFromSqliteBuffer(buf);
-                    if (
-                      !confirm(
-                        t("settingsConfirmImportReplace"),
-                      )
-                    )
-                      return;
-                    await importDatabase(data);
-                    setExportResult(t("settingsImportDbComplete"));
-                    load();
-                    return;
-                  }
-                  const raw = await file.text();
-                  const data = JSON.parse(raw);
-                  const { valid, error } = validateExportData(data);
-                  if (!valid) {
-                    setExportResult(
-                      t("settingsInvalidFile", { msg: error || "unknown" }),
-                    );
-                    return;
-                  }
-                  if (
-                    !confirm(
-                      t("settingsConfirmImportReplace"),
-                    )
-                  )
-                    return;
-                  await importDatabase(
-                    data as Awaited<ReturnType<typeof exportDatabase>>,
-                  );
-                  setExportResult(t("settingsImportJsonComplete"));
-                  load();
-                } catch (err) {
-                  setExportResult(
-                    t("settingsImportFailed", { msg: (err as Error).message }),
-                  );
-                }
-              }}
-            />
-            <Button
-              type="button"
-              variant="outline"
-              className="min-h-[44px] px-6 py-3"
-              onClick={() => importJsonInputRef.current?.click()}
-            >
-              {t("settingsImportFile")}
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={async () => {
-                try {
-                  const result = await fetchAutoImportData();
-                  if (!result.success) {
-                    setExportResult(result.error);
-                    return;
-                  }
-                  if (
-                    !confirm(
-                      t("settingsConfirmAutoImport"),
-                    )
-                  )
-                    return;
-                  await importDatabase(result.data);
-                  setExportResult(t("settingsAutoImportComplete"));
-                  load();
-                } catch (e) {
-                  setExportResult(
-                    t("settingsAutoImportFailed", { msg: (e as Error).message }),
-                  );
-                }
-              }}
-              className="rounded-xl border-2 border-primary text-primary hover:bg-accent min-h-[44px] px-6 py-3"
-            >
-              {t("settingsAutoImport")}
-            </Button>
-          </div>
-          {exportResult && (
-            <Alert className="mt-4" variant={/^(Export failed|Import failed|Invalid|एक्सपोर्ट फेल|इम्पोर्ट फेल|गलत फाइल)/.test(exportResult) ? "destructive" : "default"}>
-              <AlertDescription>{exportResult}</AlertDescription>
-            </Alert>
-          )}
-          </CardContent>
-        </Card>
+          <TabsContent value="general" className="min-w-0">
+            <AboutCard />
+          </TabsContent>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className={headingClass + " flex items-center gap-2"}>
-              <ShieldAlert className="size-5 text-primary" />
-              {t("settingsSecurityTitle")}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-          <p className={paraClassMuted}>
-            {t("settingsSecurityIntro")}
-          </p>
-          <div className="flex flex-wrap gap-3 items-center">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={async () => {
-                const master = prompt(t("settingsPromptMaster"));
-                if (master === null) return;
-                if (!verifyMasterPassword(master)) {
-                  setSecurityResult(t("settingsWrongMaster"));
-                  return;
-                }
-                const new1 = prompt(t("settingsPromptNewPassword"));
-                if (new1 === null) return;
-                const new2 = prompt(t("settingsPromptConfirmPassword"));
-                if (new2 === null) return;
-                if (new1 !== new2) {
-                  setSecurityResult(t("settingsPasswordMismatch"));
-                  return;
-                }
-                await setAppPassword(new1.trim());
-                setSecurityResult(t("settingsPasswordUpdated"));
-              }}
-              className="rounded-xl min-h-[44px] px-6 py-3"
-            >
-              {t("settingsChangePassword")}
-            </Button>
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button
-                  type="button"
-                  variant="destructive"
-                  className="rounded-xl min-h-[44px] px-6 py-3"
-                >
-                  {t("settingsMasterDelete")}
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>{t("settingsMasterDeleteTitle")}</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    {t("settingsMasterDeleteDesc")}
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>{t("commonCancel")}</AlertDialogCancel>
-                  <AlertDialogAction
-                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                    onClick={async () => {
-                      const master = prompt(t("settingsPromptMasterConfirm"));
-                      if (master === null) return;
-                      if (!verifyMasterPassword(master)) {
-                        setSecurityResult(t("settingsWrongMaster"));
-                        toast.error(t("settingsWrongMaster"));
-                        return;
-                      }
-                      const confirmText = prompt(t("settingsPromptTypeDelete"));
-                      if (confirmText !== "DELETE") {
-                        setSecurityResult(t("settingsConfirmMismatch"));
-                        toast.error(t("settingsConfirmMismatch"));
-                        return;
-                      }
-                      try {
-                        await clearAllData();
-                        setSecurityResult(t("settingsAllDataDeleted"));
-                        toast.success(t("settingsAllDataDeleted"));
-                        load();
-                      } catch (e) {
-                        setSecurityResult(
-                          t("commonErrorWithMessage", {
-                            msg: (e as Error).message,
-                          }),
-                        );
-                        toast.error(t("settingsMasterDeleteFail"));
-                      }
-                    }}
-                  >
-                    {t("commonDelete")}
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-          </div>
-          {securityResult && (
-            <Alert
-              className="mt-4"
-              variant={
-                [
-                  t("settingsWrongMaster"),
-                  t("settingsPasswordMismatch"),
-                  t("settingsConfirmMismatch"),
-                ].includes(securityResult) ||
-                securityResult.startsWith("Error") ||
-                securityResult.startsWith("गड़बड़")
-                  ? "destructive"
-                  : "default"
-              }
-            >
-              <AlertDescription>{securityResult}</AlertDescription>
-            </Alert>
-          )}
-          </CardContent>
-        </Card>
+          <TabsContent value="production" className="min-w-0">
+            <ProductionLinkCard key={dataVersion} />
+          </TabsContent>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className={headingClass + " flex items-center gap-2"}>
-              <KeyRound className="size-5 text-primary" />
-              {t("settingsWorkerPasswordTitle")}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-          <p className={paraClassMuted}>
-            {t("settingsWorkerPasswordIntro")}
-          </p>
-          <div className="flex flex-wrap gap-3 items-end">
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="workerPassword">
-                {t("settingsWorkerPasswordLabel")}
-              </Label>
-              <Input
-                id="workerPassword"
-                type="password"
-                autoComplete="off"
-                value={workerPasswordInput}
-                onChange={(e) => setWorkerPasswordInput(e.target.value)}
-                className="w-56 min-h-[44px]"
-                placeholder={t("settingsWorkerPasswordPlaceholder")}
-              />
-            </div>
-            <Button
-              type="button"
-              className={btnPrimaryClass}
-              disabled={!workerPasswordInput.trim()}
-              onClick={async () => {
-                await setWorkerPassword(workerPasswordInput.trim());
-                setWorkerPasswordInput("");
-                setWorkerPasswordResult(t("settingsWorkerPasswordUpdated"));
-                toast.success(t("settingsWorkerPasswordUpdated"));
-              }}
-            >
-              {t("settingsWorkerPasswordButton")}
-            </Button>
-          </div>
-          {workerPasswordResult && (
-            <Alert className="mt-4">
-              <AlertDescription>{workerPasswordResult}</AlertDescription>
-            </Alert>
-          )}
-          </CardContent>
-        </Card>
+          <TabsContent value="calendars" className="min-w-0">
+            <CalendarsTab key={dataVersion} />
+          </TabsContent>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className={headingClass + " flex items-center gap-2"}>
-              <CalendarHeart className="size-5 text-primary" />
-              {t("settingsOperatorHolidaysTitle")}
-            </CardTitle>
-            <p className="text-sm text-muted-foreground mt-1">
-              {t("settingsOperatorHolidaysIntro")}
-            </p>
-          </CardHeader>
-          <CardContent>
-          <div className="overflow-x-auto mb-6">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>{t("settingsHolidayColDate")}</TableHead>
-                  <TableHead>{t("settingsOperatorHolidayColName")}</TableHead>
-                  <TableHead className="w-16" />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {[...operatorHolidays]
-                  .sort((a, b) =>
-                    (a.date as string).localeCompare(b.date as string)
-                  )
-                  .map((h) => (
-                    <TableRow key={h.id as string}>
-                      <TableCell className="tabular-nums">
-                        {h.date as string}
-                      </TableCell>
-                      <TableCell>{h.name as string}</TableCell>
-                      <TableCell>
-                        <AlertDialog>
-                          <AlertDialogTrigger asChild>
-                            <Button
-                              type="button"
-                              variant="destructive"
-                              size="icon"
-                              title={t("settingsHolidayDeleteTitle")}
-                              aria-label={t("settingsHolidayDeleteAria", {
-                                date: String(h.date),
-                              })}
-                            >
-                              <Trash2 data-icon="inline-start" aria-hidden />
-                            </Button>
-                          </AlertDialogTrigger>
-                          <AlertDialogContent>
-                            <AlertDialogHeader>
-                              <AlertDialogTitle>{t("settingsHolidayDeleteTitle")}</AlertDialogTitle>
-                              <AlertDialogDescription>
-                                {t("settingsHolidayDeleteDesc", {
-                                  date: String(h.date),
-                                })}
-                              </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                              <AlertDialogCancel>{t("commonCancel")}</AlertDialogCancel>
-                              <AlertDialogAction
-                                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                                onClick={async () => {
-                                  try {
-                                    await deleteOperatorHoliday(h.id as string);
-                                    await load();
-                                    toast.success(t("settingsHolidayDeleteSuccess"));
-                                  } catch {
-                                    toast.error(t("settingsHolidayDeleteFail"));
-                                  }
-                                }}
-                              >
-                                {t("commonDelete")}
-                              </AlertDialogAction>
-                            </AlertDialogFooter>
-                          </AlertDialogContent>
-                        </AlertDialog>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-              </TableBody>
-            </Table>
-          </div>
-          <form
-            className="flex flex-wrap gap-4 items-end"
-            onSubmit={async (e) => {
-              e.preventDefault();
-              if (!operatorHolidayDate.trim()) return;
-              const name =
-                operatorHolidayNameChoice === OPERATOR_HOLIDAY_OTHER
-                  ? operatorHolidayCustomName.trim()
-                  : operatorHolidayNameChoice;
-              if (!name) return;
-              try {
-                await saveOperatorHoliday({
-                  date: operatorHolidayDate.trim(),
-                  name,
-                });
-                setOperatorHolidayDate("");
-                setOperatorHolidayCustomName("");
-                setOperatorHolidayNameChoice(OPERATOR_HOLIDAY_NAMES[0]);
-                await load();
-                toast.success(t("settingsHolidayAddSuccess"));
-              } catch {
-                toast.error(t("settingsHolidayAddFail"));
-              }
-            }}
-          >
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="operator-holiday-name">
-                {t("settingsOperatorHolidayColName")}
-              </Label>
-              <Select
-                value={operatorHolidayNameChoice}
-                onValueChange={setOperatorHolidayNameChoice}
-              >
-                <SelectTrigger id="operator-holiday-name" className="w-56 min-h-[44px]">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {OPERATOR_HOLIDAY_NAMES.map((name) => (
-                    <SelectItem key={name} value={name}>
-                      {name}
-                    </SelectItem>
-                  ))}
-                  <SelectItem value={OPERATOR_HOLIDAY_OTHER}>
-                    {t("settingsOperatorHolidayOther")}
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            {operatorHolidayNameChoice === OPERATOR_HOLIDAY_OTHER && (
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="operator-holiday-custom-name">
-                  {t("settingsOperatorHolidayCustomNameLabel")}
-                </Label>
-                <Input
-                  id="operator-holiday-custom-name"
-                  type="text"
-                  value={operatorHolidayCustomName}
-                  onChange={(e) => setOperatorHolidayCustomName(e.target.value)}
-                  className="w-56 min-h-[44px]"
-                  required
-                />
+          <TabsContent value="data" className="min-w-0">
+            <div className="flex flex-col gap-6">
+              <BackupCard />
+              <RestoreCard onRestored={refresh} />
+              <CleanupCard />
+              <div className="mt-4 border-t-2 border-destructive pt-6">
+                <DangerZoneCard onCleared={refresh} />
               </div>
-            )}
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="operator-holiday-date">{t("settingsHolidayAddLabel")}</Label>
-              <DatePicker
-                id="operator-holiday-date"
-                value={operatorHolidayDate}
-                onChange={setOperatorHolidayDate}
-                placeholder={t("settingsHolidayDatePlaceholder")}
-                className="w-48 min-h-[44px]"
-              />
             </div>
-            <Button type="submit" className={btnPrimaryClass}>
-              {t("settingsHolidayAddButton")}
-            </Button>
-          </form>
-          </CardContent>
-        </Card>
+          </TabsContent>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className={headingClass + " flex items-center gap-2"}>
-              <Calendar className="size-5 text-primary" />
-              {t("settingsFactoryHolidaysTitle")}
-            </CardTitle>
-            <p className="text-sm text-muted-foreground mt-1">
-              {t("settingsFactoryHolidaysIntro")}
-            </p>
-          </CardHeader>
-          <CardContent>
-          <div className="overflow-x-auto mb-6">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>{t("settingsHolidayColDate")}</TableHead>
-                  <TableHead className="w-16" />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {[...factoryHolidays]
-                  .sort((a, b) =>
-                    (a.date as string).localeCompare(b.date as string)
-                  )
-                  .map((h) => (
-                    <TableRow key={h.id as string}>
-                      <TableCell className="tabular-nums">
-                        {h.date as string}
-                      </TableCell>
-                      <TableCell>
-                        <AlertDialog>
-                          <AlertDialogTrigger asChild>
-                            <Button
-                              type="button"
-                              variant="destructive"
-                              size="icon"
-                              title={t("settingsHolidayDeleteTitle")}
-                              aria-label={t("settingsHolidayDeleteAria", {
-                                date: String(h.date),
-                              })}
-                            >
-                              <Trash2 data-icon="inline-start" aria-hidden />
-                            </Button>
-                          </AlertDialogTrigger>
-                          <AlertDialogContent>
-                            <AlertDialogHeader>
-                              <AlertDialogTitle>{t("settingsHolidayDeleteTitle")}</AlertDialogTitle>
-                              <AlertDialogDescription>
-                                {t("settingsHolidayDeleteDesc", {
-                                  date: String(h.date),
-                                })}
-                              </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                              <AlertDialogCancel>{t("commonCancel")}</AlertDialogCancel>
-                              <AlertDialogAction
-                                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                                onClick={async () => {
-                                  try {
-                                    await deleteHoliday(h.id as string);
-                                    await load();
-                                    toast.success(t("settingsHolidayDeleteSuccess"));
-                                  } catch {
-                                    toast.error(t("settingsHolidayDeleteFail"));
-                                  }
-                                }}
-                              >
-                                {t("commonDelete")}
-                              </AlertDialogAction>
-                            </AlertDialogFooter>
-                          </AlertDialogContent>
-                        </AlertDialog>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-              </TableBody>
-            </Table>
-          </div>
-          <form
-            className="flex flex-wrap gap-4 items-end"
-            onSubmit={async (e) => {
-              e.preventDefault();
-              if (!holidayDate.trim()) return;
-              try {
-                await saveHoliday({ date: holidayDate.trim() });
-                setHolidayDate("");
-                await load();
-                toast.success(t("settingsHolidayAddSuccess"));
-              } catch {
-                toast.error(t("settingsHolidayAddFail"));
-              }
-            }}
-          >
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="holiday-date">{t("settingsHolidayAddLabel")}</Label>
-              <DatePicker
-                id="holiday-date"
-                value={holidayDate}
-                onChange={setHolidayDate}
-                placeholder={t("settingsHolidayDatePlaceholder")}
-                className="w-48 min-h-[44px]"
-              />
+          <TabsContent value="security" className="min-w-0">
+            <div className="flex flex-col gap-6">
+              <OwnerPasswordCard />
+              <WorkerPasswordCard />
             </div>
-            <Button type="submit" className={btnPrimaryClass}>
-              {t("settingsHolidayAddButton")}
-            </Button>
-          </form>
-          </CardContent>
-        </Card>
+          </TabsContent>
+        </Tabs>
       </main>
     </AppShell>
   );

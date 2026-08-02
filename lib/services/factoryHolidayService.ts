@@ -1,4 +1,4 @@
-import { getAll, get, put, remove, STORES } from "@/lib/db/adapter";
+import { getAll, put, remove, STORES } from "@/lib/db/adapter";
 
 const STORE = STORES.FACTORY_HOLIDAYS;
 
