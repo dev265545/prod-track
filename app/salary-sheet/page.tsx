@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
-import Link from "next/link";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import { ArrowDown, ArrowUp, FileSpreadsheet, GripVertical, Printer } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
@@ -68,6 +67,7 @@ import {
   type ProductionPaySheet,
 } from "@/lib/services/productionPaySheetService";
 import { ProductionPayRecord } from "@/components/salary-sheet/production-pay-record";
+import { SalarySheetRowCells } from "@/components/salary-sheet/salary-sheet-row-cells";
 import { DatePicker } from "@/components/ui/date-picker";
 import { toast } from "sonner";
 import { useLanguage } from "@/components/language-provider";
@@ -130,9 +130,12 @@ export default function SalarySheetPage() {
   const [category, setCategory] = useState<SalarySheetCategory>("all");
   const [loadFailed, setLoadFailed] = useState(false);
 
-  const monthOptions = getMonthOptions(24, locale);
-  const monthBounds = getMonthRange(year, month);
-  const rangePresets = getMonthRangePresets(year, month, locale);
+  const monthOptions = useMemo(() => getMonthOptions(24, locale), [locale]);
+  const monthBounds = useMemo(() => getMonthRange(year, month), [year, month]);
+  const rangePresets = useMemo(
+    () => getMonthRangePresets(year, month, locale),
+    [year, month, locale],
+  );
   const resolvedCustomFrom = clampDateToMonth(
     customFrom || monthBounds.from,
     year,
@@ -143,7 +146,7 @@ export default function SalarySheetPage() {
     year,
     month,
   );
-  const selectedRange =
+  const selectedRange = useMemo(() =>
     rangeMode === "custom"
       ? {
           from:
@@ -164,7 +167,9 @@ export default function SalarySheetPage() {
             locale,
           ),
         }
-      : rangePresets.find((preset) => preset.mode === rangeMode) ?? rangePresets[0];
+      : rangePresets.find((preset) => preset.mode === rangeMode) ?? rangePresets[0],
+    [rangeMode, resolvedCustomFrom, resolvedCustomTo, rangePresets, locale],
+  );
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -223,8 +228,16 @@ export default function SalarySheetPage() {
   // work record instead of an empty table.
   const showSalaryTable = category !== "production";
   const showProductionRecord = category === "all" || category === "production";
-  const visibleRows =
-    category === "all" ? rows : rows.filter((r) => r.employeeType === category);
+  // Filtering is one O(n) pass over ~150 rows and never rebuilds the sheet —
+  // switching tabs must not re-run the payroll engine. Memoised so the row
+  // objects handed to the memoised cells keep a stable array identity too.
+  const visibleRows = useMemo(
+    () =>
+      category === "all"
+        ? rows
+        : rows.filter((r) => r.employeeType === category),
+    [rows, category],
+  );
 
   const handlePrint = async () => {
     console.log("[print] Print button clicked (salary sheet)");
@@ -579,52 +592,10 @@ export default function SalarySheetPage() {
                             </div>
                           </TableCell>
                         )}
-                        {SALARY_SHEET_COLUMNS.map((col) => {
-                          const body = (
-                            <>
-                              {col.isName ? (
-                                <Link
-                                  href={`/employee?id=${encodeURIComponent(String(r.id))}`}
-                                  aria-label={tr("viewEmployeeAria", {
-                                    name: r.name,
-                                  })}
-                                  className="inline-flex min-h-[44px] items-center rounded-md underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                                >
-                                  {col.format(r)}
-                                </Link>
-                              ) : (
-                                col.format(r)
-                              )}
-                              {col.isName && salarySheetRowHasAdjustment(r) ? (
-                                <span className="ml-2 text-xs font-normal text-warning">
-                                  ({tr("salarySheetAdjustedBadge")})
-                                </span>
-                              ) : null}
-                            </>
-                          );
-                          const className = cn(
-                            col.align === "right" && "text-right tabular-nums",
-                            col.muted && "text-muted-foreground",
-                            col.emphasis && "font-semibold",
-                            col.isName && "font-medium",
-                          );
-                          // The name identifies the row, so it is the row's
-                          // header cell — otherwise a screen reader reading
-                          // "₹8,240" ten columns in cannot say whose it is.
-                          return col.isName ? (
-                            <TableHead
-                              key={col.key}
-                              scope="row"
-                              className={cn("h-auto p-4 text-foreground", className)}
-                            >
-                              {body}
-                            </TableHead>
-                          ) : (
-                            <TableCell key={col.key} className={className}>
-                              {body}
-                            </TableCell>
-                          );
-                        })}
+                        <SalarySheetRowCells
+                          row={r}
+                          hasAdjustment={salarySheetRowHasAdjustment(r)}
+                        />
                       </TableRow>
                     ))}
                   </TableBody>
