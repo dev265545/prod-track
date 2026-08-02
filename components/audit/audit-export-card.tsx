@@ -7,10 +7,16 @@ import { Button } from "@/components/ui/button";
 import { useLanguage } from "@/components/language-provider";
 import {
   AUDIT_ACTIONS,
+  AUDIT_SCAN_LIMIT,
+  collectAuditEntries,
   record,
-  type AuditEntry,
 } from "@/lib/services/auditService";
-import { exportFilename, toCsv, toJson } from "@/lib/services/auditLogView";
+import {
+  exportFilename,
+  toCsv,
+  toJson,
+  type AuditFilter,
+} from "@/lib/services/auditLogView";
 
 function triggerBrowserDownload(text: string, filename: string, mime: string) {
   const url = URL.createObjectURL(new Blob([text], { type: mime }));
@@ -32,12 +38,27 @@ function triggerBrowserDownload(text: string, filename: string, mime: string) {
  * a later reader can tell a full archive from a narrow slice — and the export
  * itself is logged, because copying the record of everyone's work out of the
  * app is exactly the kind of action this log exists to remember.
+ *
+ * The rows are read when the button is pressed rather than held in the page:
+ * the viewer itself only ever loads the 50 rows it shows, and a file the owner
+ * asks for once should not make every keystroke in the search box pay for it.
+ * The read is capped like a filtered search, and a capped export says so.
  */
-export function AuditExportCard({ entries }: { entries: AuditEntry[] }) {
+export function AuditExportCard({
+  filter,
+  disabled = false,
+}: {
+  filter: AuditFilter;
+  /** True when the current view has nothing in it to save. */
+  disabled?: boolean;
+}) {
   const { t } = useLanguage();
+  const [working, setWorking] = React.useState(false);
 
-  const save = (format: "csv" | "json") => {
+  const save = async (format: "csv" | "json") => {
+    setWorking(true);
     try {
+      const { entries, truncated } = await collectAuditEntries(filter);
       const filename = exportFilename(format);
       const text =
         format === "csv"
@@ -75,9 +96,14 @@ export function AuditExportCard({ entries }: { entries: AuditEntry[] }) {
       toast.success(
         t("auditExportDone", { count: entries.length, file: filename }),
       );
+      if (truncated) {
+        toast.warning(t("auditPgTruncated", { count: AUDIT_SCAN_LIMIT }));
+      }
     } catch (error) {
       console.error("[audit] export failed", error);
       toast.error(t("auditExportFailed"));
+    } finally {
+      setWorking(false);
     }
   };
 
@@ -93,8 +119,8 @@ export function AuditExportCard({ entries }: { entries: AuditEntry[] }) {
         <Button
           type="button"
           variant="outline"
-          onClick={() => save("csv")}
-          disabled={entries.length === 0}
+          onClick={() => void save("csv")}
+          disabled={disabled || working}
           className="h-11 w-full gap-2 sm:w-fit"
         >
           <FileSpreadsheet className="size-5 shrink-0" aria-hidden />
@@ -103,8 +129,8 @@ export function AuditExportCard({ entries }: { entries: AuditEntry[] }) {
         <Button
           type="button"
           variant="outline"
-          onClick={() => save("json")}
-          disabled={entries.length === 0}
+          onClick={() => void save("json")}
+          disabled={disabled || working}
           className="h-11 w-full gap-2 sm:w-fit"
         >
           <Download className="size-5 shrink-0" aria-hidden />

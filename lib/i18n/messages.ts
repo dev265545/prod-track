@@ -728,6 +728,7 @@ const en = {
   plainMachineCycleTimeHelp:
     "How many seconds one shot takes, from closing to closing.",
   machineFormSubmit: "Add machine",
+  hdrMachineAddLink: "Add a machine",
   machineAddSuccess: "Machine added",
   machineAddFail: "Failed to add machine",
 
@@ -767,6 +768,7 @@ const en = {
   comboFormRatioLabel: "Pieces per set",
   comboFormAddComponent: "Add item",
   comboFormSubmit: "Add item set",
+  hdrComboAddLink: "Add an item set",
   comboAddSuccess: "Item set added",
   comboAddFail: "Failed to add item set",
 
@@ -1625,6 +1627,8 @@ const en = {
 
   auditShowing: "Showing {first} to {last} of {total}",
   auditPageOf: "Page {page} of {pages}",
+  auditPgTruncated:
+    "Searched the most recent {count} entries only. Narrow the date range to look further back.",
   auditPrev: "Previous",
   auditNext: "Next",
 
@@ -2696,6 +2700,7 @@ const hi: Record<MessageKey, string> = {
   plainMachineCycleTimeHelp:
     "एक शॉट में कितने सेकंड लगते हैं, एक बंद होने से अगले बंद होने तक।",
   machineFormSubmit: "मशीन जोड़ें",
+  hdrMachineAddLink: "नई मशीन जोड़ें",
   machineAddSuccess: "मशीन जुड़ गई",
   machineAddFail: "मशीन नहीं जुड़ी",
 
@@ -2734,6 +2739,7 @@ const hi: Record<MessageKey, string> = {
   comboFormRatioLabel: "एक सेट में पीस",
   comboFormAddComponent: "आइटम जोड़ें",
   comboFormSubmit: "आइटम सेट जोड़ें",
+  hdrComboAddLink: "नया आइटम सेट जोड़ें",
   comboAddSuccess: "आइटम सेट जुड़ गया",
   comboAddFail: "आइटम सेट नहीं जुड़ा",
 
@@ -3574,6 +3580,8 @@ const hi: Record<MessageKey, string> = {
 
   auditShowing: "{total} \u092e\u0947\u0902 \u0938\u0947 {first} \u0938\u0947 {last} \u0924\u0915",
   auditPageOf: "\u092a\u0947\u091c {page} / {pages}",
+  auditPgTruncated:
+    "\u0938\u093f\u0930\u094d\u092b\u093c \u0938\u092c\u0938\u0947 \u0928\u090f {count} \u0930\u093f\u0915\u0949\u0930\u094d\u0921 \u0916\u094b\u091c\u0947 \u0917\u090f\u0964 \u0914\u0930 \u092a\u0940\u091b\u0947 \u0926\u0947\u0916\u0928\u0947 \u0915\u0947 \u0932\u093f\u090f \u0924\u093e\u0930\u0940\u0916\u093c \u0915\u093e \u0926\u093e\u092f\u0930\u093e \u091b\u094b\u091f\u093e \u0915\u0930\u0947\u0902\u0964",
   auditPrev: "\u092a\u093f\u091b\u0932\u093e",
   auditNext: "\u0905\u0917\u0932\u093e",
 

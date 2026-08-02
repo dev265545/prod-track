@@ -19,10 +19,10 @@ import {
 import { useLanguage } from "@/components/language-provider";
 import { dateDisplay } from "@/lib/utils/formatter";
 import {
-  countEntriesBefore,
   pruneAuditEntriesBefore,
-  summariseHealth,
-  type AuditEntry,
+  readAuditLogHealth,
+  readCountEntriesBefore,
+  type AuditLogHealth,
 } from "@/lib/services/auditService";
 
 /** `yyyy-mm-dd` -> the instant that day begins, which is the prune cutoff. */
@@ -38,14 +38,12 @@ function cutoffFor(day: string): string {
  * the source said 20,000 has lost the only thing this feature was for. So the
  * owner picks a date, is shown the exact count first, confirms, and the
  * removal is itself written into the log.
+ *
+ * Both numbers on this card — how big the log is, and how much a cutoff would
+ * remove — are index key walks now, so the card costs the same on a log of two
+ * hundred entries and on one of two hundred thousand. Neither reads a row.
  */
-export function AuditRetentionCard({
-  entries,
-  onPruned,
-}: {
-  entries: AuditEntry[];
-  onPruned: () => void;
-}) {
+export function AuditRetentionCard({ onPruned }: { onPruned: () => void }) {
   const { t } = useLanguage();
   const [day, setDay] = React.useState("");
   /** The day the shown count belongs to, so a changed date invalidates it. */
@@ -53,14 +51,43 @@ export function AuditRetentionCard({
   const [count, setCount] = React.useState(0);
   const [confirming, setConfirming] = React.useState(false);
   const [working, setWorking] = React.useState(false);
+  /** Bumped after a prune so the header re-reads its own deletion. */
+  const [reloadHealth, setReloadHealth] = React.useState(0);
 
-  const health = React.useMemo(() => summariseHealth(entries), [entries]);
+  const [health, setHealth] = React.useState<AuditLogHealth | null>(null);
   const fresh = countedFor !== null && countedFor === day;
 
-  const check = () => {
+  // Re-read after a prune: `reloadKey` in the page bumps `onPruned`'s caller,
+  // but the card's own header has to follow its own deletion.
+  React.useEffect(() => {
+    let cancelled = false;
+    void readAuditLogHealth()
+      .then((next) => {
+        if (cancelled) return;
+        setHealth(next);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setHealth(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [reloadHealth]);
+
+  const check = async () => {
     if (!day) return;
-    setCount(countEntriesBefore(entries, cutoffFor(day)));
-    setCountedFor(day);
+    const target = day;
+    try {
+      const found = await readCountEntriesBefore(cutoffFor(target));
+      // The date may have moved while the count was in flight; `countedFor`
+      // is what makes a stale answer invisible rather than wrong.
+      setCount(found);
+      setCountedFor(target);
+    } catch (error) {
+      console.error("[audit] retention count failed", error);
+      toast.error(t("auditRetentionFailed"));
+    }
   };
 
   const prune = async () => {
@@ -69,6 +96,7 @@ export function AuditRetentionCard({
       const removed = await pruneAuditEntriesBefore(cutoffFor(day));
       setCountedFor(null);
       setDay("");
+      setReloadHealth((k) => k + 1);
       toast.success(t("auditRetentionDone", { count: removed }));
       onPruned();
     } catch (error) {
@@ -89,13 +117,13 @@ export function AuditRetentionCard({
         {t("auditRetentionBody")}
       </p>
       <p className="text-sm text-muted-foreground">
-        {t("auditRetentionCount", { count: health.count })}
-        {health.oldest
+        {t("auditRetentionCount", { count: health?.count ?? 0 })}
+        {health?.oldest
           ? ` ${t("auditRetentionOldest", { date: dateDisplay(health.oldest.slice(0, 10)) })}`
           : ""}
       </p>
 
-      {health.overCap ? (
+      {health?.overCap ? (
         <p className="flex items-start gap-2 rounded-lg bg-warning/10 p-3 text-sm text-warning">
           <TriangleAlert className="mt-0.5 size-5 shrink-0" aria-hidden />
           {t("auditRetentionHeavy")}
@@ -118,7 +146,7 @@ export function AuditRetentionCard({
         <Button
           type="button"
           variant="outline"
-          onClick={check}
+          onClick={() => void check()}
           disabled={!day}
           className="h-11 w-full sm:w-fit"
         >

@@ -14,14 +14,15 @@ import { AppLoadingScreen } from "@/components/app-loading-screen";
 import { Button } from "@/components/ui/button";
 import { useAuthGuard } from "@/lib/hooks/useAuthGuard";
 import { useLanguage } from "@/components/language-provider";
-import { listAuditEntries, type AuditEntry } from "@/lib/services/auditService";
 import {
-  AUDIT_PAGE_SIZE,
+  AUDIT_SCAN_LIMIT,
+  listAuditRoles,
+  queryAuditEntries,
+  type AuditQueryResult,
+} from "@/lib/services/auditService";
+import {
   EMPTY_FILTER,
-  filterEntries,
   isFilterActive,
-  paginate,
-  rolesPresent,
   type AuditFilter,
 } from "@/lib/services/auditLogView";
 import { AuditEntryRow } from "@/components/audit/audit-entry-row";
@@ -40,54 +41,77 @@ type LoadState = "loading" | "ready" | "failed";
  * of that mismatch is a flash of the whole factory's history in front of
  * whoever happens to be at the terminal.
  *
- * Scale: the `audit_log` store has no timestamp index (adding one belongs in
- * `lib/db/indexes.ts`, which this change does not own), so the log is read
- * once into memory and filtered and paged there. Filtering is one linear pass
- * memoised on the filter, so typing in the search box re-runs it over an array
- * and nothing else; only 50 rows are ever mounted. That holds comfortably into
- * the tens of thousands of entries — several years of a busy factory — and the
- * retention card warns the owner before it stops holding.
+ * Scale: the `audit_log` store is indexed on `timestamp`, and every read on
+ * this screen goes through that index. Opening the viewer, or turning to page
+ * 40, deserialises the 50 rows it is about to show and counts the rest with a
+ * key walk — not the whole log. Category, role and free text cannot be served
+ * by a timestamp index, so those searches scan the newest
+ * {@link AUDIT_SCAN_LIMIT} entries of the chosen date range and the result says
+ * `truncated`. When it does, the page says so out loud: a filtered audit search
+ * that silently shows a subset looks like proof that something never happened.
+ *
+ * Every read is async, so both are guarded: a filter changed while a page is in
+ * flight must not paint the older result, and a new filter resets to page 1.
  */
 export default function AuditPage() {
   const { ready: guardReady } = useAuthGuard({ requireAdmin: true });
   const { t } = useLanguage();
 
-  const [entries, setEntries] = React.useState<AuditEntry[]>([]);
+  const [view, setView] = React.useState<AuditQueryResult | null>(null);
+  const [roles, setRoles] = React.useState<string[]>([]);
   const [state, setState] = React.useState<LoadState>("loading");
   const [filter, setFilter] = React.useState<AuditFilter>(EMPTY_FILTER);
   const [page, setPage] = React.useState(1);
+  /** Bumped by retry and by a prune, to re-run the reads without new inputs. */
+  const [reloadKey, setReloadKey] = React.useState(0);
 
-  // Deliberately does not flip to "loading" synchronously: it is called from
-  // an effect, and a setState in an effect body costs a whole extra render
-  // pass. The initial state is already "loading", and the retry button sets it
-  // itself from an event handler.
-  const load = React.useCallback(() => {
-    return listAuditEntries()
-      .then((rows) => {
-        setEntries(rows);
+  // Every setState lives inside the async callback, never in the effect body:
+  // a synchronous setState in an effect costs an extra render pass and is a
+  // lint error in this repo. The initial state is already "loading", and the
+  // retry button flips it back from its own event handler.
+  React.useEffect(() => {
+    if (!guardReady) return;
+    let cancelled = false;
+    void queryAuditEntries(filter, page)
+      .then((result) => {
+        // A filter or page the owner has already left must not paint.
+        if (cancelled) return;
+        setView(result);
         setState("ready");
       })
       .catch((error: unknown) => {
+        if (cancelled) return;
         console.error("[audit] failed to load the activity log", error);
-        setEntries([]);
+        setView(null);
         setState("failed");
       });
-  }, []);
+    return () => {
+      cancelled = true;
+    };
+  }, [guardReady, filter, page, reloadKey]);
 
+  // The role dropdown does not depend on the filter, so it is read once rather
+  // than on every keystroke.
   React.useEffect(() => {
     if (!guardReady) return;
-    void load();
-  }, [guardReady, load]);
+    let cancelled = false;
+    void listAuditRoles()
+      .then((found) => {
+        if (cancelled) return;
+        setRoles(found);
+      })
+      .catch(() => {
+        // A failed role read is a poorer dropdown, not a broken page; the
+        // entry query below reports the real failure.
+        if (cancelled) return;
+        setRoles([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [guardReady, reloadKey]);
 
-  const matching = React.useMemo(
-    () => filterEntries(entries, filter),
-    [entries, filter],
-  );
-  const view = React.useMemo(
-    () => paginate(matching, page, AUDIT_PAGE_SIZE),
-    [matching, page],
-  );
-  const roles = React.useMemo(() => rolesPresent(entries), [entries]);
+  const reload = React.useCallback(() => setReloadKey((k) => k + 1), []);
 
   // Narrowing the results under a deep page number would otherwise leave the
   // owner staring at an empty page 4 of a 2-page list.
@@ -158,14 +182,14 @@ export default function AuditPage() {
               variant="outline"
               onClick={() => {
                 setState("loading");
-                void load();
+                reload();
               }}
               className="h-11"
             >
               {t("auditRetry")}
             </Button>
           </section>
-        ) : matching.length === 0 ? (
+        ) : !view || view.total === 0 ? (
           <section className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border p-8 text-center">
             {isFilterActive(filter) ? (
               <>
@@ -199,6 +223,19 @@ export default function AuditPage() {
           </section>
         ) : (
           <section className="flex w-full min-w-0 flex-col gap-4">
+            {/* Said on screen, never only in the console: this search looked
+                at a window, so "no more results" is not the same as "nothing
+                more happened". */}
+            {view.truncated ? (
+              <p
+                role="status"
+                className="flex items-start gap-2 rounded-lg border border-warning bg-surface-2 p-3 text-sm leading-relaxed text-foreground"
+              >
+                <TriangleAlert className="mt-0.5 size-5 shrink-0 text-warning" aria-hidden />
+                {t("auditPgTruncated", { count: AUDIT_SCAN_LIMIT })}
+              </p>
+            ) : null}
+
             <ul className="w-full min-w-0 list-none rounded-xl border border-border bg-card">
               {view.rows.map((entry) => (
                 <AuditEntryRow key={entry.id} entry={entry} />
@@ -255,8 +292,8 @@ export default function AuditPage() {
 
         {state === "ready" ? (
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <AuditExportCard entries={matching} />
-            <AuditRetentionCard entries={entries} onPruned={() => void load()} />
+            <AuditExportCard filter={filter} disabled={(view?.total ?? 0) === 0} />
+            <AuditRetentionCard onPruned={reload} />
           </div>
         ) : null}
       </main>
