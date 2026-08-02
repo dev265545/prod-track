@@ -487,18 +487,43 @@ function buildOperatorSummaryForRange(input: {
  * Advance deduction for `[rangeFrom, rangeTo]` from a pre-fetched list of an
  * employee's deduction records (avoids an async lookup per range so the
  * base-row builder closures used by `resolveEffectiveSalarySheetRow` can stay
- * synchronous — matching `getDeductionForPeriod`'s own exact periodFrom/periodTo
- * matching logic).
+ * synchronous).
+ *
+ * A record whose period *is* the range wins outright — that is
+ * `getDeductionForPeriod`'s own exact periodFrom/periodTo rule, and keeping it
+ * first means every range that already resolved to a deduction resolves to the
+ * same one. Only when nothing matches exactly do we fall back to summing the
+ * records the range fully *contains*, which is what makes a month recorded as
+ * two half-month deductions come out whole when the sheet is the whole month.
+ * Containment, not overlap: a deduction that spills past `rangeTo` belongs to a
+ * period this sheet is not paying, and cutting it up would invent a number the
+ * owner never wrote down.
+ *
+ * Note this cannot see a deduction *wider* than the range — a full-month record
+ * is invisible to a half-month slice, by design. `resolveEffectiveSalarySheetRow`
+ * is what carries such a record across a sliced month; see the note there.
  */
-function resolveAdvanceDeductionAmount(
+export function resolveAdvanceDeductionAmount(
   deductions: Record<string, unknown>[],
   rangeFrom: string,
   rangeTo: string,
 ): number {
-  const match = deductions.find(
+  const exact = deductions.find(
     (d) => d.periodFrom === rangeFrom && d.periodTo === rangeTo,
   );
-  return (match?.amount as number) ?? 0;
+  if (exact) return (exact.amount as number) ?? 0;
+
+  const contained = deductions.filter(
+    (d) =>
+      typeof d.periodFrom === "string" &&
+      typeof d.periodTo === "string" &&
+      d.periodFrom >= rangeFrom &&
+      d.periodTo <= rangeTo,
+  );
+  if (contained.length === 0) return 0;
+  return round2(
+    contained.reduce((total, d) => total + (((d.amount as number) ?? 0)), 0),
+  );
 }
 
 /** One employee's attendance for the period, keyed by date, duplicates resolved. */

@@ -111,6 +111,65 @@ export function mergeSalarySheetRows(rows: SalarySheetRow[]): SalarySheetRow {
   };
 }
 
+/**
+ * Re-attach the part of the range's advance deduction that no slice could see.
+ *
+ * An advance deduction is recorded against a period. When the owner corrects
+ * only half a month, the month is rebuilt out of half-month slices, and a
+ * deduction recorded against the WHOLE month belongs to none of them: each
+ * slice resolved 0, the merge summed 0 + 0, and the employee was paid a full
+ * salary with an advance they had already taken in hand never cut. That is
+ * money out the door, so it is fixed here rather than left to the slices.
+ *
+ * The range's own base row is the authority on how much this range deducts —
+ * it is resolved once, over `[fromDate, toDate]`, before any slicing. Whatever
+ * the slices already account for is subtracted, so:
+ *   • deduction recorded for the whole month → no slice sees it, all of it is
+ *     added back here, exactly once;
+ *   • deduction recorded per half-month → each slice matches its own, the
+ *     residual is zero and nothing is added twice;
+ *   • no deduction, or one that only partly overlaps the range → zero on both
+ *     sides, and the merged row is returned untouched.
+ *
+ * The residual is subtracted from take-home rather than take-home being
+ * recomputed, so a slice whose net pay the owner stated outright keeps that
+ * stated figure minus the advance, and a row with no residual is bit-for-bit
+ * what the merge produced.
+ */
+function reattachUnslicedAdvanceDeduction(
+  merged: SalarySheetRow,
+  baseRow: SalarySheetRow,
+  sliceRows: SalarySheetRow[],
+): SalarySheetRow {
+  const sliceTotal = round2(
+    sliceRows.reduce(
+      (total, row) => total + row.calculatedValues.advanceDeduction,
+      0,
+    ),
+  );
+  const residual = round2(
+    Math.max(0, baseRow.calculatedValues.advanceDeduction - sliceTotal),
+  );
+  if (residual === 0) return merged;
+
+  return {
+    ...merged,
+    advanceDeduction: round2(merged.advanceDeduction + residual),
+    netCalculatedSalary: round2(
+      Math.max(0, merged.netCalculatedSalary - residual),
+    ),
+    calculatedValues: {
+      ...merged.calculatedValues,
+      advanceDeduction: round2(
+        merged.calculatedValues.advanceDeduction + residual,
+      ),
+      netCalculatedSalary: round2(
+        Math.max(0, merged.calculatedValues.netCalculatedSalary - residual),
+      ),
+    },
+  };
+}
+
 export function resolveEffectiveSalarySheetRow(
   baseRow: SalarySheetRow,
   employeeOverrides: SalarySheetOverrideRecord[],
@@ -136,11 +195,11 @@ export function resolveEffectiveSalarySheetRow(
 
   // Only fall back to per-slice composition when a correction actually exists
   // for one of the slices. Recomposing an un-corrected range out of half-month
-  // slices is not value-neutral: period-scoped values (advance deductions are
-  // matched on an exact periodFrom/periodTo pair) and running per-month state
-  // (the Operator Sunday multiplier's present-day counter) are lost when the
-  // range is cut up. With no override to honour, the whole-range base row is
-  // both cheaper and more accurate.
+  // slices is not value-neutral: running per-month state (the Operator Sunday
+  // multiplier's present-day counter) is lost when the range is cut up. With no
+  // override to honour, the whole-range base row is both cheaper and more
+  // accurate. (Period-scoped advance deductions used to be lost here too; they
+  // are now carried across the cut by `reattachUnslicedAdvanceDeduction`.)
   const hasSliceOverride = slices.some((period) =>
     Boolean(
       findSalarySheetOverrideForRange(
@@ -154,18 +213,7 @@ export function resolveEffectiveSalarySheetRow(
     return baseRow;
   }
 
-  if (slices.length === 1) {
-    const period = slices[0];
-    const sliceBase = buildBaseForRange(period.fromDate, period.toDate);
-    const sliceOverride = findSalarySheetOverrideForRange(
-      employeeOverrides,
-      period.fromDate,
-      period.toDate,
-    );
-    return applySalarySheetOverrides(sliceBase, sliceOverride);
-  }
-
-  const mergedRows = slices.map((period) => {
+  const sliceRows = slices.map((period) => {
     const sliceBase = buildBaseForRange(period.fromDate, period.toDate);
     const sliceOverride = findSalarySheetOverrideForRange(
       employeeOverrides,
@@ -175,5 +223,11 @@ export function resolveEffectiveSalarySheetRow(
     return applySalarySheetOverrides(sliceBase, sliceOverride);
   });
 
-  return mergeSalarySheetRows(mergedRows);
+  // `mergeSalarySheetRows` returns the single row unchanged when there is one
+  // slice, and a one-slice range is the whole range, so its residual is zero.
+  return reattachUnslicedAdvanceDeduction(
+    mergeSalarySheetRows(sliceRows),
+    baseRow,
+    sliceRows,
+  );
 }
