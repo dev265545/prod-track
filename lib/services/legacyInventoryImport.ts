@@ -35,11 +35,20 @@ import {
  * this is what makes re-importing the same file idempotent. */
 const LEGACY_IMPORT_NOTE = "Imported from legacy Excel";
 
+/**
+ * Sheet names only the ORIGINAL factory workbook has.
+ *
+ * "Glass" is deliberately NOT in this list even though the legacy file has a
+ * sheet by that name: ProdTrack's own inventory export writes one sheet per
+ * category, so it has a "Glass" sheet too. Matching on it made the app treat
+ * its own export as a legacy workbook and import nothing at all — an owner
+ * could export their stock, edit it, and re-import to complete silence. The
+ * parenthesised names below carry the legacy row counts and cannot collide.
+ */
 const LEGACY_SHEET_NAMES = [
   "Box, Dana, Poly (4)",
   "Container (3)",
   "Sticker (2)",
-  "Glass",
 ];
 
 /** True if the workbook looks like the original factory .xlsm export. */

@@ -6,7 +6,12 @@
 
 import { getAll, STORES } from "./adapter";
 import type { ExportData } from "./exportImport";
-import { DB_VERSION } from "./schema";
+import { DB_VERSION, METADATA_STORE } from "./schema";
+import {
+  APP_SETTINGS_ID,
+  exportAppSettings,
+  normalizeAppSettings,
+} from "../services/appSettingsService";
 import { getSqlJsModule, type SqlJsExecRow, type SqlJsModule } from "./sqlJsLoader";
 
 const EXPORT_VERSION = 1;
@@ -33,6 +38,25 @@ export async function exportDatabaseToSqlite(): Promise<Uint8Array> {
         { ":id": id, ":data": data }
       );
     }
+  }
+
+  // `_metadata` is not a business store, so the loop above skips it — but the
+  // .db backup must still carry the schema version and the app configuration,
+  // exactly like the JSON backup does. The `_app` row (admin password hash,
+  // session nonce) is deliberately NOT written: credentials never leave the
+  // install they were set on.
+  db.run(
+    `CREATE TABLE IF NOT EXISTS "${METADATA_STORE}" (id TEXT PRIMARY KEY NOT NULL, data TEXT NOT NULL)`
+  );
+  const metaRows: Record<string, unknown>[] = [
+    { id: "_schema", schemaVersion: DB_VERSION },
+    (await exportAppSettings()) as unknown as Record<string, unknown>,
+  ];
+  for (const record of metaRows) {
+    db.run(
+      `INSERT OR REPLACE INTO "${METADATA_STORE}" (id, data) VALUES (:id, :data)`,
+      { ":id": String(record.id), ":data": JSON.stringify(record) }
+    );
   }
 
   const out = db.export();
@@ -104,6 +128,22 @@ export async function importDatabaseFromSqliteBuffer(
     // _metadata may not exist in older .db files
   }
 
+  // App configuration, if this .db was written by a build that carries it.
+  // A file without the row leaves `appSettings` undefined, which importDatabase
+  // reads as "keep this install's settings".
+  let appSettings: ExportData["appSettings"];
+  try {
+    const settingsResult: SqlJsExecRow[] = db.exec(
+      `SELECT data FROM "${METADATA_STORE}" WHERE id = '${APP_SETTINGS_ID}'`
+    );
+    const cell = settingsResult[0]?.values?.[0]?.[0];
+    if (cell != null) {
+      appSettings = normalizeAppSettings(JSON.parse(String(cell)));
+    }
+  } catch {
+    // no `_metadata` table, or an unreadable row: settings simply don't travel
+  }
+
   db.close();
 
   return {
@@ -111,5 +151,6 @@ export async function importDatabaseFromSqliteBuffer(
     schemaVersion: schemaVersion || DB_VERSION,
     exportedAt: new Date().toISOString(),
     stores,
+    appSettings,
   };
 }

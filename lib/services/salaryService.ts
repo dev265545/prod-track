@@ -32,6 +32,66 @@ import { salarySheetRowHasAdjustment } from "@/lib/services/salarySheetService";
 import {
   buildAttendanceSalarySummaryForRange,
 } from "@/lib/utils/attendanceStats";
+import { buildPrintDocument, escapeHtml } from "@/lib/print/html";
+import { buildPrintStyles } from "@/lib/print/styles";
+
+/**
+ * Cells for the printed employee documents.
+ *
+ * Everything that reaches paper goes through `escapeHtml`: item names,
+ * attendance status labels and employee names are all typed by the user, and
+ * an unescaped `&` in an item name is enough to corrupt the rest of the row.
+ */
+function td(value: string | number, right = false): string {
+  return `<td class="border${right ? " text-right" : ""}">${escapeHtml(String(value))}</td>`;
+}
+
+function th(label: string, right = false): string {
+  return `<th class="border${right ? " text-right" : ""}">${escapeHtml(label)}</th>`;
+}
+
+/** `<strong>label</strong> value`, both escaped. */
+function labelled(label: string, value: string | number): string {
+  return `<strong>${escapeHtml(label)}</strong> ${escapeHtml(String(value))}`;
+}
+
+const DASH = "—";
+
+/** Header of the per-day attendance table, shared by both attendance prints. */
+const DAY_TABLE_HEADER =
+  `<tr>` +
+  th("Date") +
+  th("Day") +
+  th("Status") +
+  th("Hrs worked", true) +
+  th("Extra hrs", true) +
+  th("Less hrs", true) +
+  th("Equiv. hrs", true) +
+  th("Paid day %", true) +
+  th("Day pay", true) +
+  `</tr>`;
+
+/** Column count of `DAY_TABLE_HEADER`, for the "no rows" message's colspan. */
+const DAY_TABLE_COLUMNS = 9;
+
+/** One row of the per-day attendance table. Must match `DAY_TABLE_HEADER`. */
+function dayRowHtml(row: MonthSalaryDayRow): string {
+  const hours = (v: number | null | undefined) =>
+    v != null ? number(v) : DASH;
+  return (
+    `<tr>` +
+    td(dateDisplay(row.date)) +
+    td(row.weekdayShort) +
+    td(row.statusLabel) +
+    td(hours(row.hoursWorked), true) +
+    td(hours(row.hoursExtra), true) +
+    td(hours(row.hoursReduced), true) +
+    td(hours(row.effectiveHours), true) +
+    td(number(row.paidFraction), true) +
+    td(currency(row.basePay), true) +
+    `</tr>`
+  );
+}
 
 export interface ProductionRow {
   date: string;
@@ -144,30 +204,73 @@ export async function getPrintableSalaryHtml(
         ? "Gross (Night):"
         : "Gross (Production):";
 
-  const printStyles =
-    "body{margin:0;font-family:system-ui,sans-serif;font-size:12px;color:#0a0a0a;background:#fff;padding:16px}.mb-4{margin-bottom:12px}.mb-6{margin-bottom:16px}.text-2xl{font-size:1.25rem;font-weight:700}.text-sm{font-size:0.75rem}.text-lg{font-size:1rem}.text-gray-600{color:#52525b}.border{border:1px solid #e4e4e7}.border-t-2{border-top:2px solid #e4e4e7}.w-full{width:100%}.table{width:100%;font-size:11px;border-collapse:collapse}.table th,.table td{padding:4px 6px;text-align:left;border:1px solid #e4e4e7}.table th{background:#f4f4f5;font-weight:600}.text-right{text-align:right}.pt-2{padding-top:6px}.pt-4{padding-top:12px}.no-print{display:none!important}@media print{body*{visibility:hidden}#printArea,#printArea *{visibility:visible}#printArea{position:absolute;left:0;top:0;width:100%}}";
-
   const showShiftCol = filter === "both";
-  const rowCells = (r: ProductionRow) =>
-    showShiftCol
-      ? `<tr><td class="border" style="padding:4px 6px">${dateDisplay(r.date)}</td><td class="border" style="padding:4px 6px">${r.itemName}</td><td class="border" style="padding:4px 6px">${r.shift}</td><td class="border text-right" style="padding:4px 6px">${number(r.quantity)}</td><td class="border text-right" style="padding:4px 6px">${currency(r.rate)}</td><td class="border text-right" style="padding:4px 6px">${currency(r.value)}</td></tr>`
-      : `<tr><td class="border" style="padding:4px 6px">${dateDisplay(r.date)}</td><td class="border" style="padding:4px 6px">${r.itemName}</td><td class="border text-right" style="padding:4px 6px">${number(r.quantity)}</td><td class="border text-right" style="padding:4px 6px">${currency(r.rate)}</td><td class="border text-right" style="padding:4px 6px">${currency(r.value)}</td></tr>`;
-  const rows = productions.map((r) => rowCells(r)).join("");
+  const rows = productions
+    .map(
+      (r) =>
+        `<tr>` +
+        td(dateDisplay(r.date)) +
+        td(r.itemName) +
+        (showShiftCol ? td(r.shift) : "") +
+        td(number(r.quantity), true) +
+        td(currency(r.rate), true) +
+        td(currency(r.value), true) +
+        `</tr>`,
+    )
+    .join("");
   const prodColspan = showShiftCol ? 6 : 5;
   const prodHeader =
-    showShiftCol
-      ? "<tr class=\"border\"><th class=\"border\" style=\"padding:4px 6px\">Date</th><th class=\"border\" style=\"padding:4px 6px\">Item</th><th class=\"border\" style=\"padding:4px 6px\">Shift</th><th class=\"border text-right\" style=\"padding:4px 6px\">Qty</th><th class=\"border text-right\" style=\"padding:4px 6px\">Rate</th><th class=\"border text-right\" style=\"padding:4px 6px\">Value</th></tr>"
-      : "<tr class=\"border\"><th class=\"border\" style=\"padding:4px 6px\">Date</th><th class=\"border\" style=\"padding:4px 6px\">Item</th><th class=\"border text-right\" style=\"padding:4px 6px\">Qty</th><th class=\"border text-right\" style=\"padding:4px 6px\">Rate</th><th class=\"border text-right\" style=\"padding:4px 6px\">Value</th></tr>";
+    `<tr class="border">` +
+    th("Date") +
+    th("Item") +
+    (showShiftCol ? th("Shift") : "") +
+    th("Qty", true) +
+    th("Rate", true) +
+    th("Value", true) +
+    `</tr>`;
 
-  const advanceColspan = showShiftCol ? 4 : 3;
+  // The advances table shares the production table's width so the two line up.
+  const advanceColspan = prodColspan - 1;
   const advanceRows = salary.advances
     .map(
       (a) =>
-        `<tr><td class="border" style="padding:4px 6px">${dateDisplay(a.date)}</td><td class="border text-right" colspan="${advanceColspan}" style="padding:4px 6px">${currency(a.amount)}</td></tr>`
+        `<tr>${td(dateDisplay(a.date))}<td class="border text-right" colspan="${advanceColspan}">${escapeHtml(currency(a.amount))}</td></tr>`,
     )
     .join("");
 
-  const html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Production — ${name}</title><style>${printStyles}</style></head><body id="printArea"><div style="max-width:42rem;margin:0 auto"><div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px"><div><h1 class="text-2xl">ProdTrack Lite</h1><p class="text-sm text-gray-600">Production &amp; advances${filter !== "both" ? ` (${filter === "day" ? "Day" : "Night"} shift)` : ""}</p></div><div class="text-sm text-right"><p><strong>Period:</strong> ${dateDisplay(fromDate)} – ${dateDisplay(toDate)}</p></div></div><div class="mb-4"><p class="text-lg"><strong>Employee:</strong> ${name}</p></div><h2 class="text-sm" style="font-weight:600;text-transform:uppercase;color:#52525b;margin-bottom:6px">Production</h2><table class="table w-full border-collapse mb-6"><thead>${prodHeader}</thead><tbody>${rows || `<tr><td colspan="${prodColspan}" class="border" style="padding:6px;color:#71717a">No production in this period.</td></tr>`}</tbody></table><h2 class="text-sm" style="font-weight:600;text-transform:uppercase;color:#52525b;margin-bottom:6px">Advances</h2><table class="table w-full border-collapse mb-6"><thead><tr class="border"><th class="border" style="padding:4px 6px">Date</th><th class="border text-right" colspan="${advanceColspan}" style="padding:4px 6px">Amount</th></tr></thead><tbody>${advanceRows || `<tr><td colspan="${advanceColspan + 1}" class="border" style="padding:6px;color:#71717a">No advances.</td></tr>`}</tbody></table><div class="border-t-2 pt-4" style="border-color:#e4e4e7"><p class="text-sm"><strong>${grossLabel}</strong> ${currency(grossFiltered)}</p><p class="text-sm"><strong>Advance to cut (this period):</strong> ${currency(advanceToCut)}</p><p class="text-lg font-bold pt-2" style="font-weight:700;padding-top:8px">Net: ${currency(finalFiltered)}</p></div></div></body></html>`;
+  const body =
+    `<div class="mb-4"><p class="text-lg">${labelled("Employee:", name)}</p></div>` +
+    `<h2 class="text-sm" style="font-weight:600;text-transform:uppercase;color:#52525b;margin-bottom:6px">Production</h2>` +
+    `<table class="table w-full mb-6"><thead>${prodHeader}</thead><tbody>` +
+    (rows ||
+      `<tr><td colspan="${prodColspan}" class="border" style="color:#71717a">No production in this period.</td></tr>`) +
+    `</tbody></table>` +
+    `<h2 class="text-sm" style="font-weight:600;text-transform:uppercase;color:#52525b;margin-bottom:6px">Advances</h2>` +
+    `<table class="table w-full mb-6"><thead><tr class="border">${th("Date")}<th class="border text-right" colspan="${advanceColspan}">Amount</th></tr></thead><tbody>` +
+    (advanceRows ||
+      `<tr><td colspan="${advanceColspan + 1}" class="border" style="color:#71717a">No advances.</td></tr>`) +
+    `</tbody></table>` +
+    `<div style="border-top:2px solid #e4e4e7;padding-top:12px">` +
+    `<p class="text-sm">${labelled(grossLabel, currency(grossFiltered))}</p>` +
+    `<p class="text-sm">${labelled("Advance to cut (this period):", currency(advanceToCut))}</p>` +
+    `<p class="text-lg" style="font-weight:700;padding-top:8px">Net: ${escapeHtml(currency(finalFiltered))}</p>` +
+    `</div>`;
+
+  const html = buildPrintDocument({
+    title: `Production — ${name}`,
+    appName: "ProdTrack Lite",
+    subtitle:
+      "Production & advances" +
+      (filter === "both" ? "" : ` (${filter === "day" ? "Day" : "Night"} shift)`),
+    meta: [
+      {
+        label: "Period:",
+        value: `${dateDisplay(fromDate)} – ${dateDisplay(toDate)}`,
+      },
+    ],
+    body,
+    styles: buildPrintStyles(),
+  });
 
   return { html, employeeName: name, salary };
 }
@@ -187,12 +290,21 @@ export async function getPrintableMonthlyAttendanceSheetHtml(
     getSundayCategories(),
   ]);
   const name = (employee?.name as string) || "Unknown";
-  const printStyles =
-    "body{margin:0;font-family:system-ui,sans-serif;font-size:11px;color:#0a0a0a;background:#fff;padding:12px}.text-2xl{font-size:1.25rem;font-weight:700}.text-sm{font-size:0.75rem}.text-gray-600{color:#52525b}.border{border:1px solid #e4e4e7}.table{width:100%;font-size:10px;border-collapse:collapse}.table th,.table td{padding:3px 5px;text-align:left;border:1px solid #e4e4e7}.table th{background:#f4f4f5;font-weight:600}.text-right{text-align:right}";
+  const printStyles = buildPrintStyles({
+    tableFontSize: 10,
+    cellPadding: "3px 5px",
+  });
 
   if (!employee) {
     return {
-      html: `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Not found</title><style>${printStyles}</style></head><body><p>Employee not found.</p></body></html>`,
+      html: buildPrintDocument({
+        title: "Not found",
+        appName: "ProdTrack Lite",
+        subtitle: "Monthly attendance & salary",
+        meta: [],
+        body: "<p>Employee not found.</p>",
+        styles: printStyles,
+      }),
       employeeName: name,
     };
   }
@@ -256,31 +368,29 @@ export async function getPrintableMonthlyAttendanceSheetHtml(
   );
 
   const monthTitle = formatMonthYear(from);
-  const dayRows = effectiveBreakdown.days
-    .map(
-      (r) =>
-        `<tr>
-        <td class="border">${dateDisplay(r.date)}</td>
-        <td class="border">${r.weekdayShort}</td>
-        <td class="border">${r.statusLabel}</td>
-        <td class="border text-right">${r.hoursWorked != null ? number(r.hoursWorked) : "—"}</td>
-        <td class="border text-right">${r.hoursExtra != null ? number(r.hoursExtra) : "—"}</td>
-        <td class="border text-right">${r.hoursReduced != null ? number(r.hoursReduced) : "—"}</td>
-        <td class="border text-right">${r.effectiveHours != null ? number(r.effectiveHours) : "—"}</td>
-        <td class="border text-right">${number(r.paidFraction)}</td>
-        <td class="border text-right font-semibold">${currency(r.basePay)}</td>
-      </tr>`
-    )
-    .join("");
+  const dayRows = effectiveBreakdown.days.map(dayRowHtml).join("");
 
-  const summary = `<div class="border" style="padding:10px;margin-bottom:12px;border-color:#e4e4e7">
-    <p style="margin:0 0 4px"><strong>Monthly salary:</strong> ${currency(monthlySalary)} · <strong>Rate / day:</strong> ${currency(ratePerDay)} · <strong>Rate / hour:</strong> ${currency(ratePerHour)} · <strong>${number(hoursPerDay)}h</strong> shift · <strong>${number(calendarDaysInMonth)}</strong> calendar days in month</p>
-    <p style="margin:0 0 4px"><strong>Paid working days (fraction):</strong> ${number(effectiveBreakdown.paidWorkingDays)} · <strong>Absent:</strong> ${number(effectiveBreakdown.absentDays)} · <strong>Holiday present:</strong> ${number(effectiveBreakdown.holidayPresentDays)} · <strong>Earned extra days (15-day cycles, max 4/mo):</strong> ${number(effectiveBreakdown.earnedSundayPayDays)} (${currency(effectiveBreakdown.earnedSundayPoolPay)}) · <strong>Sunday marked present:</strong> ${number(effectiveBreakdown.sundayPresentBonusDays)} (${currency(effectiveBreakdown.sundayMarkBonusPay)}) · <strong>Total paid days:</strong> ${number(effectiveBreakdown.totalPaidDays)}</p>
-    <p style="margin:0 0 4px"><strong>Extra hours (sum):</strong> ${number(effectiveBreakdown.sumHoursExtra)} · <strong>Hours reduced (sum):</strong> ${number(effectiveBreakdown.sumHoursReduced)}</p>
-    <p style="margin:0"><strong>Total (attendance):</strong> ${currency(effectiveBreakdown.totalBaseSalary)}${salarySheetRowHasAdjustment(salarySheetRow) ? " · <em>Includes payroll adjustment</em>" : ""}</p>
-  </div>`;
+  const summary =
+    `<div class="border" style="padding:10px;margin-bottom:12px">` +
+    `<p style="margin:0 0 4px">${labelled("Monthly salary:", currency(monthlySalary))} · ${labelled("Rate / day:", currency(ratePerDay))} · ${labelled("Rate / hour:", currency(ratePerHour))} · <strong>${escapeHtml(number(hoursPerDay))}h</strong> shift · <strong>${escapeHtml(number(calendarDaysInMonth))}</strong> calendar days in month</p>` +
+    `<p style="margin:0 0 4px">${labelled("Paid working days (fraction):", number(effectiveBreakdown.paidWorkingDays))} · ${labelled("Absent:", number(effectiveBreakdown.absentDays))} · ${labelled("Holiday present:", number(effectiveBreakdown.holidayPresentDays))} · ${labelled("Earned extra days (15-day cycles, max 4/mo):", `${number(effectiveBreakdown.earnedSundayPayDays)} (${currency(effectiveBreakdown.earnedSundayPoolPay)})`)} · ${labelled("Sunday marked present:", `${number(effectiveBreakdown.sundayPresentBonusDays)} (${currency(effectiveBreakdown.sundayMarkBonusPay)})`)} · ${labelled("Total paid days:", number(effectiveBreakdown.totalPaidDays))}</p>` +
+    `<p style="margin:0 0 4px">${labelled("Extra hours (sum):", number(effectiveBreakdown.sumHoursExtra))} · ${labelled("Hours reduced (sum):", number(effectiveBreakdown.sumHoursReduced))}</p>` +
+    `<p style="margin:0">${labelled("Total (attendance):", currency(effectiveBreakdown.totalBaseSalary))}${salarySheetRowHasAdjustment(salarySheetRow) ? " · <em>Includes payroll adjustment</em>" : ""}</p>` +
+    `</div>`;
 
-  const html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Monthly attendance — ${name}</title><style>${printStyles}</style></head><body id="printArea"><div style="margin:0 auto"><div style="display:flex;justify-content:space-between;margin-bottom:12px"><div><h1 class="text-2xl">ProdTrack Lite</h1><p class="text-sm text-gray-600">Monthly attendance &amp; salary</p></div><div class="text-sm text-right"><p><strong>Employee:</strong> ${name}</p><p><strong>Month:</strong> ${monthTitle}</p></div></div>${summary}<table class="table"><thead><tr><th class="border">Date</th><th class="border">Day</th><th class="border">Status</th><th class="border text-right">Hrs worked</th><th class="border text-right">Extra hrs</th><th class="border text-right">Less hrs</th><th class="border text-right">Equiv. hrs</th><th class="border text-right">Paid day %</th><th class="border text-right">Day pay</th></tr></thead><tbody>${dayRows}</tbody></table></div></body></html>`;
+  const html = buildPrintDocument({
+    title: `Monthly attendance — ${name}`,
+    appName: "ProdTrack Lite",
+    subtitle: "Monthly attendance & salary",
+    meta: [
+      { label: "Employee:", value: name },
+      { label: "Month:", value: monthTitle },
+    ],
+    body:
+      summary +
+      `<table class="table"><thead>${DAY_TABLE_HEADER}</thead><tbody>${dayRows}</tbody></table>`,
+    styles: printStyles,
+  });
 
   return { html, employeeName: name };
 }
@@ -427,21 +537,36 @@ export function buildPrintableAttendanceSalaryRangeHtml(input: {
     dayRows,
     includesPayrollAdjustment = false,
   } = input;
-  const printStyles =
-    "body{margin:0;font-family:system-ui,sans-serif;font-size:12px;color:#0a0a0a;background:#fff;padding:16px}.text-2xl{font-size:1.25rem;font-weight:700}.text-sm{font-size:0.75rem}.text-gray-600{color:#52525b}.border{border:1px solid #e4e4e7}.table{width:100%;font-size:11px;border-collapse:collapse}.table th,.table td{padding:5px 6px;text-align:left;border:1px solid #e4e4e7}.table th{background:#f4f4f5;font-weight:600}.text-right{text-align:right}";
   const earnedSundayPoolPay =
     Math.round(summary.earnedSundayPayDays * ratePerDay * 100) / 100;
   const sundayMarkBonusPay =
     Math.round(summary.sundayPresentBonusDays * ratePerDay * 100) / 100;
   const dayRowsHtml =
     dayRows.length === 0
-      ? '<tr><td colspan="9" class="border" style="padding:6px;color:#71717a">No attendance rows in this range.</td></tr>'
-      : dayRows
-          .map(
-            (row) =>
-              `<tr><td class="border">${dateDisplay(row.date)}</td><td class="border">${row.weekdayShort}</td><td class="border">${row.statusLabel}</td><td class="border text-right">${row.hoursWorked != null ? number(row.hoursWorked) : "—"}</td><td class="border text-right">${row.hoursExtra != null ? number(row.hoursExtra) : "—"}</td><td class="border text-right">${row.hoursReduced != null ? number(row.hoursReduced) : "—"}</td><td class="border text-right">${row.effectiveHours != null ? number(row.effectiveHours) : "—"}</td><td class="border text-right">${number(row.paidFraction)}</td><td class="border text-right">${currency(row.basePay)}</td></tr>`,
-          )
-          .join("");
+      ? `<tr><td colspan="${DAY_TABLE_COLUMNS}" class="border" style="color:#71717a">No attendance rows in this range.</td></tr>`
+      : dayRows.map(dayRowHtml).join("");
 
-  return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Attendance salary — ${employeeName}</title><style>${printStyles}</style></head><body id="printArea"><div style="margin:0 auto;max-width:56rem"><div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px"><div><h1 class="text-2xl">ProdTrack Lite</h1><p class="text-sm text-gray-600">Attendance salary contribution</p></div><div class="text-sm text-right"><p><strong>Employee:</strong> ${employeeName}</p><p><strong>Month:</strong> ${monthLabel}</p><p><strong>Range:</strong> ${rangeLabel}</p></div></div><div class="border" style="padding:10px;margin-bottom:12px"><p style="margin:0 0 4px"><strong>Period:</strong> ${dateDisplay(fromDate)} – ${dateDisplay(toDate)}</p><p style="margin:0 0 4px"><strong>Monthly salary:</strong> ${currency(monthlySalary)} · <strong>Rate / day:</strong> ${currency(ratePerDay)} · <strong>Rate / hour:</strong> ${currency(ratePerHour)}</p><p style="margin:0 0 4px"><strong>Paid working days:</strong> ${number(summary.presentDays)} · <strong>Absent:</strong> ${number(summary.absentDays)} · <strong>Holiday present:</strong> ${number(summary.holidayPresentDays)} · <strong>Earned Sun.:</strong> ${number(summary.earnedSundayPayDays)} (${currency(earnedSundayPoolPay)}) · <strong>Sun. +:</strong> ${number(summary.sundayPresentBonusDays)} (${currency(sundayMarkBonusPay)})</p><p style="margin:0 0 4px"><strong>Extra hours:</strong> ${number(summary.hoursExtraTotal)} · <strong>Less hours:</strong> ${number(summary.hoursReducedTotal)} · <strong>Paid days:</strong> ${number(summary.totalPaidDays)}</p><p style="margin:0"><strong>Salary contribution:</strong> ${currency(summary.calculatedSalary)}${includesPayrollAdjustment ? " · <em>Includes payroll adjustment</em>" : ""}</p></div><h2 class="text-sm" style="font-weight:600;text-transform:uppercase;color:#52525b;margin-bottom:6px">Daily breakdown</h2><table class="table" style="margin-bottom:12px"><thead><tr><th class="border">Date</th><th class="border">Day</th><th class="border">Status</th><th class="border text-right">Hrs worked</th><th class="border text-right">Extra hrs</th><th class="border text-right">Less hrs</th><th class="border text-right">Equiv. hrs</th><th class="border text-right">Paid day %</th><th class="border text-right">Day pay</th></tr></thead><tbody>${dayRowsHtml}</tbody></table></div></body></html>`;
+  const body =
+    `<div class="border" style="padding:10px;margin-bottom:12px">` +
+    `<p style="margin:0 0 4px">${labelled("Period:", `${dateDisplay(fromDate)} – ${dateDisplay(toDate)}`)}</p>` +
+    `<p style="margin:0 0 4px">${labelled("Monthly salary:", currency(monthlySalary))} · ${labelled("Rate / day:", currency(ratePerDay))} · ${labelled("Rate / hour:", currency(ratePerHour))}</p>` +
+    `<p style="margin:0 0 4px">${labelled("Paid working days:", number(summary.presentDays))} · ${labelled("Absent:", number(summary.absentDays))} · ${labelled("Holiday present:", number(summary.holidayPresentDays))} · ${labelled("Earned Sun.:", `${number(summary.earnedSundayPayDays)} (${currency(earnedSundayPoolPay)})`)} · ${labelled("Sun. +:", `${number(summary.sundayPresentBonusDays)} (${currency(sundayMarkBonusPay)})`)}</p>` +
+    `<p style="margin:0 0 4px">${labelled("Extra hours:", number(summary.hoursExtraTotal))} · ${labelled("Less hours:", number(summary.hoursReducedTotal))} · ${labelled("Paid days:", number(summary.totalPaidDays))}</p>` +
+    `<p style="margin:0">${labelled("Salary contribution:", currency(summary.calculatedSalary))}${includesPayrollAdjustment ? " · <em>Includes payroll adjustment</em>" : ""}</p>` +
+    `</div>` +
+    `<h2 class="text-sm" style="font-weight:600;text-transform:uppercase;color:#52525b;margin-bottom:6px">Daily breakdown</h2>` +
+    `<table class="table" style="margin-bottom:12px"><thead>${DAY_TABLE_HEADER}</thead><tbody>${dayRowsHtml}</tbody></table>`;
+
+  return buildPrintDocument({
+    title: `Attendance salary — ${employeeName}`,
+    appName: "ProdTrack Lite",
+    subtitle: "Attendance salary contribution",
+    meta: [
+      { label: "Employee:", value: employeeName },
+      { label: "Month:", value: monthLabel },
+      { label: "Range:", value: rangeLabel },
+    ],
+    body,
+    styles: buildPrintStyles({ cellPadding: "5px 6px" }),
+  });
 }

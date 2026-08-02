@@ -5,11 +5,19 @@
  * system browser or a native printer that may be as old as Chrome 109.
  */
 
+/**
+ * Escape user-supplied text for an HTML document.
+ *
+ * Quotes are escaped too, so the same helper is safe inside an attribute
+ * value, not only in a text node — one helper, no "which one was it?".
+ */
 export function escapeHtml(value: string): string {
   return value
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 export interface PrintDocumentOptions {
@@ -25,6 +33,8 @@ export interface PrintDocumentOptions {
   body: string;
   /** Stylesheet from `buildPrintStyles`. */
   styles: string;
+  /** `lang` attribute of the document. Defaults to "en". */
+  lang?: string;
 }
 
 /** Wrap page content in the standard printed-document shell. */
@@ -35,6 +45,7 @@ export function buildPrintDocument({
   meta,
   body,
   styles,
+  lang = "en",
 }: PrintDocumentOptions): string {
   const metaHtml = meta
     .map(
@@ -43,7 +54,7 @@ export function buildPrintDocument({
     )
     .join("");
   return (
-    `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">` +
+    `<!DOCTYPE html><html lang="${escapeHtml(lang)}"><head><meta charset="UTF-8">` +
     `<meta name="viewport" content="width=device-width,initial-scale=1">` +
     `<title>${escapeHtml(title)}</title><style>${styles}</style></head>` +
     `<body id="printArea"><div style="max-width:100%;margin:0 auto">` +

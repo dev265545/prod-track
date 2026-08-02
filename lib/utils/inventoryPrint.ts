@@ -2,6 +2,7 @@
  * ProdTrack Lite - Inventory print/PDF
  */
 import { printHtml } from "./print";
+import { escapeHtml } from "@/lib/print/html";
 import {
   INVENTORY_CATEGORIES,
   type InventoryCategory,
@@ -25,26 +26,30 @@ function sumByType(
     .reduce((sum, m) => sum + m.qty, 0);
 }
 
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
-export async function printInventory(
+/**
+ * The inventory report as printable HTML.
+ *
+ * Separated from `printInventory` so the document can be asserted on without
+ * a browser: this is the page an owner turns into a PDF, and a mis-escaped
+ * item name or a missing column shows up here or nowhere.
+ *
+ * Its stylesheet is its own rather than `buildPrintStyles`: this report is an
+ * A4 stock sheet with low-stock highlighting, not a payroll table. It follows
+ * the same rule though — flat, plain sRGB CSS a Chrome 109 print engine can
+ * parse: no nesting, no color-mix(), no oklch().
+ */
+export function buildInventoryPrintHtml(
   rows: StockRow[],
   movements: InventoryMovement[],
-  opts?: { title?: string; category?: InventoryCategory | "all" }
-): Promise<void> {
+  opts?: { title?: string; category?: InventoryCategory | "all"; generatedAt?: string }
+): string {
   const title = opts?.title ?? "Inventory Report";
   const categoryFilter = opts?.category ?? "all";
 
   const filteredRows =
     categoryFilter === "all" ? rows : rows.filter((r) => r.category === categoryFilter);
 
-  const generatedAt = new Date().toLocaleString();
+  const generatedAt = opts?.generatedAt ?? new Date().toLocaleString();
   const totalItems = filteredRows.length;
   const lowCount = filteredRows.filter((r) => r.isLow).length;
 
@@ -149,5 +154,14 @@ export async function printInventory(
 </body>
 </html>`;
 
-  await printHtml(html);
+  return html;
+}
+
+/** Build the inventory report and hand it to the printer / browser. */
+export async function printInventory(
+  rows: StockRow[],
+  movements: InventoryMovement[],
+  opts?: { title?: string; category?: InventoryCategory | "all" }
+): Promise<void> {
+  await printHtml(buildInventoryPrintHtml(rows, movements, opts));
 }

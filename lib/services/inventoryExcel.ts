@@ -12,10 +12,13 @@ import {
   getMovements,
   saveInventoryItem,
   addMovement,
+  getMovementsForItem,
+  deleteMovement,
   getStockLevels,
   clearInventory,
   getInventoryImportHash,
   setInventoryImportHash,
+  stickerCodesFor,
   INVENTORY_CATEGORIES,
   type InventoryCategory,
   type InventoryItem,
@@ -23,6 +26,12 @@ import {
 } from "./inventoryService";
 import { isLegacyWorkbook, importLegacyWorkbook } from "./legacyInventoryImport";
 import { hashArrayBuffer } from "@/lib/utils/hash";
+
+/** Note stamped on every movement this importer creates, so a re-import can
+ * find and remove its own prior movements before adding fresh ones — this is
+ * what makes re-importing the same workbook idempotent. Mirrors
+ * LEGACY_IMPORT_NOTE in legacyInventoryImport.ts. */
+const EXCEL_IMPORT_NOTE = "Imported from Excel";
 
 function categoryLabel(cat: InventoryCategory): string {
   return cat.charAt(0).toUpperCase() + cat.slice(1);
@@ -82,8 +91,18 @@ export async function buildInventoryWorkbook(
       "Threshold",
       "Status",
     ];
+    // Finished goods carry their bill of materials. Both sticker codes and the
+    // per-unit sticker count get their own columns: exporting only the first
+    // code silently dropped the second one on the next import.
     const header = finished
-      ? [...baseHeader, "Box Code", "Sticker Code", "Poly Code"]
+      ? [
+          ...baseHeader,
+          "Box Code",
+          "Sticker Code",
+          "Sticker Code 2",
+          "Stickers Per Unit",
+          "Poly Code",
+        ]
       : baseHeader;
 
     const rows: (string | number)[][] = [header];
@@ -103,7 +122,15 @@ export async function buildInventoryWorkbook(
         item.isLow ? "LOW" : "OK",
       ];
       if (finished) {
-        row.push(item.boxCode ?? "", item.stickerCode ?? "", item.polyCode ?? "");
+        const stickers = stickerCodesFor(item);
+        row.push(
+          item.boxCode ?? "",
+          stickers[0] ?? "",
+          stickers[1] ?? "",
+          // Blank, not 0: no override must stay no override on re-import.
+          item.stickersPerUnit === undefined ? "" : item.stickersPerUnit,
+          item.polyCode ?? "",
+        );
       }
       rows.push(row);
     }
@@ -246,7 +273,18 @@ export async function importInventoryFromFile(
         ? num(row["Threshold"])
         : undefined;
       const boxCode = str(row["Box Code"]) || undefined;
-      const stickerCode = str(row["Sticker Code"]) || undefined;
+      const stickerCodes = [
+        str(row["Sticker Code"]),
+        str(row["Sticker Code 2"]),
+      ].filter((c) => c !== "");
+      const stickersPerUnitCell = row["Stickers Per Unit"];
+      const stickersPerUnit =
+        stickersPerUnitCell === undefined ||
+        stickersPerUnitCell === null ||
+        stickersPerUnitCell === "" ||
+        !Number.isFinite(Number(stickersPerUnitCell))
+          ? undefined
+          : Number(stickersPerUnitCell);
       const polyCode = str(row["Poly Code"]) || undefined;
 
       const key = `${category}:${code.toLowerCase()}`;
@@ -261,7 +299,8 @@ export async function importInventoryFromFile(
         openingStock: opening,
         lowStockThreshold: threshold ?? existing?.lowStockThreshold ?? 100,
         boxCode,
-        stickerCode,
+        stickerCodes: stickerCodes.length > 0 ? stickerCodes : undefined,
+        stickersPerUnit,
         polyCode,
         sortOrder: existing?.sortOrder ?? 0,
         isActive: existing?.isActive ?? true,
@@ -274,13 +313,22 @@ export async function importInventoryFromFile(
         byKey.set(key, saved);
       }
 
+      // The Inward/Outward cells are this item's TOTAL movement, not a delta,
+      // so the file is the source of truth and its numbers replace whatever
+      // movement rows are on record — they do not stack on top of them.
+      // Adding to them instead is what made an owner's own export re-import to
+      // double the stock: opening 40 + 60 in - 10 out came back as 140.
+      for (const prior of await getMovementsForItem(saved.id)) {
+        await deleteMovement(prior.id);
+      }
+
       if (inward > 0) {
         await addMovement({
           itemId: saved.id,
           date: today,
           type: "inward",
           qty: inward,
-          note: "Imported from Excel",
+          note: EXCEL_IMPORT_NOTE,
         });
         movementsCreated++;
       }
@@ -290,7 +338,7 @@ export async function importInventoryFromFile(
           date: today,
           type: "outward",
           qty: outward,
-          note: "Imported from Excel",
+          note: EXCEL_IMPORT_NOTE,
         });
         movementsCreated++;
       }
@@ -299,24 +347,4 @@ export async function importInventoryFromFile(
 
   await setInventoryImportHash(hash);
   return { mode, unchanged: false, itemsCreated, itemsUpdated, movementsCreated, skipped: [] };
-}
-
-/** Pre-import summary: sheet name + row count for known category sheets. */
-export async function parseWorkbookPreview(
-  file: File
-): Promise<{ sheet: string; rowCount: number }[]> {
-  const buffer = await file.arrayBuffer();
-  const XLSX = await loadXlsx();
-  const wb = XLSX.read(buffer, { type: "array" });
-
-  const results: { sheet: string; rowCount: number }[] = [];
-  for (const sheetName of wb.SheetNames) {
-    const category = findCategoryForSheet(sheetName);
-    if (!category) continue;
-    const sheet = wb.Sheets[sheetName];
-    const rows: ParsedRow[] = XLSX.utils.sheet_to_json(sheet, { defval: "" });
-    const rowCount = rows.filter((r) => str(r["Code"])).length;
-    results.push({ sheet: sheetName, rowCount });
-  }
-  return results;
 }
