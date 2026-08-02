@@ -1421,6 +1421,13 @@ const en = {
   prodRowShifts: "Day {day} · Night {night}",
   prodRowAdd: "Add",
   prodRowAddFor: "Write down work for {name}",
+  prodOrdStart: "Change order",
+  prodOrdDone: "Done",
+  prodOrdHint:
+    "Use the up and down arrows to put the names in the order you walk the floor. The order is saved for every screen.",
+  prodOrdMoveUp: "Move {name} up",
+  prodOrdMoveDown: "Move {name} down",
+  prodOrdSaveFailed: "Could not save the new order. The old order is back.",
   cfgTabProduction: "Production",
   cfgLinkCardTitle: "Stock and production",
   cfgLinkTitle: "Use my stock list for production",
@@ -2858,6 +2865,13 @@ const hi: Record<MessageKey, string> = {
   prodRowShifts: "दिन {day} · रात {night}",
   prodRowAdd: "जोड़ें",
   prodRowAddFor: "{name} का काम लिखें",
+  prodOrdStart: "क्रम बदलें",
+  prodOrdDone: "हो गया",
+  prodOrdHint:
+    "ऊपर-नीचे वाले तीर से नामों को उसी क्रम में लगाएँ जिस क्रम में आप फैक्ट्री में घूमते हैं। यह क्रम हर स्क्रीन पर लागू होगा।",
+  prodOrdMoveUp: "{name} को ऊपर करें",
+  prodOrdMoveDown: "{name} को नीचे करें",
+  prodOrdSaveFailed: "नया क्रम सेव नहीं हो सका। पुराना क्रम वापस आ गया है।",
 
   cfgTabProduction: "\u0909\u0924\u094d\u092a\u093e\u0926\u0928",
   cfgLinkCardTitle: "\u0938\u094d\u091f\u0949\u0915 \u0914\u0930 \u0909\u0924\u094d\u092a\u093e\u0926\u0928",

@@ -539,3 +539,18 @@
   --rdp-accent-background-color: var(--accent);
   --rdp-today-color: var(--primary);
 }
+
+/*
+ * Tailwind's preflight colours placeholders with
+ * `color-mix(in oklab, currentcolor 50%, transparent)`. Chrome 109 (the last
+ * version on Windows 7, which this app ships to) cannot parse color-mix, so the
+ * declaration is dropped and placeholders fall back to the user-agent grey —
+ * which does not follow the theme and is too faint on a bright factory floor.
+ *
+ * Declaring a plain sRGB colour fixes legacy Chrome and, deliberately, applies
+ * everywhere: one predictable placeholder colour is better than two.
+ */
+::placeholder {
+  color: var(--muted-foreground);
+  opacity: 1;
+}

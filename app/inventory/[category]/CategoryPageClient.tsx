@@ -606,6 +606,8 @@ export function CategoryPageClient({ category }: CategoryPageClientProps) {
         }
         canProduce={canProduce}
         onSaved={reload}
+        onInward={(item) => setDialog({ kind: "movement", item, type: "inward" })}
+        onOutward={(item) => setDialog({ kind: "movement", item, type: "outward" })}
         onProduce={(item) => setDialog({ kind: "produce", item })}
         onHistory={(item) => setDialog({ kind: "history", item })}
         onEdit={(item) => setDialog({ kind: "form", item })}

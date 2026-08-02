@@ -1,6 +1,13 @@
 "use client";
 
-import { Factory, History, Pencil, Trash2 } from "lucide-react";
+import {
+  ArrowDownToLine,
+  ArrowUpFromLine,
+  Factory,
+  History,
+  Pencil,
+  Trash2,
+} from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -30,6 +37,8 @@ interface ItemDetailsDialogProps {
   onSaved?: () => Promise<void> | void;
   /** Legacy two-step path, used only when `onSaved` is not supplied. */
   onProduce?: (item: InventoryItem) => void;
+  onInward?: (item: InventoryItem) => void;
+  onOutward?: (item: InventoryItem) => void;
   onHistory: (item: InventoryItem) => void;
   onEdit: (item: InventoryItem) => void;
   onDelete: (item: InventoryItem) => void;
@@ -43,6 +52,8 @@ export function ItemDetailsDialog({
   canProduce = false,
   onSaved,
   onProduce,
+  onInward,
+  onOutward,
   onHistory,
   onEdit,
   onDelete,
@@ -104,6 +115,10 @@ export function ItemDetailsDialog({
               {movementSummary.inward} / {movementSummary.outward}
             </p>
           </div>
+          {/* Packing parts belong to finished goods only. A raw material like
+              dana is not packed with a box, sticker and poly, so showing three
+              dashes here was noise on most of the catalogue. */}
+          {canProduce && (
           <div className="min-w-0 rounded-lg border border-border p-3 sm:col-span-2">
             <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               {t("invDlgPartsTitle")}
@@ -135,6 +150,7 @@ export function ItemDetailsDialog({
               </div>
             </dl>
           </div>
+          )}
         </div>
 
         {inlineProduce && (
@@ -156,6 +172,30 @@ export function ItemDetailsDialog({
         )}
 
         <DialogFooter className="grid grid-cols-1 gap-2 sm:grid-cols-2 sm:space-x-0">
+          {/* The reason most people open this dialog. Previously it offered only
+              History/Edit/Delete, so for a raw material it was a dead end for the
+              one task the operator actually came to do. */}
+          {onInward && (
+            <Button
+              type="button"
+              className="h-11 w-full"
+              onClick={() => onInward(item)}
+            >
+              <ArrowDownToLine data-icon="inline-start" aria-hidden />{" "}
+              {t("invCatStockIn")}
+            </Button>
+          )}
+          {onOutward && (
+            <Button
+              type="button"
+              variant="outline"
+              className="h-11 w-full"
+              onClick={() => onOutward(item)}
+            >
+              <ArrowUpFromLine data-icon="inline-start" aria-hidden />{" "}
+              {t("invCatStockOut")}
+            </Button>
+          )}
           <Button
             type="button"
             variant="outline"

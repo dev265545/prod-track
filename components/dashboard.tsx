@@ -49,7 +49,11 @@ import {
   loadProductionCatalog,
   type ProductionCatalog,
 } from "@/lib/services/productionCatalog";
-import { getEmployees } from "@/lib/services/employeeService";
+import {
+  getEmployees,
+  saveEmployeeSortOrder,
+} from "@/lib/services/employeeService";
+import { moveInVisibleOrder } from "@/lib/utils/employeeOrder";
 import { backfillEmployeeTypes } from "@/lib/services/employeeTypeMigration";
 import { EmployeeTypeConfirmDialog } from "@/components/employee-type-confirm-dialog";
 import {
@@ -81,6 +85,7 @@ import {
   CalendarDays,
   LayoutGrid,
   AlertTriangle,
+  GripVertical,
 } from "lucide-react";
 import {
   Dialog,
@@ -139,6 +144,13 @@ export function Dashboard() {
   const [holidayUnlocked, setHolidayUnlocked] = useState(false);
   const entryFormRef = useRef<ProductionEntryFormHandle>(null);
   const [missingData, setMissingData] = useState<Map<string, MissingDay[]>>(new Map());
+  /**
+   * Arranging the roster into the order the operator physically walks the
+   * floor. Off by default and separate from "Add" so recording output can
+   * never reshuffle people by a mis-tap.
+   */
+  const [reorderMode, setReorderMode] = useState(false);
+  const [savingOrder, setSavingOrder] = useState(false);
 
   // Role is read after mount, never during render: `isAdmin()` touches
   // localStorage, so calling it while rendering makes the first-paint markup
@@ -318,6 +330,47 @@ export function Dashboard() {
   const rosterSummary = useMemo(
     () => summarizeProductionRoster(rosterRows),
     [rosterRows],
+  );
+
+  /**
+   * Move one person one step, against the list the user can actually see.
+   *
+   * The roster is a filtered view — only active production workers — while the
+   * order written to the database covers everyone in `employees`. Handing both
+   * lists to `moveInVisibleOrder` is what stops a "move up" from trading places
+   * with a hidden neighbour, which would save a new order while the screen
+   * looked unchanged.
+   */
+  const handleMoveWorker = useCallback(
+    async (employeeId: string, direction: -1 | 1) => {
+      if (savingOrder) return;
+      const previousEmployees = employees;
+      const nextIds = moveInVisibleOrder({
+        orderedIds: employees.map((e) => e.id as string),
+        visibleIds: rosterRows.map((row) => row.employeeId),
+        id: employeeId,
+        direction,
+      });
+      if (!nextIds) return;
+
+      const byId = new Map(employees.map((e) => [e.id as string, e]));
+      const nextEmployees = nextIds
+        .map((id) => byId.get(id))
+        .filter((e): e is Record<string, unknown> => Boolean(e));
+
+      setSavingOrder(true);
+      setEmployees(nextEmployees);
+      try {
+        await saveEmployeeSortOrder(nextIds);
+      } catch (error) {
+        console.error("save production order failed", error);
+        setEmployees(previousEmployees);
+        toast.error(t("prodOrdSaveFailed"));
+      } finally {
+        setSavingOrder(false);
+      }
+    },
+    [employees, rosterRows, savingOrder, t],
   );
   const entryEmployees = useMemo(
     () =>
@@ -643,20 +696,46 @@ export function Dashboard() {
                 disabled={entryBlocked}
               />
 
-              <div className="flex min-w-0 flex-col gap-1">
-                <h3 className="text-base font-semibold text-foreground font-heading">
-                  {t("prodRosterTitle")}
-                </h3>
-                <p className="max-w-prose text-sm text-muted-foreground">
-                  {t("prodRosterIntro")}
-                </p>
+              <div className="flex min-w-0 flex-wrap items-start justify-between gap-x-4 gap-y-2">
+                <div className="flex min-w-0 flex-col gap-1">
+                  <h3 className="text-base font-semibold text-foreground font-heading">
+                    {t("prodRosterTitle")}
+                  </h3>
+                  <p className="max-w-prose text-sm text-muted-foreground">
+                    {t("prodRosterIntro")}
+                  </p>
+                </div>
+                {rosterRows.length > 1 ? (
+                  <Button
+                    type="button"
+                    variant={reorderMode ? "secondary" : "outline"}
+                    onClick={() => setReorderMode((value) => !value)}
+                    aria-pressed={reorderMode}
+                    className="min-h-[44px] shrink-0 px-4"
+                  >
+                    <GripVertical
+                      data-icon="inline-start"
+                      className="size-4"
+                      aria-hidden
+                    />
+                    {reorderMode ? t("prodOrdDone") : t("prodOrdStart")}
+                  </Button>
+                ) : null}
               </div>
+              {reorderMode ? (
+                <p className="max-w-prose text-sm text-muted-foreground">
+                  {t("prodOrdHint")}
+                </p>
+              ) : null}
               <ProductionSummaryBar summary={rosterSummary} />
               <ProductionRosterList
                 rows={rosterRows}
                 itemNames={itemNames}
                 onAddFor={handleAddFor}
                 disabled={entryBlocked}
+                reorderMode={reorderMode}
+                savingOrder={savingOrder}
+                onMove={(id, direction) => void handleMoveWorker(id, direction)}
               />
             </>
           )}

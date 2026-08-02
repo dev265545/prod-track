@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, CircleDashed, Package, Plus } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, CircleDashed, Package, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/components/language-provider";
@@ -115,14 +115,28 @@ export function ProductionRosterList({
   itemNames,
   onAddFor,
   disabled,
+  reorderMode = false,
+  savingOrder = false,
+  onMove,
 }: {
   rows: ProductionRosterRow[];
   /** Item id → name, for the one-line summary under each person. */
   itemNames: Record<string, string>;
   onAddFor: (employeeId: string) => void;
   disabled?: boolean;
+  /**
+   * When on, the row's "Add" button is replaced by the up/down arrows. The two
+   * are never shown together: an operator walking the floor taps "Add" dozens
+   * of times a day and must not be able to reshuffle people by missing it.
+   */
+  reorderMode?: boolean;
+  /** A save is in flight — arrows are disabled so a double tap cannot write twice. */
+  savingOrder?: boolean;
+  onMove?: (employeeId: string, direction: -1 | 1) => void;
 }) {
   const { t } = useLanguage();
+  const firstId = rows[0]?.employeeId;
+  const lastId = rows[rows.length - 1]?.employeeId;
 
   return (
     <ul className="min-w-0 divide-y divide-border overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
@@ -173,17 +187,42 @@ export function ProductionRosterList({
             )}
           </div>
 
-          <Button
-            type="button"
-            variant={row.recorded ? "outline" : "default"}
-            disabled={disabled}
-            onClick={() => onAddFor(row.employeeId)}
-            aria-label={t("prodRowAddFor", { name: row.name })}
-            className="min-h-[44px] shrink-0 px-4"
-          >
-            <Plus data-icon="inline-start" className="size-4" aria-hidden />
-            {t("prodRowAdd")}
-          </Button>
+          {reorderMode ? (
+            <div className="flex shrink-0 items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                disabled={savingOrder || row.employeeId === firstId}
+                onClick={() => onMove?.(row.employeeId, -1)}
+                aria-label={t("prodOrdMoveUp", { name: row.name })}
+                className="min-h-[44px] min-w-[44px] px-3"
+              >
+                <ArrowUp className="size-5" aria-hidden />
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={savingOrder || row.employeeId === lastId}
+                onClick={() => onMove?.(row.employeeId, 1)}
+                aria-label={t("prodOrdMoveDown", { name: row.name })}
+                className="min-h-[44px] min-w-[44px] px-3"
+              >
+                <ArrowDown className="size-5" aria-hidden />
+              </Button>
+            </div>
+          ) : (
+            <Button
+              type="button"
+              variant={row.recorded ? "outline" : "default"}
+              disabled={disabled}
+              onClick={() => onAddFor(row.employeeId)}
+              aria-label={t("prodRowAddFor", { name: row.name })}
+              className="min-h-[44px] shrink-0 px-4"
+            >
+              <Plus data-icon="inline-start" className="size-4" aria-hidden />
+              {t("prodRowAdd")}
+            </Button>
+          )}
         </li>
       ))}
       {rows.length === 0 ? (
