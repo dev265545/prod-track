@@ -1,4 +1,4 @@
-import { getAll, get, put, remove, STORES } from "@/lib/db/adapter";
+import { getByIndex, put, remove, STORES } from "@/lib/db/adapter";
 
 const STORE = STORES.ATTENDANCE;
 
@@ -16,9 +16,11 @@ export async function getAttendanceByEmployeeAndDate(
   employeeId: string,
   date: string
 ): Promise<Record<string, unknown> | null> {
-  const all = await getAll(STORE);
-  const matches = all.filter(
-    (a) => (a.employeeId as string) === employeeId && (a.date as string) === date
+  const matches = await getByIndex(
+    STORE,
+    "employee_date",
+    [employeeId, date],
+    [employeeId, date]
   );
   return matches.length > 0 ? matches[matches.length - 1] : null;
 }
@@ -28,31 +30,25 @@ export async function getAttendanceByEmployeeInRange(
   fromDate: string,
   toDate: string
 ): Promise<Record<string, unknown>[]> {
-  const all = await getAll(STORE);
-  return all.filter(
-    (a) =>
-      (a.employeeId as string) === employeeId &&
-      (a.date as string) >= fromDate &&
-      (a.date as string) <= toDate
+  return getByIndex(
+    STORE,
+    "employee_date",
+    [employeeId, fromDate],
+    [employeeId, toDate]
   );
 }
 
 export async function getAllAttendanceByDate(
   date: string
 ): Promise<Record<string, unknown>[]> {
-  const all = await getAll(STORE);
-  return all.filter((a) => (a.date as string) === date);
+  return getByIndex(STORE, "by_date", date, date);
 }
 
 export async function getAttendanceInRange(
   fromDate: string,
   toDate: string
 ): Promise<Record<string, unknown>[]> {
-  const all = await getAll(STORE);
-  return all.filter(
-    (a) =>
-      (a.date as string) >= fromDate && (a.date as string) <= toDate
-  );
+  return getByIndex(STORE, "by_date", fromDate, toDate);
 }
 
 /**

@@ -6,6 +6,12 @@
 
 import { invoke } from "@/lib/tauriBridge";
 import { STORES } from "./schema";
+import {
+  getIndexKeyPath,
+  matchesIndexRange,
+  sortByIndexOrder,
+  type IndexKey,
+} from "./indexes";
 
 export function openDB(): Promise<void> {
   return invoke("init_db");
@@ -13,6 +19,26 @@ export function openDB(): Promise<void> {
 
 export function getAll(storeName: string): Promise<Record<string, unknown>[]> {
   return invoke<Record<string, unknown>[]>("db_get_all", { store: storeName });
+}
+
+/**
+ * Emulates `IDBIndex.getAll(IDBKeyRange.bound(...))`. Rows are JSON blobs in a
+ * `(id, data)` table on this backend too, so this is a scan; it exists so the
+ * services can speak one query language and get identical rows everywhere.
+ */
+export async function getByIndex(
+  storeName: string,
+  indexName: string,
+  lower: IndexKey,
+  upper: IndexKey
+): Promise<Record<string, unknown>[]> {
+  const keyPath = getIndexKeyPath(storeName, indexName);
+  if (!keyPath) throw new Error(`Unknown index ${storeName}.${indexName}`);
+  const rows = await getAll(storeName);
+  return sortByIndexOrder(
+    rows.filter((row) => matchesIndexRange(row, keyPath, lower, upper)),
+    keyPath
+  );
 }
 
 export function get(

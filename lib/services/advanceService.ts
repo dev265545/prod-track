@@ -1,6 +1,7 @@
 import {
   getAll,
   get,
+  getByIndex,
   put,
   remove,
   STORES,
@@ -18,12 +19,11 @@ export async function getAdvancesByEmployee(
   fromDate: string,
   toDate: string
 ): Promise<Record<string, unknown>[]> {
-  const all = await getAll(STORE);
-  return all.filter(
-    (a) =>
-      (a.employeeId as string) === employeeId &&
-      (a.date as string) >= fromDate &&
-      (a.date as string) <= toDate
+  return getByIndex(
+    STORE,
+    "employee_date",
+    [employeeId, fromDate],
+    [employeeId, toDate]
   );
 }
 

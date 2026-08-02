@@ -8,7 +8,7 @@ use tauri::{AppHandle, State};
 use tauri_plugin_dialog::DialogExt;
 
 /// Must match lib/db/schema.ts DB_VERSION. Bump when adding migrations.
-const CURRENT_SCHEMA_VERSION: u32 = 10;
+const CURRENT_SCHEMA_VERSION: u32 = 11;
 
 const TABLES: &[&str] = &[
     "_metadata",
@@ -77,6 +77,11 @@ fn run_migration(_conn: &Connection, to_version: u32) -> Result<(), String> {
         10 => {
             // Reserved: audit_log auto-created via TABLES list, no ALTER needed
             // (schema-less id/data JSON blob table, same shape as every other store).
+        }
+        11 => {
+            // Reserved: adds IndexedDB indexes on attendance/advances (see
+            // lib/db/indexes.ts). Nothing to do here — rows are JSON blobs in
+            // an (id, data) table, so SQLite has no column to index.
         }
         _ => {}
     }

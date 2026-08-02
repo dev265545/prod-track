@@ -6,6 +6,12 @@
 import { getSqlJsModule, type SqlJsDatabase } from "./sqlJsLoader";
 import { DB_VERSION, METADATA_STORE, STORES } from "./schema";
 import {
+  getIndexKeyPath,
+  matchesIndexRange,
+  sortByIndexOrder,
+  type IndexKey,
+} from "./indexes";
+import {
   buildSchemaMetadataPayload,
   parseSchemaMetadataJson,
   planSchemaMigration,
@@ -350,6 +356,29 @@ export async function getAll(
     }
   }
   return out;
+}
+
+/**
+ * Emulates `IDBIndex.getAll(IDBKeyRange.bound(...))`.
+ *
+ * Rows live as JSON blobs in a `(id, data)` table, so there is nothing for
+ * SQLite to index and this stays a full scan — the win here is only that
+ * callers get one query shape across all backends, and identical results.
+ * Making this a real index lookup needs generated columns; see `indexes.ts`.
+ */
+export async function getByIndex(
+  storeName: string,
+  indexName: string,
+  lower: IndexKey,
+  upper: IndexKey
+): Promise<Record<string, unknown>[]> {
+  const keyPath = getIndexKeyPath(storeName, indexName);
+  if (!keyPath) throw new Error(`Unknown index ${storeName}.${indexName}`);
+  const rows = await getAll(storeName);
+  return sortByIndexOrder(
+    rows.filter((row) => matchesIndexRange(row, keyPath, lower, upper)),
+    keyPath
+  );
 }
 
 export async function get(

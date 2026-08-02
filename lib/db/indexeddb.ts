@@ -3,84 +3,41 @@
  */
 
 import { DB_NAME, DB_VERSION, METADATA_STORE, STORES } from "./schema";
+import {
+  INDEXES,
+  getIndexKeyPath,
+  matchesIndexRange,
+  sortByIndexOrder,
+  type IndexKey,
+} from "./indexes";
 
 let dbInstance: IDBDatabase | null = null;
 
-function createSchema(db: IDBDatabase) {
-  if (!db.objectStoreNames.contains(METADATA_STORE)) {
-    db.createObjectStore(METADATA_STORE, { keyPath: "id" });
+/**
+ * Brings one store's indexes up to `INDEXES`.
+ *
+ * Runs on every upgrade, for new *and* pre-existing stores: `createSchema`
+ * only touches stores that are absent, so an install created at an older
+ * DB_VERSION would otherwise keep its object store forever and never gain the
+ * indexes added later. Only missing indexes are created, so this is idempotent
+ * and never rebuilds one that is already populated.
+ */
+function ensureIndexes(store: IDBObjectStore, storeName: string) {
+  const wanted = INDEXES[storeName];
+  if (!wanted) return;
+  for (const [indexName, spec] of Object.entries(wanted)) {
+    if (store.indexNames.contains(indexName)) continue;
+    store.createIndex(indexName, spec.keyPath, { unique: spec.unique === true });
   }
-  if (!db.objectStoreNames.contains(STORES.ITEMS)) {
-    db.createObjectStore(STORES.ITEMS, { keyPath: "id" });
-  }
-  if (!db.objectStoreNames.contains(STORES.EMPLOYEES)) {
-    db.createObjectStore(STORES.EMPLOYEES, { keyPath: "id" });
-  }
-  if (!db.objectStoreNames.contains(STORES.PRODUCTIONS)) {
-    const prodStore = db.createObjectStore(STORES.PRODUCTIONS, { keyPath: "id" });
-    prodStore.createIndex("by_date", "date", { unique: false });
-    prodStore.createIndex("by_employee", "employeeId", { unique: false });
-    prodStore.createIndex("by_item", "itemId", { unique: false });
-    prodStore.createIndex("employee_date", ["employeeId", "date"], {
-      unique: false,
-    });
-  }
-  if (!db.objectStoreNames.contains(STORES.ADVANCES)) {
-    const advStore = db.createObjectStore(STORES.ADVANCES, { keyPath: "id" });
-    advStore.createIndex("by_employee", "employeeId", { unique: false });
-    advStore.createIndex("by_date", "date", { unique: false });
-  }
-  if (!db.objectStoreNames.contains(STORES.ADVANCE_DEDUCTIONS)) {
-    const dedStore = db.createObjectStore(STORES.ADVANCE_DEDUCTIONS, {
-      keyPath: "id",
-    });
-    dedStore.createIndex("by_employee", "employeeId", { unique: false });
-    dedStore.createIndex("employee_period", ["employeeId", "periodFrom"], {
-      unique: true,
-    });
-  }
-  if (!db.objectStoreNames.contains(STORES.SHIFTS)) {
-    db.createObjectStore(STORES.SHIFTS, { keyPath: "id" });
-  }
-  if (!db.objectStoreNames.contains(STORES.SALARY_RECORDS)) {
-    const salStore = db.createObjectStore(STORES.SALARY_RECORDS, {
-      keyPath: "id",
-    });
-    salStore.createIndex("by_employee", "employeeId", { unique: false });
-    salStore.createIndex("by_month", "month", { unique: false });
-  }
-  if (!db.objectStoreNames.contains(STORES.SALARY_SHEET_OVERRIDES)) {
-    db.createObjectStore(STORES.SALARY_SHEET_OVERRIDES, { keyPath: "id" });
-  }
-  if (!db.objectStoreNames.contains(STORES.FACTORY_HOLIDAYS)) {
-    db.createObjectStore(STORES.FACTORY_HOLIDAYS, { keyPath: "id" });
-  }
-  if (!db.objectStoreNames.contains(STORES.ATTENDANCE)) {
-    db.createObjectStore(STORES.ATTENDANCE, { keyPath: "id" });
-  }
-  if (!db.objectStoreNames.contains(STORES.SUNDAY_CATEGORIES)) {
-    db.createObjectStore(STORES.SUNDAY_CATEGORIES, { keyPath: "id" });
-  }
-  if (!db.objectStoreNames.contains(STORES.OPERATOR_NATIONAL_HOLIDAYS)) {
-    db.createObjectStore(STORES.OPERATOR_NATIONAL_HOLIDAYS, { keyPath: "id" });
-  }
-  if (!db.objectStoreNames.contains(STORES.MACHINES)) {
-    db.createObjectStore(STORES.MACHINES, { keyPath: "id" });
-  }
-  if (!db.objectStoreNames.contains(STORES.ITEM_COMBOS)) {
-    db.createObjectStore(STORES.ITEM_COMBOS, { keyPath: "id" });
-  }
-  if (!db.objectStoreNames.contains(STORES.INVENTORY_ITEMS)) {
-    db.createObjectStore(STORES.INVENTORY_ITEMS, { keyPath: "id" });
-  }
-  if (!db.objectStoreNames.contains(STORES.INVENTORY_MOVEMENTS)) {
-    const invMoveStore = db.createObjectStore(STORES.INVENTORY_MOVEMENTS, {
-      keyPath: "id",
-    });
-    invMoveStore.createIndex("by_item", "itemId", { unique: false });
-  }
-  if (!db.objectStoreNames.contains(STORES.AUDIT_LOG)) {
-    db.createObjectStore(STORES.AUDIT_LOG, { keyPath: "id" });
+}
+
+function createSchema(db: IDBDatabase, tx: IDBTransaction | null) {
+  const allStores = [METADATA_STORE, ...Object.values(STORES)];
+  for (const name of allStores) {
+    const store = db.objectStoreNames.contains(name)
+      ? tx?.objectStore(name)
+      : db.createObjectStore(name, { keyPath: "id" });
+    if (store) ensureIndexes(store, name);
   }
 }
 
@@ -103,7 +60,8 @@ export function openDB(): Promise<IDBDatabase> {
       resolve(dbInstance);
     };
     request.onupgradeneeded = (e) => {
-      createSchema((e.target as IDBOpenDBRequest).result);
+      const req = e.target as IDBOpenDBRequest;
+      createSchema(req.result, req.transaction);
     };
   });
 }
@@ -114,6 +72,53 @@ export function getAll(storeName: string): Promise<Record<string, unknown>[]> {
       new Promise((resolve, reject) => {
         const store = getStore(db, storeName);
         const request = store.getAll();
+        request.onsuccess = () => resolve(request.result || []);
+        request.onerror = () => reject(request.error);
+      })
+  );
+}
+
+/**
+ * Rows whose index key falls in the inclusive range `[lower, upper]`.
+ *
+ * This is the whole point of declaring the indexes: it reads only the matching
+ * records out of the store instead of deserialising every row in it. Falls back
+ * to a scan if the index is missing, which can happen on a database whose
+ * upgrade transaction was interrupted — a slow answer beats a thrown one.
+ */
+export function getByIndex(
+  storeName: string,
+  indexName: string,
+  lower: IndexKey,
+  upper: IndexKey
+): Promise<Record<string, unknown>[]> {
+  return openDB().then(
+    (db) =>
+      new Promise((resolve, reject) => {
+        const store = getStore(db, storeName);
+        if (!store.indexNames.contains(indexName)) {
+          const keyPath = getIndexKeyPath(storeName, indexName);
+          if (!keyPath) {
+            reject(new Error(`Unknown index ${storeName}.${indexName}`));
+            return;
+          }
+          const scan = store.getAll();
+          scan.onsuccess = () =>
+            resolve(
+              sortByIndexOrder(
+                (scan.result || []).filter((row) =>
+                  matchesIndexRange(row, keyPath, lower, upper)
+                ),
+                keyPath
+              )
+            );
+          scan.onerror = () => reject(scan.error);
+          return;
+        }
+        const request = store
+          .index(indexName)
+          .getAll(IDBKeyRange.bound(lower, upper));
+        // Already in index order from IndexedDB itself; nothing to sort.
         request.onsuccess = () => resolve(request.result || []);
         request.onerror = () => reject(request.error);
       })

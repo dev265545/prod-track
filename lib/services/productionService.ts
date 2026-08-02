@@ -1,6 +1,7 @@
 import {
   getAll,
   get,
+  getByIndex,
   put,
   remove,
   STORES,
@@ -22,8 +23,7 @@ export async function getProduction(
 export async function getProductionsByDate(
   date: string
 ): Promise<Record<string, unknown>[]> {
-  const all = await getAll(STORE);
-  return all.filter((p) => (p.date as string) === date);
+  return getByIndex(STORE, "by_date", date, date);
 }
 
 export async function getProductionsByEmployee(
@@ -31,12 +31,11 @@ export async function getProductionsByEmployee(
   fromDate: string,
   toDate: string
 ): Promise<Record<string, unknown>[]> {
-  const all = await getAll(STORE);
-  return all.filter(
-    (p) =>
-      (p.employeeId as string) === employeeId &&
-      (p.date as string) >= fromDate &&
-      (p.date as string) <= toDate
+  return getByIndex(
+    STORE,
+    "employee_date",
+    [employeeId, fromDate],
+    [employeeId, toDate]
   );
 }
 
@@ -44,11 +43,7 @@ export async function getProductionsInRange(
   fromDate: string,
   toDate: string
 ): Promise<Record<string, unknown>[]> {
-  const all = await getAll(STORE);
-  return all.filter(
-    (p) =>
-      (p.date as string) >= fromDate && (p.date as string) <= toDate
-  );
+  return getByIndex(STORE, "by_date", fromDate, toDate);
 }
 
 export async function getDailyAggregated(date: string): Promise<{

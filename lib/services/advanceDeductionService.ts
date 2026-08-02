@@ -1,4 +1,4 @@
-import { getAll, put, STORES } from "@/lib/db/adapter";
+import { getByIndex, put, STORES } from "@/lib/db/adapter";
 
 const STORE = STORES.ADVANCE_DEDUCTIONS;
 
@@ -9,8 +9,7 @@ function deductionId(employeeId: string, periodFrom: string): string {
 export async function getDeductionsByEmployee(
   employeeId: string
 ): Promise<Record<string, unknown>[]> {
-  const all = await getAll(STORE);
-  return all.filter((d) => d.employeeId === employeeId);
+  return getByIndex(STORE, "by_employee", employeeId, employeeId);
 }
 
 export async function getDeductionForPeriod(
