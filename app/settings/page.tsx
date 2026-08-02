@@ -10,6 +10,7 @@ import { useLanguage } from "@/components/language-provider";
 import type { MessageKey } from "@/lib/i18n/messages";
 import { AboutCard } from "@/components/settings/about-card";
 import { BackupCard } from "@/components/settings/backup-card";
+import { BackupScheduleCard } from "@/components/settings/backup-schedule-card";
 import { CalendarsTab } from "@/components/settings/calendars-tab";
 import { CleanupCard } from "@/components/settings/cleanup-card";
 import { DangerZoneCard } from "@/components/settings/danger-zone-card";
@@ -86,6 +87,7 @@ export default function SettingsPage() {
           <TabsContent value="data" className="min-w-0">
             <div className="flex flex-col gap-6">
               <BackupCard />
+              <BackupScheduleCard />
               <RestoreCard onRestored={refresh} />
               <CleanupCard />
               <div className="mt-4 border-t-2 border-destructive pt-6">

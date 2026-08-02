@@ -366,49 +366,115 @@ export interface PayrollDriverCapFields {
   sundayPresentBonusDays: number;
 }
 
-/** A single date can pay at most this many days (long shifts; see computeDayPayFraction). */
-export const MAX_DAY_PAY_FRACTION = 2;
+/**
+ * The most one calendar date may pay, in days — or `null` for "no limit".
+ *
+ * ## Why this is one factory-wide number and not a per-shift one
+ *
+ * The obvious reading is that a 12-hour shift and an 8-hour shift deserve
+ * different ceilings. They do — and they already get them, because
+ * `computeDayPayFraction` divides the extra hours by that employee's own
+ * `hoursPerDay` before this limit is applied. The fraction is expressed in
+ * units of *their* working day, so a limit of 2 already means "24 hours" on
+ * the 12-hour shift and "16 hours" on the 8-hour one. Repeating the limit per
+ * shift would be a second knob saying the same thing as `hoursPerDay`, and two
+ * knobs for one idea is exactly the kind of configuration this rework exists to
+ * remove. It lives in app settings, where it is one number the owner can read.
+ */
+export type DayPayCap = number | null;
+
+/**
+ * The limit as it stood when it was a hardcoded constant. Still the default, so
+ * an install that never opens the editor pays exactly what it paid before.
+ */
+export const DEFAULT_MAX_DAY_PAY_FRACTION = 2;
+
+/**
+ * A limit below 1 would cut the pay of an ordinary full day — somebody who
+ * worked their whole shift would be paid a fraction of it, which is never what
+ * a "maximum for a long day" is meant to express. The editor refuses it out
+ * loud; this is the last line of defence for a value that reached storage some
+ * other way.
+ */
+export const MIN_DAY_PAY_CAP = 1;
+
+/** Turn stored or typed input into a usable cap. `null` survives as "no limit". */
+export function normalizeDayPayCap(value: unknown): DayPayCap {
+  if (value === null) return null;
+  if (value === undefined || value === "") return DEFAULT_MAX_DAY_PAY_FRACTION;
+  const n = Number(value);
+  if (!Number.isFinite(n)) return DEFAULT_MAX_DAY_PAY_FRACTION;
+  return Math.max(MIN_DAY_PAY_CAP, n);
+}
+
+/** The cap as a number for `Math.min`; "no limit" is `Infinity`. */
+export function dayPayCapValue(cap: DayPayCap): number {
+  return cap === null ? Number.POSITIVE_INFINITY : cap;
+}
 
 /**
  * Highest `presentDays` figure the payroll engine can legitimately produce for
  * a range. `presentDays` is a sum of paid-day *fractions*, not a headcount:
  *  - every non-Sunday date can contribute (factory holidays included — working
  *    a holiday is paid and is folded into `presentDays`), and
- *  - each such date can contribute up to {@link MAX_DAY_PAY_FRACTION}.
+ *  - each such date can contribute up to the configured day pay cap.
  * Sundays are excluded because a present Sunday is counted under
  * `sundayPresentBonusDays`, not here.
+ *
+ * With no limit configured this is `Infinity`, which is the honest answer: the
+ * period imposes no ceiling of its own on a manually corrected figure.
  */
 export function getMaxPresentDaysInRange(
   fromDate: string,
   toDate: string,
+  cap: DayPayCap = DEFAULT_MAX_DAY_PAY_FRACTION,
 ): number {
   const nonSundayDates = getDatesInRange(fromDate, toDate).filter(
     (d) => !isSunday(d),
   );
-  return nonSundayDates.length * MAX_DAY_PAY_FRACTION;
+  if (nonSundayDates.length === 0) return 0;
+  return nonSundayDates.length * dayPayCapValue(cap);
+}
+
+/** Which driver fields a period clamp actually moved, and what it moved them to. */
+export interface PayrollDriverClampReport {
+  values: PayrollDriverCapFields;
+  trimmed: {
+    presentDays: boolean;
+    earnedSundayPayDays: boolean;
+    sundayPresentBonusDays: boolean;
+  };
+  limits: PayrollDriverCapFields;
 }
 
 /**
- * Clamp the three adjustable payroll drivers to the period:
- * - present days ≤ non-Sunday dates × 2 (see getMaxPresentDaysInRange)
+ * Clamp the three adjustable payroll drivers to the period, and say what moved.
+ *
+ * A correction typed by the owner is a deliberate statement, so trimming it
+ * silently is the same defect as a silent per-day cap: the caller gets the
+ * before/after here and is expected to tell somebody. `clampPayrollDriverFieldsToPeriod`
+ * keeps the old value-only shape for callers that have already reported.
+ *
+ * - present days ≤ non-Sunday dates × the day pay cap (see getMaxPresentDaysInRange)
  * - earned Sunday pay days ≤ 2 (half-month) or 4 (longer)
  * - Sunday present bonus ≤ number of Sundays in range
  *
  * `factoryHolidayDates` no longer affects the present-days ceiling (holiday
  * work is paid) but is kept in the signature for the other callers' clarity.
  */
-export function clampPayrollDriverFieldsToPeriod(
+export function reportPayrollDriverClamp(
   fromDate: string,
   toDate: string,
   factoryHolidayDates: string[],
   d: PayrollDriverCapFields,
-): PayrollDriverCapFields {
+  cap: DayPayCap = DEFAULT_MAX_DAY_PAY_FRACTION,
+): PayrollDriverClampReport {
   void factoryHolidayDates;
-  const maxPresent = getMaxPresentDaysInRange(fromDate, toDate);
+  const maxPresent = Math.max(0, getMaxPresentDaysInRange(fromDate, toDate, cap));
   const maxEarned = getMaxEarnedSundayPayDaysInRange(fromDate, toDate);
   const maxSundayBonus = countSundaysInRange(fromDate, toDate);
-  return {
-    presentDays: Math.min(Math.max(0, d.presentDays), Math.max(0, maxPresent)),
+  const values: PayrollDriverCapFields = {
+    presentDays: Math.min(Math.max(0, d.presentDays), maxPresent),
     earnedSundayPayDays: Math.min(
       Math.max(0, d.earnedSundayPayDays),
       maxEarned,
@@ -418,6 +484,33 @@ export function clampPayrollDriverFieldsToPeriod(
       maxSundayBonus,
     ),
   };
+  return {
+    values,
+    trimmed: {
+      // Only a *downward* move counts as trimming a correction. Raising a
+      // negative number to zero is rejecting nonsense, not overruling anybody.
+      presentDays: d.presentDays > maxPresent,
+      earnedSundayPayDays: d.earnedSundayPayDays > maxEarned,
+      sundayPresentBonusDays: d.sundayPresentBonusDays > maxSundayBonus,
+    },
+    limits: {
+      presentDays: maxPresent,
+      earnedSundayPayDays: maxEarned,
+      sundayPresentBonusDays: maxSundayBonus,
+    },
+  };
+}
+
+/** {@link reportPayrollDriverClamp}, values only. */
+export function clampPayrollDriverFieldsToPeriod(
+  fromDate: string,
+  toDate: string,
+  factoryHolidayDates: string[],
+  d: PayrollDriverCapFields,
+  cap: DayPayCap = DEFAULT_MAX_DAY_PAY_FRACTION,
+): PayrollDriverCapFields {
+  return reportPayrollDriverClamp(fromDate, toDate, factoryHolidayDates, d, cap)
+    .values;
 }
 
 /** All working day dates in a month (excludes Sundays and factory holidays). */

@@ -16,7 +16,9 @@ import {
   isSunday,
   getSundayDatesInMonth,
   getMonthRange,
-  MAX_DAY_PAY_FRACTION,
+  DEFAULT_MAX_DAY_PAY_FRACTION,
+  dayPayCapValue,
+  type DayPayCap,
 } from "./date";
 import {
   DEFAULT_SUNDAY_RULE,

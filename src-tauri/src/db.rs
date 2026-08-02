@@ -328,3 +328,242 @@ pub fn db_import_with_dialog(app: AppHandle, state: State<DbState>) -> Result<()
     std::fs::copy(&source, &state.path).map_err(|e| e.to_string())?;
     Ok(())
 }
+
+// ---------------------------------------------------------------------------
+// Automatic backups (desktop only)
+//
+// The web/portable build cannot write a file without a click, so unattended
+// copies exist here and nowhere else. The owner picks a folder once (a USB
+// stick, a second drive, a sync folder); after that every backup is a plain
+// file write with no dialog.
+//
+// `VACUUM INTO` rather than `fs::copy`: the app holds the database open, and a
+// byte copy of a live SQLite file can catch it mid-write. VACUUM INTO asks
+// SQLite itself for a consistent copy, so the backup is always openable.
+// ---------------------------------------------------------------------------
+
+const BACKUP_PREFIX: &str = "prodtrack-backup-";
+const BACKUP_SUFFIX: &str = ".db";
+
+#[derive(serde::Serialize)]
+pub struct BackupWriteResult {
+    pub path: String,
+    pub file_name: String,
+    pub bytes: u64,
+    /// File names deleted by the keep-N rule, oldest first.
+    pub pruned: Vec<String>,
+    /// How many backup files remain in the folder.
+    pub kept: usize,
+}
+
+#[derive(serde::Serialize)]
+pub struct BackupVerifyResult {
+    pub ok: bool,
+    pub error: Option<String>,
+    pub schema_version: u32,
+    pub rows: u64,
+    pub tables: usize,
+    pub bytes: u64,
+}
+
+/// Ask once for the folder every later backup is written into.
+#[tauri::command]
+pub fn backup_pick_folder(app: AppHandle) -> Result<Option<String>, String> {
+    let picked = app.dialog().file().blocking_pick_folder();
+    Ok(picked
+        .and_then(|fp| fp.into_path().ok())
+        .map(|p| p.to_string_lossy().into_owned()))
+}
+
+fn escape_sql_literal(value: &str) -> String {
+    value.replace('\'', "''")
+}
+
+/// `stamp` comes from the UI so the file name carries the owner's local time.
+/// Anything outside `[A-Za-z0-9-_]` is rejected rather than escaped: the value
+/// ends up in a file name and in SQL, and there is no reason for it to be
+/// anything but digits and dashes.
+fn sanitize_stamp(stamp: &str) -> Result<String, String> {
+    if stamp.is_empty() || stamp.len() > 40 {
+        return Err("Bad backup name".to_string());
+    }
+    if !stamp
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    {
+        return Err("Bad backup name".to_string());
+    }
+    Ok(stamp.to_string())
+}
+
+fn list_backup_files(folder: &std::path::Path) -> Vec<String> {
+    let mut names: Vec<String> = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(folder) {
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if name.starts_with(BACKUP_PREFIX) && name.ends_with(BACKUP_SUFFIX) {
+                names.push(name);
+            }
+        }
+    }
+    // Names embed a sortable timestamp, so lexicographic order is time order.
+    names.sort();
+    names
+}
+
+/// Write one timestamped copy into `folder`, then keep only the newest `keep`.
+#[tauri::command]
+pub fn backup_write(
+    state: State<DbState>,
+    folder: String,
+    keep: u32,
+    stamp: String,
+) -> Result<BackupWriteResult, String> {
+    let stamp = sanitize_stamp(&stamp)?;
+    let dir = PathBuf::from(&folder);
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+
+    let mut file_name = format!("{}{}{}", BACKUP_PREFIX, stamp, BACKUP_SUFFIX);
+    let mut target = dir.join(&file_name);
+    let mut attempt = 2;
+    while target.exists() && attempt < 100 {
+        file_name = format!("{}{}-{}{}", BACKUP_PREFIX, stamp, attempt, BACKUP_SUFFIX);
+        target = dir.join(&file_name);
+        attempt += 1;
+    }
+
+    let target_sql = escape_sql_literal(&target.to_string_lossy());
+    state.with_conn(|conn| {
+        conn.execute(&format!("VACUUM INTO '{}'", target_sql), [])
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    })?;
+
+    let bytes = std::fs::metadata(&target)
+        .map(|m| m.len())
+        .unwrap_or_default();
+
+    // Prune oldest first, never touching the file just written.
+    let mut pruned: Vec<String> = Vec::new();
+    let existing = list_backup_files(&dir);
+    let keep = keep.max(1) as usize;
+    if existing.len() > keep {
+        for name in existing.iter().take(existing.len() - keep) {
+            if name == &file_name {
+                continue;
+            }
+            if std::fs::remove_file(dir.join(name)).is_ok() {
+                pruned.push(name.clone());
+            }
+        }
+    }
+    let kept = list_backup_files(&dir).len();
+
+    Ok(BackupWriteResult {
+        path: target.to_string_lossy().into_owned(),
+        file_name,
+        bytes,
+        pruned,
+        kept,
+    })
+}
+
+/// Open a backup file read-only and report what is inside it.
+///
+/// Read-only and on a copy: checking a backup can never disturb the live
+/// database, so the owner can confirm a copy is good while the original is
+/// still fine.
+#[tauri::command]
+pub fn backup_verify(path: String) -> Result<BackupVerifyResult, String> {
+    let bytes = std::fs::metadata(&path)
+        .map(|m| m.len())
+        .unwrap_or_default();
+    let conn = match Connection::open_with_flags(
+        &path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+    ) {
+        Ok(conn) => conn,
+        Err(e) => {
+            return Ok(BackupVerifyResult {
+                ok: false,
+                error: Some(e.to_string()),
+                schema_version: 0,
+                rows: 0,
+                tables: 0,
+                bytes,
+            })
+        }
+    };
+
+    let integrity: String = conn
+        .query_row("PRAGMA quick_check", [], |row| row.get(0))
+        .unwrap_or_else(|e| e.to_string());
+    if integrity != "ok" {
+        return Ok(BackupVerifyResult {
+            ok: false,
+            error: Some(integrity),
+            schema_version: 0,
+            rows: 0,
+            tables: 0,
+            bytes,
+        });
+    }
+
+    let mut rows: u64 = 0;
+    let mut tables: usize = 0;
+    for table in TABLES {
+        let count: Result<i64, _> =
+            conn.query_row(&format!("SELECT COUNT(*) FROM {}", table), [], |row| {
+                row.get(0)
+            });
+        if let Ok(n) = count {
+            tables += 1;
+            rows += n.max(0) as u64;
+        }
+    }
+
+    let schema_version = get_schema_version(&conn).unwrap_or(0);
+    if tables == 0 {
+        return Ok(BackupVerifyResult {
+            ok: false,
+            error: Some("This file has no ProdTrack data in it.".to_string()),
+            schema_version,
+            rows,
+            tables,
+            bytes,
+        });
+    }
+    if schema_version > CURRENT_SCHEMA_VERSION {
+        return Ok(BackupVerifyResult {
+            ok: false,
+            error: Some("This copy was made by a newer version of ProdTrack.".to_string()),
+            schema_version,
+            rows,
+            tables,
+            bytes,
+        });
+    }
+
+    Ok(BackupVerifyResult {
+        ok: true,
+        error: None,
+        schema_version,
+        rows,
+        tables,
+        bytes,
+    })
+}
+
+/// Pick an existing backup file to check. Separate from `db_import_with_dialog`
+/// so choosing a file to *verify* can never turn into a restore.
+#[tauri::command]
+pub fn backup_pick_file(app: AppHandle) -> Result<Option<String>, String> {
+    let picked = app
+        .dialog()
+        .file()
+        .add_filter("ProdTrack copy", &["db", "sqlite", "sqlite3"])
+        .blocking_pick_file();
+    Ok(picked
+        .and_then(|fp| fp.into_path().ok())
+        .map(|p| p.to_string_lossy().into_owned()))
+}

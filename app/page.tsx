@@ -9,6 +9,7 @@ import { useLanguage } from "@/components/language-provider";
 import { useAuthGuard } from "@/lib/hooks/useAuthGuard";
 import { visibleModules, type ModuleId } from "@/components/navigation";
 import { HomeActions } from "@/components/home/home-actions";
+import { BackupReminderBanner } from "@/components/settings/backup-schedule-card";
 import {
   HomeAttentionList,
   type HomeAttentionItem,
@@ -316,6 +317,13 @@ export default function Home() {
         {/* 1 — what they came to do. Loudest thing on the screen, and static:
             it paints before any read finishes. */}
         <HomeActions role={role} />
+
+        {/* 1b — the one warning that is not about today's work: everything
+            here lives on this machine alone, and nothing has been copied off
+            it in a while. Renders nothing when a recent copy exists. */}
+        {/* Admin only: the button on it writes out the whole database, which
+            is not a worker's to hand around. */}
+        {admin && <BackupReminderBanner />}
 
         {/* 2 — what is wrong, each row a door to the fix. */}
         <HomeAttentionList items={attention} />

@@ -74,8 +74,18 @@ function useBackupStatus(): {
     }
   }, []);
   React.useEffect(() => {
-    void reload();
-  }, [reload]);
+    let alive = true;
+    getBackupStatus()
+      .then((next) => {
+        if (alive) setStatus(next);
+      })
+      .catch((error) => {
+        console.error("[backup] could not read backup status", error);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
   return { status, reload };
 }
 
@@ -216,7 +226,6 @@ export function BackupScheduleCard() {
   const [verifyMessage, setVerifyMessage] = React.useState<ToneMessage>(null);
   const fileInput = React.useRef<HTMLInputElement>(null);
   const desktop = supportsAutomaticBackups();
-  const line = useFreshnessLine(status);
 
   const run = async (fn: () => Promise<ToneMessage>) => {
     setBusy(true);
@@ -516,8 +525,6 @@ export function BackupScheduleCard() {
           />
           <ToneAlert message={verifyMessage} />
         </div>
-
-        {line === null && <span className="sr-only">{t("bkpSaving")}</span>}
       </div>
     </SettingsSection>
   );
