@@ -25,7 +25,9 @@ import type { SalarySheetRow } from "@/lib/services/salarySheetService";
 import {
   buildSalarySheetDraftState,
   buildSalarySheetOverrideValuesFromDraft,
+  getSalarySheetCalculatedDrivers,
   getSalarySheetDriverDefaults,
+  isSalarySheetDriverCorrected,
   stepSalarySheetDriverValue,
   type SalarySheetDriverField,
   type SalarySheetDraftDrivers,
@@ -45,7 +47,7 @@ import {
   type DayPayCap,
 } from "@/lib/utils/date";
 import { getAppSettings } from "@/lib/services/appSettingsService";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, Pencil } from "lucide-react";
 
 /** One shared empty array, so "no holidays" keeps a stable identity. */
 const EMPTY_DATES: string[] = [];
@@ -59,6 +61,13 @@ const DRIVER_FIELDS: Array<{
   { key: "earnedSundayPayDays", labelKey: "salaryAdjustDriverEarnedSunday" },
   { key: "sundayPresentBonusDays", labelKey: "salaryAdjustDriverSundayBonus" },
 ];
+
+/** The driver names a clamp report says were pulled down. */
+function trimmedKeysOf(report: {
+  trimmed: Record<string, boolean>;
+}): (typeof DRIVER_FIELDS)[number]["key"][] {
+  return DRIVER_FIELDS.filter((f) => report.trimmed[f.key]).map((f) => f.key);
+}
 
 function formatCalculatedValue(
   key:
@@ -199,9 +208,7 @@ export function SalarySheetAdjustDialog({
         if (!current) return current;
         const wanted = update(current);
         const report = clampReportFor(wanted);
-        setTrimmedDriverKeys(
-          DRIVER_FIELDS.filter((f) => report.trimmed[f.key]).map((f) => f.key),
-        );
+        setTrimmedDriverKeys(trimmedKeysOf(report));
         return { ...wanted, ...report.values };
       });
     },
@@ -227,7 +234,14 @@ export function SalarySheetAdjustDialog({
   if (seedKey !== null && seedKey !== seededFor) {
     setSeededFor(seedKey);
     setDraftNotes(row!.overrideNotes);
-    setDraftDrivers(clampDriverDraft(getSalarySheetDriverDefaults(row!)));
+    // Seeding clamps too, and until now it did so in silence: a correction
+    // saved when the period allowed it, reopened after the per-day limit
+    // changed, came back as a smaller number with nothing to say why. A limit
+    // that moves somebody's figure has to speak, whoever triggered it.
+    const seeded = getSalarySheetDriverDefaults(row!);
+    const seedReport = clampReportFor(seeded);
+    setDraftDrivers({ ...seeded, ...seedReport.values });
+    setTrimmedDriverKeys(trimmedKeysOf(seedReport));
   }
 
   // The ceilings themselves can move after seeding — the holiday read lands a
@@ -235,7 +249,16 @@ export function SalarySheetAdjustDialog({
   const [clampedAgainst, setClampedAgainst] = useState<string[]>(EMPTY_DATES);
   if (seedKey !== null && clampedAgainst !== periodHolidayDates) {
     setClampedAgainst(periodHolidayDates);
-    setDraftDrivers((prev) => (prev ? clampDriverDraft(prev) : prev));
+    setDraftDrivers((prev) => {
+      if (!prev) return prev;
+      const report = clampReportFor(prev);
+      const keys = trimmedKeysOf(report);
+      // Only ever add to the warning here. A late-arriving holiday list that
+      // trims nothing must not erase the notice the seed or the last keystroke
+      // put up.
+      if (keys.length > 0) setTrimmedDriverKeys(keys);
+      return { ...prev, ...report.values };
+    });
   }
 
   const closeModal = (force = false) => {
@@ -249,14 +272,26 @@ export function SalarySheetAdjustDialog({
     setSeededFor(null);
   };
 
+  /**
+   * "Use the app's number" — which has to be the app's number.
+   *
+   * These read `getSalarySheetCalculatedDrivers`, not the defaults the boxes
+   * were seeded with. The seeded value already carries the correction, so
+   * resetting to it put the correction straight back and the button did
+   * nothing at all: there was no way to take a correction off from inside this
+   * dialog. Restoring the calculated figure is what actually removes it —
+   * a driver equal to what the app counted is not saved as a correction.
+   */
   const resetDraftField = (field: SalarySheetDriverField) => {
     if (!row) return;
-    const defaults = getSalarySheetDriverDefaults(row);
-    applyDraftChange((current) => ({ ...current, [field]: defaults[field] }));
+    const calculated = getSalarySheetCalculatedDrivers(row);
+    applyDraftChange((current) => ({ ...current, [field]: calculated[field] }));
   };
 
   const resetAllDraftFields = () => {
-    if (row) setDraftDrivers(clampDriverDraft(getSalarySheetDriverDefaults(row)));
+    if (row) {
+      setDraftDrivers(clampDriverDraft(getSalarySheetCalculatedDrivers(row)));
+    }
     setTrimmedDriverKeys([]);
     setDraftNotes("");
   };
@@ -445,12 +480,29 @@ export function SalarySheetAdjustDialog({
                         <CardHeader className="px-5 pb-3 pt-5">
                           <div className="flex items-start justify-between gap-3">
                             <div className="min-w-0 space-y-1">
-                              <Label
-                                htmlFor={`payroll-override-${field.key}`}
-                                className="text-sm font-medium text-foreground"
-                              >
-                                {t(field.labelKey)}
-                              </Label>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <Label
+                                  htmlFor={`payroll-override-${field.key}`}
+                                  className="text-sm font-medium text-foreground"
+                                >
+                                  {t(field.labelKey)}
+                                </Label>
+                                {/* A box holding a hand-typed figure has to
+                                    look different from one holding the app's
+                                    own count, or the two are the same screen.
+                                    Word as well as mark: the pencil alone
+                                    means nothing to this reader. */}
+                                {isSalarySheetDriverCorrected(
+                                  row,
+                                  field.key,
+                                  draftState.drivers[field.key],
+                                ) ? (
+                                  <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-surface-4 px-2 py-0.5 text-[11px] font-medium text-foreground">
+                                    <Pencil className="size-3" aria-hidden />
+                                    {t("salaryAdjustBadgeUpdated")}
+                                  </span>
+                                ) : null}
+                              </div>
                               {/*
                                 Only one reference number: what the app itself
                                 counted. The box below already shows the value

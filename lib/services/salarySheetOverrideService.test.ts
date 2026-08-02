@@ -101,6 +101,72 @@ describe("saveSalarySheetOverride", () => {
     expect(saved.overrides.presentDays).toBe(24);
   });
 
+  // A correction of zero is a statement — "this person was here on no days" —
+  // and it has to survive every stage that could mistake it for "nothing was
+  // entered": the sanitiser, the "is this record empty?" test, and the write.
+  it("saves a correction of zero instead of treating it as nothing entered", async () => {
+    mockGetAll.mockResolvedValue([]);
+    await saveSalarySheetOverride({
+      employeeId: "e1",
+      year: 2026,
+      month: 2,
+      fromDate: "2026-03-01",
+      toDate: "2026-03-15",
+      overrides: { presentDays: 0 },
+    });
+
+    expect(mockRemove).not.toHaveBeenCalled();
+    expect(overridePuts()).toHaveLength(1);
+    const saved = overridePuts()[0][1] as {
+      overrides: Record<string, number>;
+    };
+    expect(saved.overrides).toEqual({ presentDays: 0 });
+    expect(Object.prototype.hasOwnProperty.call(saved.overrides, "presentDays")).toBe(
+      true,
+    );
+  });
+
+  it("removes the record when every correction is taken back off", async () => {
+    mockGetAll.mockResolvedValue([]);
+    await saveSalarySheetOverride({
+      employeeId: "e1",
+      year: 2026,
+      month: 2,
+      fromDate: "2026-03-01",
+      toDate: "2026-03-15",
+      notes: "",
+      overrides: {},
+    });
+
+    expect(overridePuts()).toHaveLength(0);
+    expect(mockRemove).toHaveBeenCalledWith(
+      STORES.SALARY_SHEET_OVERRIDES,
+      "salary_sheet_override:e1:2026:2:2026-03-01:2026-03-15",
+    );
+  });
+
+  it("keeps a correction of zero saved even with no note", async () => {
+    mockGetAll.mockResolvedValue([]);
+    await saveSalarySheetOverride({
+      employeeId: "e1",
+      year: 2026,
+      month: 2,
+      fromDate: "2026-03-01",
+      toDate: "2026-03-15",
+      notes: "   ",
+      overrides: { earnedSundayPayDays: 0, sundayPresentBonusDays: 0 },
+    });
+
+    expect(mockRemove).not.toHaveBeenCalled();
+    const saved = overridePuts()[0][1] as {
+      overrides: Record<string, number>;
+    };
+    expect(saved.overrides).toEqual({
+      earnedSundayPayDays: 0,
+      sundayPresentBonusDays: 0,
+    });
+  });
+
   it("clamps earned Sunday pay and Sunday bonus to period rules", async () => {
     await saveSalarySheetOverride({
       employeeId: "e1",
