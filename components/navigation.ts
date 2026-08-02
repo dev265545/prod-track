@@ -11,17 +11,20 @@
 
 import {
   CalendarCheck,
+  ClipboardCheck,
   Clock,
   Cog,
   FileBarChart,
   FileSpreadsheet,
   Factory,
+  LayoutGrid,
   ListChecks,
-  Package,
+  Shapes,
   SlidersHorizontal,
   UsersRound,
   Warehouse,
   Wallet,
+  Wrench,
   type LucideIcon,
 } from "lucide-react";
 import type { MessageKey } from "@/lib/i18n/messages";
@@ -60,8 +63,18 @@ export interface NavModule {
   detailRoutes?: DetailRoute[];
 }
 
+/**
+ * Icon rule for the whole file: a module and the pages inside it never share an
+ * icon. Collapsed, the sidebar is a single column of 20px glyphs with no text,
+ * and the module row stays on screen above the page row — so a repeated glyph
+ * reads as "the same button twice" to an operator navigating by shape. Every
+ * icon below is therefore unique across {all modules} ∪ {the pages of any one
+ * module}, and picked for outline shape rather than for fine interior detail.
+ */
 const inventoryItems: NavItem[] = [
-  { href: "/inventory", labelKey: "inventoryNavDashboard", icon: Warehouse },
+  // The module is the building (Warehouse); its landing page is the tile grid
+  // you actually look at, so it gets the grid.
+  { href: "/inventory", labelKey: "inventoryNavDashboard", icon: LayoutGrid },
   ...INVENTORY_CATEGORIES.map(({ value }) => ({
     href: `/inventory/${value}`,
     labelKey: CATEGORY_THEME[value].labelKey,
@@ -81,7 +94,8 @@ export const MODULES: NavModule[] = [
     // screen touched only when somebody joins or leaves.
     href: "/attendance",
     items: [
-      { href: "/attendance", labelKey: "rostNavToday", icon: CalendarCheck },
+      // The module is the calendar; today's roster is the clipboard you tick.
+      { href: "/attendance", labelKey: "rostNavToday", icon: ClipboardCheck },
       { href: "/employees", labelKey: "rostNavPeople", icon: UsersRound },
       { href: "/shifts", labelKey: "navShifts", icon: Clock },
     ],
@@ -95,7 +109,8 @@ export const MODULES: NavModule[] = [
     href: "/production",
     items: [
       { href: "/production", labelKey: "navLinkDailyEntry", icon: ListChecks },
-      { href: "/items", labelKey: "navLinkItems", icon: Package },
+      // Not `Package`: the inventory "box" category already owns that glyph.
+      { href: "/items", labelKey: "navLinkItems", icon: Shapes },
       { href: "/machine", labelKey: "navMachine", icon: Cog },
       { href: "/reports", labelKey: "navReports", icon: FileBarChart },
     ],
@@ -127,7 +142,8 @@ export const MODULES: NavModule[] = [
     href: "/settings",
     adminOnly: true,
     items: [
-      { href: "/settings", labelKey: "navSettings", icon: SlidersHorizontal },
+      // The module is the sliders; the page itself is the spanner.
+      { href: "/settings", labelKey: "navSettings", icon: Wrench },
     ],
   },
 ];

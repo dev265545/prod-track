@@ -40,6 +40,14 @@ export function AppSidebar() {
   const currentItem = activeItemHref(pathname);
   const onHome = pathname === "/";
 
+  // Whether the second group (the current module's pages) is on screen. A
+  // single-page module (Salary, Settings) is already fully described by its
+  // switcher entry, so it never gets a page list.
+  const showPages =
+    !!currentModule &&
+    currentModule.items.length > 1 &&
+    (!currentModule.adminOnly || admin);
+
   return (
     <>
       <SidebarHeader className="flex flex-row items-center gap-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-1.5 group-data-[collapsible=icon]:py-3">
@@ -71,7 +79,10 @@ export function AppSidebar() {
                 tooltip={t("navHome")}
                 size="lg"
               >
-                <Link href="/">
+                {/* Collapsed, the label is display:none — so every entry
+                    carries an aria-label, or the icon rail would be a column
+                    of unnamed links to a screen reader. */}
+                <Link href="/" aria-label={t("navHome")}>
                   <Home data-icon="inline-start" className="size-5 shrink-0" />
                   <span className="group-data-[collapsible=icon]:hidden">
                     {t("navHome")}
@@ -83,15 +94,31 @@ export function AppSidebar() {
             {modules.map((mod) => {
               const label = t(mod.labelKey);
               const Icon = mod.icon;
+              const isCurrent = currentModule?.id === mod.id;
+              // Only ever one copper item in the rail. When the page list is
+              // showing, *it* owns the active state — the module below would
+              // otherwise light up a second, identical-looking button for the
+              // same place. The module then keeps copper as ink only: "you are
+              // in here", quieter than "this is the page you are on".
+              const isActive = isCurrent && !showPages;
               return (
                 <SidebarMenuItem key={mod.id}>
                   <SidebarMenuButton
                     asChild
-                    isActive={currentModule?.id === mod.id}
+                    isActive={isActive}
                     tooltip={label}
                     size="lg"
+                    className={
+                      isCurrent && !isActive ? "text-sidebar-primary" : undefined
+                    }
                   >
-                    <Link href={mod.href}>
+                    <Link
+                      href={mod.href}
+                      aria-label={label}
+                      aria-current={
+                        isActive ? "page" : isCurrent ? "location" : undefined
+                      }
+                    >
                       <Icon data-icon="inline-start" className="size-5 shrink-0" />
                       <span className="group-data-[collapsible=icon]:hidden">
                         {label}
@@ -106,11 +133,13 @@ export function AppSidebar() {
 
         {/* Pages inside the section you are in. A single-page section (Salary,
             Settings) is already fully described by its switcher entry. */}
-        {currentModule &&
-        currentModule.items.length > 1 &&
-        (!currentModule.adminOnly || admin) ? (
+        {showPages && currentModule ? (
           <>
-            <SidebarSeparator className="group-data-[collapsible=icon]:hidden" />
+            {/* Collapsed there is no group label to separate the two lists, so
+                the rule has to stay — it is the only thing telling the operator
+                the icons below belong to the section highlighted above. Sized
+                to the 52px rail: a 24px rule, centred (52 − 24) / 2 = 14px. */}
+            <SidebarSeparator className="group-data-[collapsible=icon]:mx-3.5 group-data-[collapsible=icon]:w-6" />
             <SidebarGroup className="group-data-[collapsible=icon]:px-1.5">
               <SidebarGroupLabel>{t(currentModule.labelKey)}</SidebarGroupLabel>
               <SidebarMenu>
@@ -124,7 +153,11 @@ export function AppSidebar() {
                         tooltip={label}
                         size="lg"
                       >
-                        <Link href={href}>
+                        <Link
+                          href={href}
+                          aria-label={label}
+                          aria-current={currentItem === href ? "page" : undefined}
+                        >
                           <Icon
                             data-icon="inline-start"
                             className="size-5 shrink-0"
