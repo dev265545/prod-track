@@ -60,6 +60,38 @@ export interface SundayRule {
   kind: "table" | "repeat";
   /** Used when `kind === "table"`. Sorted ascending by threshold. */
   brackets: SundayRuleBracket[];
+  /**
+   * How several reached table lines combine.
+   *
+   * - `"highest"` — only the best line the employee reached pays. This is what
+   *   the engine has always done and is the default for every rule that does
+   *   not say otherwise, so no existing install moves.
+   * - `"each"` — every line reached pays, added together. An owner who means
+   *   "one day for reaching 12, another for reaching 20" had to hand-compute
+   *   cumulative totals into each row before this existed, and would get it
+   *   wrong.
+   *
+   * Meaningless for `kind: "repeat"`, and carried anyway so switching shape
+   * back does not lose the choice.
+   */
+  bracketMode: "highest" | "each";
+  /**
+   * What ONE Sunday actually worked is worth, in days' pay. Was hardcoded to 1
+   * everywhere. `0.5` is a factory that pays helpers half a day for Sunday
+   * work; `1` is exactly what every install did before this field existed.
+   *
+   * The Sunday premium multiplier, when it applies, multiplies *this*, so the
+   * two knobs compose instead of fighting.
+   */
+  sundayWorkedPayDays: number;
+  /**
+   * What ONE extra day earned from the table/repeat is worth, in days' pay.
+   *
+   * Applied after both caps, so the caps stay stated in the same units the
+   * owner types into the lines. `1` reproduces today's behaviour exactly, where
+   * an earned day was always paid at the plain daily rate.
+   */
+  earnedDayPayDays: number;
   /** Used when `kind === "repeat"`. Zero means the repeat earns nothing. */
   repeatEveryPresentDays: number;
   repeatGive: number;
@@ -85,6 +117,30 @@ export const LEGACY_REQUIRED_PRESENT = 12;
 export const LEGACY_EARNED_SUNDAYS = 2;
 
 /**
+ * Longest stretch a rule may declare, in calendar days.
+ *
+ * The editor used to stop at 31 while the model accepted anything, so a
+ * quarterly attendance bonus — a perfectly ordinary thing to want — could not
+ * be typed even though the engine would have run it. A little over a year is
+ * long enough for any stretch a factory means and short enough that a slipped
+ * digit is still caught.
+ */
+export const MAX_CYCLE_DAYS = 366;
+
+/**
+ * Most days' pay any single "what is this worth" number may claim.
+ *
+ * Guards the multiplier and the two worth fields against a stray keypress
+ * turning one Sunday into a year's wages. Nothing legitimate comes near it.
+ */
+export const MAX_PAY_DAY_VALUE = 100;
+
+/** What one worked Sunday was worth before it was configurable. */
+export const LEGACY_SUNDAY_WORKED_PAY_DAYS = 1;
+/** What one earned extra day was worth before it was configurable. */
+export const LEGACY_EARNED_DAY_PAY_DAYS = 1;
+
+/**
  * The rule applied to an employee with no Sunday category.
  *
  * Identical in effect to the old `DEFAULT_SUNDAY_CATEGORY_RULE`: present 12
@@ -99,6 +155,9 @@ export const DEFAULT_SUNDAY_RULE: SundayRule = {
       give: LEGACY_EARNED_SUNDAYS,
     },
   ],
+  bracketMode: "highest",
+  sundayWorkedPayDays: LEGACY_SUNDAY_WORKED_PAY_DAYS,
+  earnedDayPayDays: LEGACY_EARNED_DAY_PAY_DAYS,
   repeatEveryPresentDays: 0,
   repeatGive: 0,
   maxPerCycle: LEGACY_MAX_PER_CYCLE,
@@ -162,12 +221,23 @@ function normalizePremium(value: unknown): SundayRulePremium | null {
   const requiredPresentDays = configuredNonNegative(row.requiredPresentDays);
   const multiplier = configuredNonNegative(row.multiplier);
   if (requiredPresentDays === null || multiplier === null) return null;
-  return { requiredPresentDays, multiplier };
+  return {
+    requiredPresentDays: Math.min(MAX_CYCLE_DAYS, requiredPresentDays),
+    multiplier: Math.min(MAX_PAY_DAY_VALUE, multiplier),
+  };
+}
+
+/** A worth in days' pay: non-negative, finite, and not absurd. */
+function normalizePayDayValue(value: unknown, fallback: number): number {
+  return Math.min(MAX_PAY_DAY_VALUE, nonNegativeOr(value, fallback));
 }
 
 const NEW_RULE_FIELDS = [
   "kind",
   "brackets",
+  "bracketMode",
+  "sundayWorkedPayDays",
+  "earnedDayPayDays",
   "repeatEveryPresentDays",
   "repeatGive",
   "maxPerCycle",
@@ -247,11 +317,23 @@ export function normalizeSundayRule(raw: unknown): SundayRule {
   // A cycle of zero days would divide the month into nothing. Fall back rather
   // than produce a rule that can never pay.
   const cycleDaysRaw = Math.floor(nonNegativeOr(row.cycleDays, LEGACY_CYCLE_DAYS));
-  const cycleDays = cycleDaysRaw >= 1 ? cycleDaysRaw : LEGACY_CYCLE_DAYS;
+  const cycleDays =
+    cycleDaysRaw >= 1 ? Math.min(MAX_CYCLE_DAYS, cycleDaysRaw) : LEGACY_CYCLE_DAYS;
 
   return {
     kind,
     brackets,
+    // Anything that is not the explicit opt-in stays on the behaviour every
+    // install already has, so an absent field can never move a wage.
+    bracketMode: row.bracketMode === "each" ? "each" : "highest",
+    sundayWorkedPayDays: normalizePayDayValue(
+      row.sundayWorkedPayDays,
+      LEGACY_SUNDAY_WORKED_PAY_DAYS,
+    ),
+    earnedDayPayDays: normalizePayDayValue(
+      row.earnedDayPayDays,
+      LEGACY_EARNED_DAY_PAY_DAYS,
+    ),
     repeatEveryPresentDays,
     repeatGive,
     maxPerCycle: normalizeCap(row.maxPerCycle, LEGACY_MAX_PER_CYCLE),
@@ -278,6 +360,11 @@ export function evaluateSundayRuleForCycle(
     if (rule.repeatEveryPresentDays > 0) {
       uncapped =
         Math.floor(presentDays / rule.repeatEveryPresentDays) * rule.repeatGive;
+    }
+  } else if (rule.bracketMode === "each") {
+    // Every line reached pays, added together.
+    for (const bracket of rule.brackets) {
+      if (presentDays >= bracket.whenPresentDaysAtLeast) uncapped += bracket.give;
     }
   } else {
     // Highest bracket the employee actually reached wins. Brackets are sorted

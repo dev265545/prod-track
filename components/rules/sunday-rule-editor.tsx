@@ -14,7 +14,7 @@
  * that a limit is holding the number down.
  */
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { NumberInput } from "@/components/ui/number-input";
@@ -25,8 +25,12 @@ import {
   getSundayRuleCycleBlocks,
   normalizeSundayRule,
   LEGACY_CYCLE_DAYS,
+  LEGACY_EARNED_DAY_PAY_DAYS,
   LEGACY_MAX_PER_CYCLE,
   LEGACY_MAX_PER_MONTH,
+  LEGACY_SUNDAY_WORKED_PAY_DAYS,
+  MAX_CYCLE_DAYS,
+  MAX_PAY_DAY_VALUE,
   type SundayRule,
 } from "@/lib/utils/sundayRule";
 import { DEFAULT_APP_SETTINGS } from "@/lib/services/appSettingsService";
@@ -35,9 +39,12 @@ import {
   Infinity as InfinityIcon,
   ListOrdered,
   Plus,
+  Layers,
   Repeat,
   Ruler,
   Star,
+  Sun,
+  Undo2,
   Trash2,
   X,
 } from "lucide-react";
@@ -135,6 +142,14 @@ export function SundayRuleEditor({
     (best, row) => (row.earned > best.earned ? row : best),
     preview[0],
   );
+
+  // What a day is worth is a knob almost nobody turns, so it stays folded away
+  // unless this rule already uses it. Four numbers on screen for every owner
+  // would cost more comprehension than the two gaps it closes are worth.
+  const worthIsDefault =
+    rule.sundayWorkedPayDays === LEGACY_SUNDAY_WORKED_PAY_DAYS &&
+    rule.earnedDayPayDays === LEGACY_EARNED_DAY_PAY_DAYS;
+  const [worthOpen, setWorthOpen] = useState(!worthIsDefault);
 
   const patch = (next: Partial<SundayRule>) =>
     onChange(normalizeSundayRule({ ...rule, ...next }));
@@ -274,6 +289,49 @@ export function SundayRuleEditor({
               {t("ruleTableAddRow")}
             </Button>
           </div>
+          {/* The question only exists once there are two lines to pass. With
+              one line both answers pay the same, so asking it would be noise. */}
+          {rule.brackets.length > 1 ? (
+            <div className="flex flex-col gap-2">
+              <p
+                id="ruleBracketModeLabel"
+                className="text-sm font-medium text-foreground"
+              >
+                {t("ruleBracketModeLabel")}
+              </p>
+              <div
+                role="group"
+                aria-labelledby="ruleBracketModeLabel"
+                className="flex flex-wrap gap-3"
+              >
+                <Button
+                  type="button"
+                  variant={rule.bracketMode === "highest" ? "default" : "outline"}
+                  className="min-h-[44px] px-5 py-3 text-base"
+                  aria-pressed={rule.bracketMode === "highest"}
+                  onClick={() => patch({ bracketMode: "highest" })}
+                >
+                  <ListOrdered data-icon="inline-start" aria-hidden />
+                  {t("ruleBracketModeHighest")}
+                </Button>
+                <Button
+                  type="button"
+                  variant={rule.bracketMode === "each" ? "default" : "outline"}
+                  className="min-h-[44px] px-5 py-3 text-base"
+                  aria-pressed={rule.bracketMode === "each"}
+                  onClick={() => patch({ bracketMode: "each" })}
+                >
+                  <Layers data-icon="inline-start" aria-hidden />
+                  {t("ruleBracketModeEach")}
+                </Button>
+              </div>
+              <p className="text-base leading-relaxed text-muted-foreground">
+                {rule.bracketMode === "each"
+                  ? t("ruleBracketModeEachHint")
+                  : t("ruleBracketModeHighestHint")}
+              </p>
+            </div>
+          ) : null}
         </div>
       ) : (
         <div className={ROW}>
@@ -320,14 +378,14 @@ export function SundayRuleEditor({
             <NumberInput
               id="ruleCycleDays"
               min={1}
-              max={31}
+              max={MAX_CYCLE_DAYS}
               className={FIELD}
               value={String(rule.cycleDays)}
               onChange={(e) =>
                 patch({
                   cycleDays: readNumericInput(e.target.value, LEGACY_CYCLE_DAYS, {
                     min: 1,
-                    max: 31,
+                    max: MAX_CYCLE_DAYS,
                   }),
                 })
               }
@@ -377,9 +435,22 @@ export function SundayRuleEditor({
         </p>
         {rule.sundayPremium === null ? (
           <>
-            <p className="text-base leading-relaxed text-muted-foreground">
-              {t("rulePremiumHint")}
-            </p>
+            {/* This sentence asserts a Sunday pays one day's pay, which stops
+                being true the moment the owner changes what a Sunday is worth.
+                Say it only while it is true; the worth block below always says
+                the real figure. */}
+            {rule.sundayWorkedPayDays === LEGACY_SUNDAY_WORKED_PAY_DAYS ? (
+              <p className="text-base leading-relaxed text-muted-foreground">
+                {t("rulePremiumHint")}
+              </p>
+            ) : (
+              <p className="text-base leading-relaxed text-muted-foreground">
+                {t("ruleWorthSummary", {
+                  sunday: num(rule.sundayWorkedPayDays),
+                  earned: num(rule.earnedDayPayDays),
+                })}
+              </p>
+            )}
             <div>
               <Button
                 type="button"
@@ -407,7 +478,7 @@ export function SundayRuleEditor({
                 <NumberInput
                   id="rulePremiumAfter"
                   min={0}
-                  max={31}
+                  max={MAX_CYCLE_DAYS}
                   className={FIELD}
                   value={String(rule.sundayPremium.requiredPresentDays)}
                   onChange={(e) =>
@@ -415,7 +486,7 @@ export function SundayRuleEditor({
                       sundayPremium: {
                         requiredPresentDays: readNumericInput(e.target.value, PREMIUM_DEFAULT_DAYS, {
                           min: 0,
-                          max: 31,
+                          max: MAX_CYCLE_DAYS,
                         }),
                         multiplier: rule.sundayPremium?.multiplier ?? PREMIUM_DEFAULT_TIMES,
                       },
@@ -428,7 +499,7 @@ export function SundayRuleEditor({
                 <NumberInput
                   id="rulePremiumTimes"
                   min={0}
-                  max={10}
+                  max={MAX_PAY_DAY_VALUE}
                   decimal
                   className={FIELD}
                   value={String(rule.sundayPremium.multiplier)}
@@ -440,7 +511,7 @@ export function SundayRuleEditor({
                           PREMIUM_DEFAULT_DAYS,
                         multiplier: readNumericInput(e.target.value, PREMIUM_DEFAULT_TIMES, {
                           min: 0,
-                          max: 10,
+                          max: MAX_PAY_DAY_VALUE,
                         }),
                       },
                     })
@@ -464,6 +535,103 @@ export function SundayRuleEditor({
         )}
       </div>
 
+      <div className="flex flex-col gap-3 rounded-xl border border-border bg-surface-2 p-4">
+        <p className="flex items-center gap-2 text-base font-semibold text-foreground">
+          <Sun className="size-5 shrink-0" aria-hidden />
+          {t("ruleWorthTitle")}
+        </p>
+        {!worthOpen ? (
+          <>
+            <p className="text-base leading-relaxed text-muted-foreground">
+              {t("ruleWorthHint")}
+            </p>
+            <div>
+              <Button
+                type="button"
+                variant="outline"
+                className="min-h-[44px] px-5 py-3 text-base"
+                onClick={() => setWorthOpen(true)}
+              >
+                <Sun data-icon="inline-start" aria-hidden />
+                {t("ruleWorthOpen")}
+              </Button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className={ROW}>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="ruleWorthSunday">{t("ruleWorthSunday")}</Label>
+                <NumberInput
+                  id="ruleWorthSunday"
+                  min={0}
+                  max={MAX_PAY_DAY_VALUE}
+                  decimal
+                  className={FIELD}
+                  value={String(rule.sundayWorkedPayDays)}
+                  onChange={(e) =>
+                    patch({
+                      sundayWorkedPayDays: readNumericInput(
+                        e.target.value,
+                        LEGACY_SUNDAY_WORKED_PAY_DAYS,
+                        { min: 0, max: MAX_PAY_DAY_VALUE },
+                      ),
+                    })
+                  }
+                />
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="ruleWorthEarned">{t("ruleWorthEarned")}</Label>
+                <NumberInput
+                  id="ruleWorthEarned"
+                  min={0}
+                  max={MAX_PAY_DAY_VALUE}
+                  decimal
+                  className={FIELD}
+                  value={String(rule.earnedDayPayDays)}
+                  onChange={(e) =>
+                    patch({
+                      earnedDayPayDays: readNumericInput(
+                        e.target.value,
+                        LEGACY_EARNED_DAY_PAY_DAYS,
+                        { min: 0, max: MAX_PAY_DAY_VALUE },
+                      ),
+                    })
+                  }
+                />
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                className="min-h-[44px] px-4 py-3 text-base"
+                onClick={() => {
+                  patch({
+                    sundayWorkedPayDays: LEGACY_SUNDAY_WORKED_PAY_DAYS,
+                    earnedDayPayDays: LEGACY_EARNED_DAY_PAY_DAYS,
+                  });
+                  setWorthOpen(false);
+                }}
+              >
+                <Undo2 data-icon="inline-start" aria-hidden />
+                {t("ruleWorthReset")}
+              </Button>
+            </div>
+            <p className="text-base leading-relaxed text-muted-foreground">
+              {t("ruleWorthSundayHint")}
+            </p>
+            <p className="text-base leading-relaxed text-muted-foreground">
+              {t("ruleWorthEarnedHint")}
+            </p>
+            <p className="text-base leading-relaxed text-foreground">
+              {t("ruleWorthSummary", {
+                sunday: num(rule.sundayWorkedPayDays),
+                earned: num(rule.earnedDayPayDays),
+              })}
+            </p>
+          </>
+        )}
+      </div>
+
       <div className="flex flex-col gap-3 rounded-xl border border-border bg-surface-3 p-4">
         <p className="text-base font-semibold text-foreground">
           {t("rulePreviewTitle")}
@@ -482,6 +650,18 @@ export function SundayRuleEditor({
         <p className="text-base leading-relaxed text-foreground">
           {t("ruleMonthMost", { earned: num(month.earned) })}
         </p>
+        {/* The table above counts earned days as the owner typed them. Once an
+            earned day is worth something other than one day's pay, the rupees
+            differ from that number, so say the pay figure out loud rather than
+            let the table imply it. */}
+        {rule.earnedDayPayDays !== LEGACY_EARNED_DAY_PAY_DAYS ? (
+          <p className="text-base leading-relaxed text-foreground">
+            {t("ruleMonthMostMoney", {
+              pay: num(month.earned * rule.earnedDayPayDays),
+              earned: num(rule.earnedDayPayDays),
+            })}
+          </p>
+        ) : null}
         {/* Surface token rather than a tinted warning background: an alpha
             modifier compiles to color-mix(), which Chrome 109 cannot read. */}
         {cappedRow ? (
@@ -643,9 +823,25 @@ export function describeSundayRule(rule: SundayRule, t: Translate): string {
         )
         .join("; "),
     );
+    if (rule.bracketMode === "each" && rule.brackets.length > 1) {
+      parts.push(t("ruleSummaryBracketEach"));
+    }
   }
 
   parts.push(t("ruleSummaryCycle", { n: num(rule.cycleDays) }));
+  // Only when it is not the ordinary one-day-per-day, so the common rule's
+  // one-liner does not grow a clause that says nothing.
+  if (
+    rule.sundayWorkedPayDays !== LEGACY_SUNDAY_WORKED_PAY_DAYS ||
+    rule.earnedDayPayDays !== LEGACY_EARNED_DAY_PAY_DAYS
+  ) {
+    parts.push(
+      t("ruleSummaryWorth", {
+        sunday: num(rule.sundayWorkedPayDays),
+        earned: num(rule.earnedDayPayDays),
+      }),
+    );
+  }
   parts.push(
     rule.maxPerCycle === null && rule.maxPerMonth === null
       ? t("ruleSummaryNoLimits")

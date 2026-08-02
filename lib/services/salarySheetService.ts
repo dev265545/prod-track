@@ -398,7 +398,11 @@ function buildOperatorSummaryForRange(input: {
       hoursReducedTotal += row.hoursReduced;
     }
     if (row.rowKind === "sunday") {
-      if (row.paidFraction > 0) sundayPresentBonusDays += 1;
+      // A worked Sunday's paidFraction IS its worth in days (see the Sunday
+      // row in attendanceStats), which the owner can now set away from 1.
+      // Counting it as a flat 1 kept the rupees right — those come from
+      // basePay — but understated the days shown beside them.
+      sundayPresentBonusDays += row.paidFraction;
       continue;
     }
     presentDays += row.paidFraction;

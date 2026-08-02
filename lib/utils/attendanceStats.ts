@@ -159,10 +159,15 @@ export function computeEarnedExtraPayDaysForCalendarScope(
       );
       monthRaw += evaluateSundayRuleForCycle(categoryRule, presentCount).earned;
     }
-    total +=
+    const capped =
       categoryRule.maxPerMonth === null
         ? monthRaw
         : Math.min(categoryRule.maxPerMonth, monthRaw);
+    // What one earned day is worth is applied last, *after* both caps, so the
+    // caps keep meaning "this many lines' worth of days" — the units the owner
+    // typed them in. At the default worth of 1 this multiplication is the
+    // identity and no install's total moves.
+    total += capped * categoryRule.earnedDayPayDays;
   });
   return total;
 }
@@ -203,8 +208,16 @@ export function computeSundayPremiumExtraPay(input: {
   attendance: AttendanceRecord[];
   ratePerDay: number;
   premium?: SundayRatePremium | null;
+  /**
+   * What one worked Sunday is worth in days' pay, from the rule. The premium
+   * multiplies this, so a factory paying half a day for Sunday work and 2× once
+   * someone qualifies pays one whole day, not two. Defaults to 1, which is what
+   * every caller meant before the worth was configurable.
+   */
+  sundayWorkedPayDays?: number;
 }): number {
   const { fromDate, toDate, attendance, ratePerDay, premium } = input;
+  const worth = input.sundayWorkedPayDays ?? 1;
   if (!premium) return 0;
   const { requiredPresentDays, sundayMultiplier } = premium;
   if (!Number.isFinite(sundayMultiplier) || !Number.isFinite(requiredPresentDays)) {
@@ -212,8 +225,8 @@ export function computeSundayPremiumExtraPay(input: {
   }
   // Rounded exactly as `buildMonthSalaryBreakdown` rounds each Sunday row, so a
   // person's total agrees with the day rows printed underneath it.
-  const flatPay = Math.round(ratePerDay * 100) / 100;
-  const premiumPay = Math.round(ratePerDay * sundayMultiplier * 100) / 100;
+  const flatPay = Math.round(ratePerDay * worth * 100) / 100;
+  const premiumPay = Math.round(ratePerDay * worth * sundayMultiplier * 100) / 100;
   const perSunday = Math.round((premiumPay - flatPay) * 100) / 100;
   if (perSunday === 0) return 0;
 
@@ -264,7 +277,11 @@ export interface AttendanceStats {
   holidayPresentDays: number;
   /** Extra pay days from 15-day in-month cycles (capped per calendar month) */
   earnedSundayPayDays: number;
-  /** Sundays marked present — each adds an extra daily rate on top of earned units */
+  /**
+   * Days' pay from Sundays marked present. One per Sunday worked unless the
+   * rule sets a different worth (`sundayWorkedPayDays`), so this is a *pay*
+   * figure, not a count of Sundays.
+   */
   sundayPresentBonusDays: number;
   totalPaidDays: number;
   totalHoursWorked: number;
@@ -466,7 +483,9 @@ export function computeAttendanceStats(input: AttendanceStatsInput): AttendanceS
   let sundayPresentBonusDays = 0;
   for (const dateStr of getSundayDatesInMonth(year, month)) {
     const att = attByDate.get(dateStr);
-    if (att?.status === "present") sundayPresentBonusDays += 1;
+    if (att?.status === "present") {
+      sundayPresentBonusDays += sundayCategoryRule.sundayWorkedPayDays;
+    }
   }
 
   const paidRounded = Math.round(paidWorkingDays * 100) / 100;
@@ -630,7 +649,10 @@ export function buildMonthSalaryBreakdown(input: {
     if (dow === 0) {
       const att = attByDate.get(dateStr);
       const sundayPresent = att?.status === "present";
-      if (sundayPresent) sundayPresentBonusDays += 1;
+      // What one worked Sunday is worth, in days' pay. 1 unless the rule says
+      // otherwise, which is every rule written before the field existed.
+      const sundayWorth = sundayCategoryRule.sundayWorkedPayDays;
+      if (sundayPresent) sundayPresentBonusDays += sundayWorth;
       const sundayMultiplierApplies =
         sundayPresent &&
         sundayPremium != null &&
@@ -638,9 +660,9 @@ export function buildMonthSalaryBreakdown(input: {
       const bonusPay = sundayPresent
         ? sundayMultiplierApplies
           ? Math.round(
-              ratePerDay * sundayPremium!.sundayMultiplier * 100,
+              ratePerDay * sundayWorth * sundayPremium!.sundayMultiplier * 100,
             ) / 100
-          : Math.round(ratePerDay * 100) / 100
+          : Math.round(ratePerDay * sundayWorth * 100) / 100
         : 0;
       if (sundayPresent) {
         const ex = att.hoursExtra ?? 0;
@@ -673,7 +695,7 @@ export function buildMonthSalaryBreakdown(input: {
                 (att.hoursExtra ?? 0) -
                 (att.hoursReduced ?? 0)
             : null,
-        paidFraction: sundayPresent ? 1 : 0,
+        paidFraction: sundayPresent ? sundayWorth : 0,
         basePay: bonusPay,
         productionPay: prodPay,
       });
@@ -923,7 +945,9 @@ export function computeAttendanceStatsForRange(input: {
   for (const dateStr of rangeDates) {
     if (!isSunday(dateStr)) continue;
     const att = attByDate.get(dateStr);
-    if (att?.status === "present") sundayPresentBonusDays += 1;
+    if (att?.status === "present") {
+      sundayPresentBonusDays += sundayCategoryRule.sundayWorkedPayDays;
+    }
   }
 
   const paidRounded = Math.round(paidWorkingDays * 100) / 100;
@@ -1010,6 +1034,7 @@ export function buildAttendanceSalarySummaryForRange(input: {
     attendance: premiumAttendance ?? attendance,
     ratePerDay,
     premium: sundayPremium,
+    sundayWorkedPayDays: sundayCategoryRule.sundayWorkedPayDays,
   });
 
   return {

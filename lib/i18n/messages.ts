@@ -1743,6 +1743,35 @@ const en = {
   ruleCancelEdit: "Cancel",
   ruleSaveSuccess: "Rule saved",
 
+  /* How several lines add up, and what a day is worth. Both are hidden until
+     asked for: the common case is one line and one day's pay, and a screen that
+     puts four more numbers in front of that owner is worse than the gap. */
+  ruleBracketModeLabel: "When a worker passes more than one line",
+  ruleBracketModeHighest: "Pay only the top line",
+  ruleBracketModeEach: "Pay every line, added up",
+  ruleBracketModeHighestHint:
+    "Only the highest line the worker reaches is paid. The lower lines are not added.",
+  ruleBracketModeEachHint:
+    "Every line the worker reaches is paid, and they are added together.",
+  ruleWorthTitle: "What one day is worth",
+  ruleWorthHint:
+    "A Sunday worked is paid one day's pay, and each extra day earned is paid one day's pay. This is what almost every factory wants.",
+  ruleWorthOpen: "Change what a day is worth",
+  ruleWorthReset: "Back to one day's pay",
+  ruleWorthSunday: "A Sunday worked pays (days' pay)",
+  ruleWorthEarned: "Each extra day earned pays (days' pay)",
+  ruleWorthSundayHint:
+    "0.5 means a Sunday worked is paid half a day. 1 means a full day.",
+  ruleWorthEarnedHint:
+    "1.5 means every extra day the worker earns is paid as one and a half days.",
+  ruleWorthSummary:
+    "A Sunday worked pays {sunday} days' pay. Each extra day earned pays {earned} days' pay.",
+  ruleMonthMostMoney:
+    "That is {pay} days' pay in a whole month, once each earned day is counted at {earned}.",
+  ruleSummaryBracketEach: "every line reached is added up",
+  ruleSummaryWorth:
+    "Sunday worked {sunday} days' pay, each earned day {earned} days' pay",
+
   // The per-day pay limit. Same register as the Sunday rule editor above it:
   // the limit is a number the owner can read, change, or switch off, and every
   // place it holds a figure down says so out loud.
@@ -3712,6 +3741,41 @@ const hi: Record<MessageKey, string> = {
   ruleSaveEdit: "\u092c\u0926\u0932\u093e\u0935 \u0938\u0947\u0935 \u0915\u0930\u0947\u0902",
   ruleCancelEdit: "\u0930\u0939\u0928\u0947 \u0926\u0947\u0902",
   ruleSaveSuccess: "\u0928\u093f\u092f\u092e \u0938\u0947\u0935 \u0939\u094b \u0917\u092f\u093e",
+
+  ruleBracketModeLabel:
+    "\u091c\u092c \u092e\u091c\u093c\u0926\u0942\u0930 \u090f\u0915 \u0938\u0947 \u091c\u093c\u094d\u092f\u093e\u0926\u093e \u0932\u093e\u0907\u0928 \u092a\u093e\u0930 \u0915\u0930\u0947",
+  ruleBracketModeHighest:
+    "\u0938\u093f\u0930\u094d\u092b\u093c \u0938\u092c\u0938\u0947 \u090a\u092a\u0930 \u0935\u093e\u0932\u0940 \u0932\u093e\u0907\u0928 \u0926\u0947\u0902",
+  ruleBracketModeEach:
+    "\u0939\u0930 \u0932\u093e\u0907\u0928 \u0926\u0947\u0902, \u0938\u092c \u091c\u094b\u0921\u093c\u0915\u0930",
+  ruleBracketModeHighestHint:
+    "\u092e\u091c\u093c\u0926\u0942\u0930 \u091c\u093f\u0938 \u0938\u092c\u0938\u0947 \u090a\u092a\u0930 \u0915\u0940 \u0932\u093e\u0907\u0928 \u0924\u0915 \u092a\u0939\u0941\u0901\u091a\u0947, \u0938\u093f\u0930\u094d\u092b\u093c \u0935\u0939\u0940 \u092e\u093f\u0932\u0947\u0917\u0940\u0964 \u0928\u0940\u091a\u0947 \u0915\u0940 \u0932\u093e\u0907\u0928\u0947\u0902 \u0928\u0939\u0940\u0902 \u091c\u0941\u0921\u093c\u0947\u0902\u0917\u0940\u0964",
+  ruleBracketModeEachHint:
+    "\u092e\u091c\u093c\u0926\u0942\u0930 \u091c\u093f\u0924\u0928\u0940 \u0932\u093e\u0907\u0928\u0947\u0902 \u092a\u093e\u0930 \u0915\u0930\u0947, \u0938\u092c \u0915\u093e \u092a\u0948\u0938\u093e \u091c\u094b\u0921\u093c\u0915\u0930 \u092e\u093f\u0932\u0947\u0917\u093e\u0964",
+  ruleWorthTitle:
+    "\u090f\u0915 \u0926\u093f\u0928 \u0915\u0940 \u0915\u0940\u092e\u0924",
+  ruleWorthHint:
+    "\u0915\u093e\u092e \u0935\u093e\u0932\u0947 \u0930\u0935\u093f\u0935\u093e\u0930 \u0915\u093e \u090f\u0915 \u0926\u093f\u0928 \u0915\u093e \u092a\u0948\u0938\u093e, \u0914\u0930 \u0939\u0930 \u0905\u0924\u093f\u0930\u093f\u0915\u094d\u0924 \u0926\u093f\u0928 \u0915\u093e \u092d\u0940 \u090f\u0915 \u0926\u093f\u0928 \u0915\u093e \u092a\u0948\u0938\u093e\u0964 \u0932\u0917\u092d\u0917 \u0939\u0930 \u092b\u0948\u0915\u094d\u091f\u094d\u0930\u0940 \u092f\u0939\u0940 \u091a\u093e\u0939\u0924\u0940 \u0939\u0948\u0964",
+  ruleWorthOpen:
+    "\u090f\u0915 \u0926\u093f\u0928 \u0915\u0940 \u0915\u0940\u092e\u0924 \u092c\u0926\u0932\u0947\u0902",
+  ruleWorthReset:
+    "\u0935\u093e\u092a\u0938 \u090f\u0915 \u0926\u093f\u0928 \u0915\u0947 \u092a\u0948\u0938\u0947 \u092a\u0930",
+  ruleWorthSunday:
+    "\u0915\u093e\u092e \u0935\u093e\u0932\u093e \u0930\u0935\u093f\u0935\u093e\u0930 \u0926\u0947\u0924\u093e \u0939\u0948 (\u0926\u093f\u0928 \u0915\u0940 \u0924\u0928\u0916\u094d\u0935\u093e\u0939)",
+  ruleWorthEarned:
+    "\u0939\u0930 \u0905\u0924\u093f\u0930\u093f\u0915\u094d\u0924 \u0926\u093f\u0928 \u0926\u0947\u0924\u093e \u0939\u0948 (\u0926\u093f\u0928 \u0915\u0940 \u0924\u0928\u0916\u094d\u0935\u093e\u0939)",
+  ruleWorthSundayHint:
+    "0.5 \u0915\u093e \u092e\u0924\u0932\u092c \u0906\u0927\u0947 \u0926\u093f\u0928 \u0915\u093e \u092a\u0948\u0938\u093e\u0964 1 \u0915\u093e \u092e\u0924\u0932\u092c \u092a\u0942\u0930\u093e \u0926\u093f\u0928\u0964",
+  ruleWorthEarnedHint:
+    "1.5 \u0915\u093e \u092e\u0924\u0932\u092c \u0939\u0930 \u0905\u0924\u093f\u0930\u093f\u0915\u094d\u0924 \u0926\u093f\u0928 \u0915\u093e \u0921\u0947\u0922\u093c \u0926\u093f\u0928 \u0915\u093e \u092a\u0948\u0938\u093e\u0964",
+  ruleWorthSummary:
+    "\u0915\u093e\u092e \u0935\u093e\u0932\u093e \u0930\u0935\u093f\u0935\u093e\u0930 {sunday} \u0926\u093f\u0928 \u0915\u093e \u092a\u0948\u0938\u093e \u0926\u0947\u0924\u093e \u0939\u0948\u0964 \u0939\u0930 \u0905\u0924\u093f\u0930\u093f\u0915\u094d\u0924 \u0926\u093f\u0928 {earned} \u0926\u093f\u0928 \u0915\u093e \u092a\u0948\u0938\u093e \u0926\u0947\u0924\u093e \u0939\u0948\u0964",
+  ruleMonthMostMoney:
+    "\u092f\u093e\u0928\u0940 \u092a\u0942\u0930\u0947 \u092e\u0939\u0940\u0928\u0947 \u092e\u0947\u0902 {pay} \u0926\u093f\u0928 \u0915\u093e \u092a\u0948\u0938\u093e, \u091c\u092c \u0939\u0930 \u0905\u0930\u094d\u091c\u093f\u0924 \u0926\u093f\u0928 {earned} \u0926\u093f\u0928 \u0915\u093e \u0917\u093f\u0928\u093e \u091c\u093e\u090f\u0964",
+  ruleSummaryBracketEach:
+    "\u091c\u093f\u0924\u0928\u0940 \u0932\u093e\u0907\u0928\u0947\u0902 \u092a\u093e\u0930, \u0938\u092c \u091c\u0941\u0921\u093c\u0947\u0902\u0917\u0940",
+  ruleSummaryWorth:
+    "\u0930\u0935\u093f\u0935\u093e\u0930 {sunday} \u0926\u093f\u0928 \u0915\u093e \u092a\u0948\u0938\u093e, \u0939\u0930 \u0905\u0930\u094d\u091c\u093f\u0924 \u0926\u093f\u0928 {earned} \u0926\u093f\u0928 \u0915\u093e \u092a\u0948\u0938\u093e",
 
   capCardTitle: "\u090f\u0915 \u0926\u093f\u0928 \u092e\u0947\u0902 \u0938\u092c\u0938\u0947 \u091c\u093c\u094d\u092f\u093e\u0926\u093e \u0915\u093f\u0924\u0928\u093e",
   capCardSubtitle:

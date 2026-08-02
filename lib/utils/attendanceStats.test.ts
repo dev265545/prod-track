@@ -967,3 +967,121 @@ describe("Sunday premium — what it pays once it is configured", () => {
     ).toBe(summary.sundayPremiumExtraPay);
   });
 });
+
+describe("what one worked Sunday is worth", () => {
+  const marchSundays = getSundayDatesInMonth(2026, 2);
+  const attendance = marchSundays.map((date) => ({ date, status: "present" }));
+  // Nothing but Sundays, so the earned pool stays out of the arithmetic and the
+  // only figure moving is the one under test.
+  const emptyRule = normalizeSundayRule({ kind: "table", brackets: [] });
+
+  it("pays one day per Sunday when the rule says nothing, exactly as before", () => {
+    const stats = computeAttendanceStats({
+      year: 2026,
+      month: 2,
+      holidayDates: [],
+      attendance,
+      sundayCategoryRule: emptyRule,
+    });
+    expect(stats.sundayPresentBonusDays).toBe(marchSundays.length);
+  });
+
+  it("pays half a day per Sunday when the owner sets half", () => {
+    const half = normalizeSundayRule({
+      kind: "table",
+      brackets: [],
+      sundayWorkedPayDays: 0.5,
+    });
+    expect(
+      computeAttendanceStats({
+        year: 2026,
+        month: 2,
+        holidayDates: [],
+        attendance,
+        sundayCategoryRule: half,
+      }).sundayPresentBonusDays,
+    ).toBe(marchSundays.length * 0.5);
+    expect(
+      computeAttendanceStatsForRange({
+        fromDate: "2026-03-01",
+        toDate: "2026-03-31",
+        holidayDates: [],
+        attendance,
+        sundayCategoryRule: half,
+      }).sundayPresentBonusDays,
+    ).toBe(marchSundays.length * 0.5);
+  });
+
+  it("moves the rupees on the day rows, not only the day count", () => {
+    const half = normalizeSundayRule({
+      kind: "table",
+      brackets: [],
+      sundayWorkedPayDays: 0.5,
+    });
+    const breakdown = buildMonthSalaryBreakdown({
+      year: 2026,
+      month: 2,
+      holidayDates: [],
+      attendance,
+      productionPayByDate: new Map(),
+      hoursPerDay: 8,
+      ratePerDay: 400,
+      sundayCategoryRule: half,
+    });
+    const sundayRows = breakdown.days.filter((r) => r.rowKind === "sunday");
+    expect(sundayRows.every((r) => r.basePay === 200)).toBe(true);
+    expect(sundayRows.every((r) => r.paidFraction === 0.5)).toBe(true);
+    expect(breakdown.sundayMarkBonusPay).toBe(marchSundays.length * 200);
+    expect(breakdown.sundayPresentBonusDays).toBe(marchSundays.length * 0.5);
+  });
+
+  it("lets the Sunday premium multiply the worth instead of replacing it", () => {
+    // Present every non-Sunday so the premium's day count is reached, then a
+    // worked Sunday worth half a day at 2x is one whole day, not two.
+    const everyDay: { date: string; status: string }[] = [];
+    for (let d = 1; d <= 31; d += 1) {
+      everyDay.push({
+        date: `2026-03-${String(d).padStart(2, "0")}`,
+        status: "present",
+      });
+    }
+    const half = normalizeSundayRule({
+      kind: "table",
+      brackets: [],
+      sundayWorkedPayDays: 0.5,
+    });
+    const breakdown = buildMonthSalaryBreakdown({
+      year: 2026,
+      month: 2,
+      holidayDates: [],
+      attendance: everyDay,
+      productionPayByDate: new Map(),
+      hoursPerDay: 8,
+      ratePerDay: 400,
+      sundayCategoryRule: half,
+      sundayPremium: { requiredPresentDays: 1, sundayMultiplier: 2 },
+    });
+    const lastSunday = breakdown.days
+      .filter((r) => r.rowKind === "sunday")
+      .at(-1)!;
+    expect(lastSunday.basePay).toBe(400);
+
+    // And the range summary, which adds the premium as a delta on top of the
+    // flat worth, must agree with those rows rather than double-count.
+    const summary = buildAttendanceSalarySummaryForRange({
+      fromDate: "2026-03-01",
+      toDate: "2026-03-31",
+      holidayDates: [],
+      attendance: everyDay,
+      ratePerDay: 400,
+      sundayCategoryRule: half,
+      sundayPremium: { requiredPresentDays: 1, sundayMultiplier: 2 },
+    });
+    const sundayPay =
+      summary.sundayPresentBonusDays * 400 + (summary.sundayPremiumExtraPay ?? 0);
+    // 1 March 2026 is itself a Sunday, so nobody has qualified yet that day and
+    // it pays the plain half-day worth; the other four pay the doubled one.
+    expect(sundayPay).toBe(200 + 4 * 400);
+    expect(sundayPay).toBe(breakdown.sundayMarkBonusPay);
+  });
+});

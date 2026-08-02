@@ -421,3 +421,288 @@ describe("configurable cycles and caps end to end", () => {
     ]);
   });
 });
+
+/* ------------------------------------------------------------------ *
+ * The rule engine exactly as it stood before "what is a day worth",
+ * "add up every line" and the relaxed guards were added. Kept verbatim
+ * so the sweep below compares against real shipped behaviour rather
+ * than a restatement of the new code.
+ * ------------------------------------------------------------------ */
+
+function priorEvaluateForCycle(
+  rule: SundayRule,
+  presentDays: number,
+): { earned: number; uncapped: number; cappedByCycle: boolean } {
+  let uncapped = 0;
+
+  if (rule.kind === "repeat") {
+    if (rule.repeatEveryPresentDays > 0) {
+      uncapped =
+        Math.floor(presentDays / rule.repeatEveryPresentDays) * rule.repeatGive;
+    }
+  } else {
+    for (const bracket of rule.brackets) {
+      if (presentDays >= bracket.whenPresentDaysAtLeast) uncapped = bracket.give;
+    }
+  }
+
+  if (!Number.isFinite(uncapped) || uncapped < 0) uncapped = 0;
+  const earned =
+    rule.maxPerCycle === null ? uncapped : Math.min(rule.maxPerCycle, uncapped);
+  return { earned, uncapped, cappedByCycle: earned < uncapped };
+}
+
+function priorEarnedForCalendarScope(
+  fromDate: string,
+  toDate: string,
+  attByDate: Map<string, { status: string }>,
+  rule: SundayRule,
+): number {
+  let total = 0;
+  let y = +fromDate.slice(0, 4);
+  let m = +fromDate.slice(5, 7) - 1;
+  const endY = +toDate.slice(0, 4);
+  const endM = +toDate.slice(5, 7) - 1;
+  while (y < endY || (y === endY && m <= endM)) {
+    let monthRaw = 0;
+    for (const { start, end } of getSundayRuleCycleBlocks(y, m, rule.cycleDays)) {
+      const windowStart = `${y}-${pad2(m + 1)}-${pad2(start)}`;
+      const windowEnd = `${y}-${pad2(m + 1)}-${pad2(end)}`;
+      if (windowStart < fromDate || windowEnd > toDate) continue;
+      let presentCount = 0;
+      for (let d = start; d <= end; d++) {
+        const dateStr = `${y}-${pad2(m + 1)}-${pad2(d)}`;
+        if (isSunday(dateStr)) continue;
+        if (attByDate.get(dateStr)?.status === "present") presentCount += 1;
+      }
+      monthRaw += priorEvaluateForCycle(rule, presentCount).earned;
+    }
+    total +=
+      rule.maxPerMonth === null ? monthRaw : Math.min(rule.maxPerMonth, monthRaw);
+    m += 1;
+    if (m > 11) {
+      m = 0;
+      y += 1;
+    }
+  }
+  return total;
+}
+
+describe("new knobs at their defaults change nothing", () => {
+  // A spread of rule shapes an install can plausibly hold, none of which
+  // mentions the new fields — exactly what every stored rule looks like today.
+  const storedRules: unknown[] = [
+    { kind: "table", brackets: [{ whenPresentDaysAtLeast: 12, give: 2 }] },
+    {
+      kind: "table",
+      brackets: [
+        { whenPresentDaysAtLeast: 8, give: 1 },
+        { whenPresentDaysAtLeast: 12, give: 2 },
+        { whenPresentDaysAtLeast: 20, give: 4 },
+      ],
+      maxPerCycle: null,
+      maxPerMonth: null,
+    },
+    {
+      kind: "table",
+      brackets: [
+        { whenPresentDaysAtLeast: 5, give: 0.5 },
+        { whenPresentDaysAtLeast: 10, give: 1.5 },
+      ],
+      cycleDays: 10,
+      maxPerCycle: 1,
+      maxPerMonth: 3,
+    },
+    { kind: "repeat", repeatEveryPresentDays: 5, repeatGive: 1 },
+    {
+      kind: "repeat",
+      repeatEveryPresentDays: 4,
+      repeatGive: 1,
+      maxPerCycle: null,
+      maxPerMonth: null,
+      cycleDays: 20,
+    },
+    { mode: "threshold", requiredPresent: 12, earnedSundays: 2 },
+    { mode: "step", everyPresentDays: 6, earnedPerStep: 1 },
+    null,
+    {},
+  ];
+
+  it("every stored rule normalizes to the compatible defaults", () => {
+    for (const stored of storedRules) {
+      const rule = normalizeSundayRule(stored);
+      expect(rule.bracketMode).toBe("highest");
+      expect(rule.sundayWorkedPayDays).toBe(1);
+      expect(rule.earnedDayPayDays).toBe(1);
+    }
+  });
+
+  it("pays the identical number of days as the previous engine", () => {
+    for (const stored of storedRules) {
+      const rule = normalizeSundayRule(stored);
+      for (let days = 0; days <= 40; days += 1) {
+        expect(evaluateSundayRuleForCycle(rule, days)).toEqual(
+          priorEvaluateForCycle(rule, days),
+        );
+      }
+      // Four years of months, at every reachable attendance level, through the
+      // function payroll actually calls.
+      for (let year = 2024; year <= 2027; year += 1) {
+        for (let monthIndex = 0; monthIndex < 12; monthIndex += 1) {
+          const from = `${year}-${pad2(monthIndex + 1)}-01`;
+          const to = `${year}-${pad2(monthIndex + 1)}-${pad2(
+            getCalendarDaysInMonth(year, monthIndex),
+          )}`;
+          for (const presentPerHalf of [0, 3, 8, 11, 12, 13, 20, 31]) {
+            const att = attendanceFor(year, monthIndex, presentPerHalf);
+            expect(
+              computeEarnedExtraPayDaysForCalendarScope(from, to, [], att, 8, rule),
+            ).toBe(priorEarnedForCalendarScope(from, to, att, rule));
+          }
+        }
+      }
+    }
+  });
+});
+
+describe("adding up every line reached", () => {
+  const brackets = [
+    { whenPresentDaysAtLeast: 6, give: 1 },
+    { whenPresentDaysAtLeast: 12, give: 1 },
+    { whenPresentDaysAtLeast: 20, give: 1 },
+  ];
+
+  it("pays only the top line by default", () => {
+    const rule = normalizeSundayRule({ kind: "table", brackets, maxPerCycle: null });
+    expect(evaluateSundayRuleForCycle(rule, 5).earned).toBe(0);
+    expect(evaluateSundayRuleForCycle(rule, 12).earned).toBe(1);
+    expect(evaluateSundayRuleForCycle(rule, 25).earned).toBe(1);
+  });
+
+  it("adds every line reached when asked to", () => {
+    const rule = normalizeSundayRule({
+      kind: "table",
+      brackets,
+      bracketMode: "each",
+      maxPerCycle: null,
+    });
+    expect(evaluateSundayRuleForCycle(rule, 5).earned).toBe(0);
+    expect(evaluateSundayRuleForCycle(rule, 6).earned).toBe(1);
+    expect(evaluateSundayRuleForCycle(rule, 12).earned).toBe(2);
+    expect(evaluateSundayRuleForCycle(rule, 25).earned).toBe(3);
+  });
+
+  it("still reports the per-stretch limit clipping the sum", () => {
+    const rule = normalizeSundayRule({
+      kind: "table",
+      brackets,
+      bracketMode: "each",
+      maxPerCycle: 2,
+    });
+    expect(evaluateSundayRuleForCycle(rule, 25)).toEqual({
+      earned: 2,
+      uncapped: 3,
+      cappedByCycle: true,
+    });
+  });
+
+  it("means nothing for a repeating rule, and is not lost by switching", () => {
+    const rule = normalizeSundayRule({
+      kind: "repeat",
+      bracketMode: "each",
+      brackets,
+      repeatEveryPresentDays: 5,
+      repeatGive: 1,
+      maxPerCycle: null,
+    });
+    expect(rule.bracketMode).toBe("each");
+    expect(evaluateSundayRuleForCycle(rule, 20).earned).toBe(4);
+  });
+});
+
+describe("what one earned day is worth", () => {
+  const stored = {
+    kind: "table",
+    brackets: [{ whenPresentDaysAtLeast: 12, give: 2 }],
+    maxPerCycle: 2,
+    maxPerMonth: 4,
+    cycleDays: 15,
+  };
+
+  it("scales the pay days after both caps, not the caps themselves", () => {
+    const plain = normalizeSundayRule(stored);
+    const rich = normalizeSundayRule({ ...stored, earnedDayPayDays: 1.5 });
+    const att = attendanceFor(2026, 2, 31);
+    const base = computeEarnedExtraPayDaysForCalendarScope(
+      "2026-03-01",
+      "2026-03-31",
+      [],
+      att,
+      8,
+      plain,
+    );
+    expect(base).toBe(4); // the monthly cap, in the units the owner typed
+    expect(
+      computeEarnedExtraPayDaysForCalendarScope(
+        "2026-03-01",
+        "2026-03-31",
+        [],
+        att,
+        8,
+        rich,
+      ),
+    ).toBe(6);
+    // The per-stretch view keeps speaking in the owner's own units.
+    expect(evaluateSundayRuleForCycle(rich, 12).earned).toBe(2);
+  });
+
+  it("can pay nothing without falling back to a default", () => {
+    const rule = normalizeSundayRule({ ...stored, earnedDayPayDays: 0 });
+    expect(rule.earnedDayPayDays).toBe(0);
+    expect(
+      computeEarnedExtraPayDaysForCalendarScope(
+        "2026-03-01",
+        "2026-03-31",
+        [],
+        attendanceFor(2026, 2, 31),
+        8,
+        rule,
+      ),
+    ).toBe(0);
+  });
+});
+
+describe("guards on absurd input", () => {
+  it("allows a stretch far longer than a month but not longer than a year", () => {
+    expect(normalizeSundayRule({ kind: "table", cycleDays: 90 }).cycleDays).toBe(90);
+    expect(normalizeSundayRule({ kind: "table", cycleDays: 5000 }).cycleDays).toBe(366);
+    // Zero is still not a stretch; it falls back rather than dividing a month
+    // into nothing.
+    expect(normalizeSundayRule({ kind: "table", cycleDays: 0 }).cycleDays).toBe(15);
+  });
+
+  it("clamps a slipped digit in any 'what is this worth' number", () => {
+    const rule = normalizeSundayRule({
+      kind: "table",
+      sundayWorkedPayDays: 9999,
+      earnedDayPayDays: 9999,
+      sundayPremium: { requiredPresentDays: 9999, multiplier: 9999 },
+    });
+    expect(rule.sundayWorkedPayDays).toBe(100);
+    expect(rule.earnedDayPayDays).toBe(100);
+    expect(rule.sundayPremium).toEqual({
+      requiredPresentDays: 366,
+      multiplier: 100,
+    });
+  });
+
+  it("keeps a negative or unreadable worth off the payroll", () => {
+    const rule = normalizeSundayRule({
+      kind: "table",
+      sundayWorkedPayDays: -3,
+      earnedDayPayDays: "abc",
+    });
+    expect(rule.sundayWorkedPayDays).toBe(0);
+    expect(rule.earnedDayPayDays).toBe(1);
+  });
+});
