@@ -3,13 +3,35 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Newsreader } from "next/font/google";
+import {
+  ArrowLeft,
+  Check,
+  Eye,
+  EyeOff,
+  FilePlus2,
+  FolderOpen,
+  HardDrive,
+  KeyRound,
+  Sparkles,
+  TriangleAlert,
+  Upload,
+} from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { openDB } from "@/lib/db/adapter";
-import { isSqliteFileMode, isTauri } from "@/lib/db/adapter";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { openDB, isSqliteFileMode, isTauri } from "@/lib/db/adapter";
 import {
   isFileSystemAccessSupported,
   pickAndCreateNewSqliteFile,
@@ -23,11 +45,21 @@ import {
 } from "@/lib/db/exportImport";
 import { importDatabaseFromSqliteBuffer } from "@/lib/db/sqliteBrowser";
 import { importDbFromFile } from "@/lib/db/tauriDb";
-import { setAppPassword, startSession } from "@/lib/auth";
+import {
+  legacyWorkspaceHasData,
+  shouldOpenLoginInsteadOfOnboarding,
+} from "@/lib/db/appMetadata";
+import {
+  MIN_PASSWORD_LENGTH,
+  setAppPassword,
+  setWorkerPassword,
+  startSession,
+} from "@/lib/auth";
 import { setFirstRunComplete } from "@/lib/onboarding";
-import { shouldOpenLoginInsteadOfOnboarding } from "@/lib/db/appMetadata";
+import { useLanguage } from "@/components/language-provider";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
+import type { MessageKey } from "@/lib/i18n/messages";
 
 const welcomeDisplay = Newsreader({
   subsets: ["latin"],
@@ -35,126 +67,156 @@ const welcomeDisplay = Newsreader({
   adjustFontFallback: false,
 });
 
-type Step = 0 | 1 | 2 | 3 | 4;
+type Step = "file" | "data" | "password";
 
-type StepDef = { id: Step; label: string };
-
-function buildSteps(includeDb: boolean): StepDef[] {
-  if (includeDb) {
-    return [
-      { id: 0, label: "Database" },
-      { id: 1, label: "Welcome" },
-      { id: 2, label: "Your data" },
-      { id: 3, label: "Import" },
-      { id: 4, label: "Password" },
-    ];
-  }
-  return [
-    { id: 1, label: "Welcome" },
-    { id: 2, label: "Your data" },
-    { id: 3, label: "Import" },
-    { id: 4, label: "Password" },
-  ];
+/**
+ * The storage backend is decided by the build, never by the user: Tauri uses
+ * the local SQLite database, the plain web build uses in-browser storage. Only
+ * the "sqlite-file" build genuinely needs an answer — the browser cannot open a
+ * file without the user picking it — so that is the only extra step.
+ */
+function buildSteps(): Step[] {
+  return isSqliteFileMode()
+    ? ["file", "data", "password"]
+    : ["data", "password"];
 }
 
-function stepState(
-  entry: StepDef,
-  currentStep: Step,
-  wantsImport: boolean | null,
-  order: Step[],
-): "done" | "current" | "upcoming" | "skipped" {
-  const curIdx = order.indexOf(currentStep);
-  const i = order.indexOf(entry.id);
-  if (i === -1) return "upcoming";
-  if (entry.id === 3 && currentStep === 4 && wantsImport === false) {
-    return "skipped";
-  }
-  if (i < curIdx) return "done";
-  if (i === curIdx) return "current";
-  return "upcoming";
-}
+const STEP_LABEL: Record<Step, MessageKey> = {
+  file: "obStepFile",
+  data: "obStepData",
+  password: "obStepPassword",
+};
 
-function OnboardingStepper({
+function StepProgress({
   steps,
-  currentStep,
-  wantsImport,
+  current,
+  label,
 }: {
-  steps: StepDef[];
-  currentStep: Step;
-  wantsImport: boolean | null;
+  steps: Step[];
+  current: Step;
+  label: (step: Step) => string;
 }) {
-  const order = steps.map((s) => s.id);
-  const currentIdx = order.indexOf(currentStep);
-
+  const index = steps.indexOf(current);
   return (
-    <nav aria-label="Setup steps" className="mb-10 w-full">
-      <ol className="flex items-start justify-between gap-1 overflow-x-auto pb-2 sm:gap-2">
-        {steps.map((entry, idx) => {
-          const state = stepState(entry, currentStep, wantsImport, order);
-          const isLast = idx === steps.length - 1;
-          const connectorDone = idx < currentIdx;
-          return (
-            <li key={entry.id} className="flex min-w-0 flex-1 items-center">
-              <div className="flex w-full min-w-[4.25rem] flex-col items-center gap-2 sm:min-w-[5.5rem]">
-                <span
-                  className={cn(
-                    "flex size-11 items-center justify-center rounded-full border-2 text-sm font-semibold font-heading transition-[transform,colors,border-color] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] sm:size-[3.25rem] sm:text-base",
-                    state === "current" &&
-                      "scale-[1.02] border-primary bg-primary text-primary-foreground shadow-md",
-                    state === "done" &&
-                      "border-primary/70 bg-primary/10 text-primary",
-                    state === "upcoming" &&
-                      "border-border bg-card text-muted-foreground",
-                    state === "skipped" &&
-                      "border-dashed border-muted-foreground/35 bg-muted/30 text-muted-foreground",
-                  )}
-                >
-                  {state === "skipped" ? "—" : idx + 1}
-                </span>
-                <span
-                  className={cn(
-                    "w-full px-0.5 text-center text-[0.65rem] font-medium leading-snug sm:text-xs",
-                    state === "current" && "text-foreground",
-                    state === "done" && "text-foreground/90",
-                    state === "upcoming" && "text-muted-foreground",
-                    state === "skipped" &&
-                      "text-muted-foreground line-through decoration-muted-foreground/40",
-                  )}
-                >
-                  {entry.label}
-                </span>
-              </div>
-              {!isLast ? (
-                <div
-                  className={cn(
-                    "mx-0.5 mt-[1.375rem] h-0.5 min-w-[0.35rem] flex-1 rounded-full sm:mx-1 sm:min-w-[1rem]",
-                    connectorDone ? "bg-primary/45" : "bg-border",
-                  )}
-                  aria-hidden
-                />
-              ) : null}
-            </li>
-          );
-        })}
+    <div className="mb-8 w-full">
+      <ol className="flex w-full items-stretch gap-2" aria-hidden>
+        {steps.map((step, i) => (
+          <li key={step} className="flex flex-1 flex-col gap-2">
+            <span
+              className={cn(
+                "block h-2 rounded-full",
+                i <= index ? "bg-primary" : "bg-border",
+              )}
+            />
+            <span
+              className={cn(
+                "text-xs font-medium leading-snug sm:text-sm",
+                i === index ? "text-foreground" : "text-muted-foreground",
+              )}
+            >
+              {label(step)}
+            </span>
+          </li>
+        ))}
       </ol>
-    </nav>
+    </div>
+  );
+}
+
+/** A tall, tappable option: icon + heading + one line of plain explanation. */
+function ChoiceButton({
+  icon,
+  title,
+  hint,
+  variant = "outline",
+  disabled,
+  onClick,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  hint?: string;
+  variant?: "default" | "outline";
+  disabled?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <Button
+      type="button"
+      variant={variant}
+      disabled={disabled}
+      onClick={onClick}
+      className="h-auto min-h-16 w-full justify-start gap-3 whitespace-normal px-4 py-4 text-left"
+    >
+      <span className="mt-0.5 shrink-0">{icon}</span>
+      <span className="flex min-w-0 flex-col gap-1">
+        <span className="text-base font-semibold leading-snug">{title}</span>
+        {hint ? (
+          <span
+            className={cn(
+              "text-sm font-normal leading-snug",
+              variant === "default"
+                ? "text-primary-foreground/80"
+                : "text-muted-foreground",
+            )}
+          >
+            {hint}
+          </span>
+        ) : null}
+      </span>
+    </Button>
   );
 }
 
 export default function OnboardingPage() {
   const router = useRouter();
-  const [step, setStep] = useState<Step>(isSqliteFileMode() ? 0 : 1);
-  const [wantsImport, setWantsImport] = useState<boolean | null>(null);
+  const { t, locale, setLocale } = useLanguage();
+
+  const steps = buildSteps();
+  const [step, setStep] = useState<Step>(steps[0]);
+  const [choosingFile, setChoosingFile] = useState(false);
   const [importError, setImportError] = useState("");
-  const [importSuccess, setImportSuccess] = useState(false);
-  const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
+  const [importDone, setImportDone] = useState(false);
+  const [fileError, setFileError] = useState("");
+  const [existingDbName, setExistingDbName] = useState<string | null>(null);
+  const [dailyPassword, setDailyPassword] = useState("");
+  const [dailyConfirm, setDailyConfirm] = useState("");
+  const [ownerPassword, setOwnerPassword] = useState("");
+  const [ownerConfirm, setOwnerConfirm] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [dailyError, setDailyError] = useState("");
+  const [ownerError, setOwnerError] = useState("");
   const [passwordError, setPasswordError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [dbLocationError, setDbLocationError] = useState("");
-  const [existingDbName, setExistingDbName] = useState<string | null>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [hasExistingData, setHasExistingData] = useState(false);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const jsonFileInputRef = useRef<HTMLInputElement>(null);
+  const pendingImport = useRef<(() => void | Promise<void>) | null>(null);
+
+  useEffect(() => {
+    if (!isSqliteFileMode()) return;
+    void getStoredMainSqliteHandle().then((s) => {
+      setExistingDbName(s ? s.info.displayName || s.handle.name || null : null);
+    });
+  }, []);
+
+  // Checked up front so the confirm-before-overwrite decision is instant.
+  useEffect(() => {
+    if (!choosingFile) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        await openDB();
+        const has = await legacyWorkspaceHasData();
+        if (!cancelled) setHasExistingData(has);
+      } catch {
+        // Database not readable yet — there is nothing to overwrite.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [choosingFile]);
 
   const goToLoginIfExistingWorkspace = async (): Promise<boolean> => {
     if (await shouldOpenLoginInsteadOfOnboarding()) {
@@ -165,23 +227,57 @@ export default function OnboardingPage() {
     return false;
   };
 
-  const showDbStep = isSqliteFileMode();
-  const steps = buildSteps(showDbStep);
+  /** Run a database-file action, showing a plain error instead of a raw one. */
+  const runFileAction = async (action: () => Promise<void>) => {
+    setFileError("");
+    setLoading(true);
+    try {
+      await action();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      // The user closing the file picker is not an error worth showing.
+      if (!msg.toLowerCase().includes("abort")) setFileError(t("obFileFailed"));
+    } finally {
+      setLoading(false);
+    }
+  };
 
-  useEffect(() => {
-    if (!isSqliteFileMode()) return;
-    void getStoredMainSqliteHandle().then((s) => {
-      setExistingDbName(
-        s ? s.info.displayName || s.handle.name || null : null,
-      );
-    });
-  }, []);
+  /**
+   * Importing replaces every business record, so ask first whenever this
+   * workspace already holds data. `hasExistingData` is read before the user
+   * clicks so opening the file picker stays inside the click's user gesture.
+   */
+  const guardImport = (action: () => void | Promise<void>) => {
+    setImportError("");
+    setImportDone(false);
+    if (hasExistingData) {
+      pendingImport.current = action;
+      setConfirmOpen(true);
+      return;
+    }
+    void action();
+  };
+
+  const importFromNativeDbFile = async () => {
+    setLoading(true);
+    try {
+      await openDB();
+      const result = await importDbFromFile();
+      if (result.success) setImportDone(true);
+      else if (!result.error?.includes("cancelled"))
+        setImportError(t("obImportFailed"));
+    } catch {
+      setImportError(t("obImportFailed"));
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = "";
     setImportError("");
-    setImportSuccess(false);
+    setImportDone(false);
     if (!file) return;
 
     setLoading(true);
@@ -193,490 +289,493 @@ export default function OnboardingPage() {
         name.endsWith(".sqlite") ||
         name.endsWith(".sqlite3");
 
-      if (isTauri() && isDb) {
-        const result = await importDbFromFile();
-        if (result.success) {
-          setImportSuccess(true);
-        } else {
-          if (result.error?.includes("cancelled")) return;
-          setImportError(result.error || "Import failed.");
-        }
-      } else if (isDb) {
+      if (isDb) {
         const buf = await file.arrayBuffer();
         const data = await importDatabaseFromSqliteBuffer(buf);
         await importDatabase(data);
-        setImportSuccess(true);
       } else {
         const raw = await file.text();
         const data = JSON.parse(raw) as unknown;
-        const { valid, error } = validateExportData(data);
+        const { valid } = validateExportData(data);
         if (!valid) {
-          setImportError("Invalid file: " + (error || "unknown"));
+          setImportError(t("obImportInvalid"));
           return;
         }
         await importDatabase(data as ExportData);
-        setImportSuccess(true);
       }
-    } catch (err) {
-      setImportError((err as Error).message);
+      setImportDone(true);
+    } catch {
+      setImportError(t("obImportFailed"));
     } finally {
       setLoading(false);
     }
   };
 
+  /**
+   * Both credentials are created together: an install with only an admin
+   * password forces the daily user to log in as admin, which defeats the whole
+   * point of keeping salary and settings private.
+   */
   const handleSetPassword = async (e: React.FormEvent) => {
     e.preventDefault();
+    setDailyError("");
+    setOwnerError("");
     setPasswordError("");
-    const p = password.trim();
-    const c = confirmPassword.trim();
-    if (p.length < 4) {
-      setPasswordError("Password must be at least 4 characters.");
+    const daily = dailyPassword.trim();
+    const dailyC = dailyConfirm.trim();
+    const owner = ownerPassword.trim();
+    const ownerC = ownerConfirm.trim();
+
+    if (daily.length < MIN_PASSWORD_LENGTH) {
+      setDailyError(t("obPassTooShort"));
       return;
     }
-    if (p !== c) {
-      setPasswordError("Passwords do not match.");
+    if (daily !== dailyC) {
+      setDailyError(t("obPassMismatch"));
       return;
     }
+    if (owner.length < MIN_PASSWORD_LENGTH) {
+      setOwnerError(t("obPassTooShort"));
+      return;
+    }
+    if (owner !== ownerC) {
+      setOwnerError(t("obPassMismatch"));
+      return;
+    }
+    if (daily === owner) {
+      setPasswordError(t("twoPwSameAsOwner"));
+      return;
+    }
+
     setLoading(true);
     try {
-      await setAppPassword(p);
+      // Worker first: setAppPassword rotates the session nonce last, so the
+      // session started below is the one that stays valid.
+      await setWorkerPassword(daily);
+      await setAppPassword(owner);
       setFirstRunComplete();
       startSession("admin");
       router.replace("/");
-    } catch (err) {
-      setPasswordError((err as Error).message);
-    } finally {
+    } catch {
+      setPasswordError(t("obPassSaveFailed"));
       setLoading(false);
     }
   };
 
+  const stepNumber = steps.indexOf(step) + 1;
+
   return (
     <div className="flex w-full flex-col">
-      <header className="mb-6 text-center sm:mb-8 sm:text-left">
-        <p className="font-heading text-xs font-semibold uppercase tracking-[0.2em] text-primary">
-          ProdTrack Lite
+      <header className="mb-6 sm:mb-8">
+        <div className="mb-5 flex flex-wrap items-center gap-2">
+          <span className="text-sm text-muted-foreground">
+            {t("obChooseLanguage")}
+          </span>
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              variant={locale === "en" ? "default" : "outline"}
+              onClick={() => setLocale("en")}
+              className="h-11 min-w-24 px-4 text-base"
+              aria-pressed={locale === "en"}
+            >
+              {t("languageUseEnglish")}
+            </Button>
+            <Button
+              type="button"
+              variant={locale === "hi" ? "default" : "outline"}
+              onClick={() => setLocale("hi")}
+              className="h-11 min-w-24 px-4 text-base"
+              aria-pressed={locale === "hi"}
+            >
+              {t("languageUseHindi")}
+            </Button>
+          </div>
+        </div>
+        <p
+          className="font-heading text-xs font-semibold uppercase tracking-[0.2em] text-primary"
+          translate="no"
+        >
+          {t("appName")}
         </p>
         <h1
           className={cn(
             welcomeDisplay.className,
-            "mt-3 text-balance text-[clamp(1.75rem,4.5vw,2.75rem)] font-semibold leading-[1.15] tracking-tight text-foreground",
+            "mt-3 text-[clamp(1.75rem,4.5vw,2.5rem)] font-semibold leading-[1.15] tracking-tight text-foreground",
           )}
         >
-          Set up your workspace
+          {t("obTitle")}
         </h1>
-        <p className="mx-auto mt-3 max-w-xl text-pretty text-base leading-relaxed text-muted-foreground sm:mx-0 sm:text-lg">
-          A few quick steps and you&apos;re ready to track production, shifts,
-          and payroll—offline first, your data stays yours.
+        <p className="mt-3 max-w-xl text-base leading-relaxed text-muted-foreground sm:text-lg">
+          {t("obSubtitle")}
         </p>
       </header>
 
-      <OnboardingStepper
+      <p className="mb-2 text-sm font-medium text-muted-foreground">
+        {t("obStepOf", { current: stepNumber, total: steps.length })}
+      </p>
+      <StepProgress
         steps={steps}
-        currentStep={step}
-        wantsImport={wantsImport}
+        current={step}
+        label={(s) => t(STEP_LABEL[s])}
       />
 
       <Card
-        key={step}
+        key={step + String(choosingFile)}
         className="animate-onboarding-panel border-border/80 shadow-md"
       >
-        {step === 0 ? (
+        {step === "file" ? (
           <>
             <CardHeader className="pb-4 pt-8 sm:pb-6 sm:pt-10">
               <CardTitle className="font-heading text-2xl sm:text-3xl">
-                Choose your database file
+                {t("obFileTitle")}
               </CardTitle>
               <p className="text-base leading-relaxed text-muted-foreground sm:text-lg">
-                Save or open a ProdTrack database (.db). Put it on a USB stick
-                if you move between computers. This app remembers the file—you
-                may need to click Allow when the browser asks.
+                {t("obFileDesc")}
               </p>
             </CardHeader>
             <CardContent className="flex flex-col gap-4 pb-8 sm:pb-10">
               {!isFileSystemAccessSupported() ? (
                 <Alert variant="destructive">
-                  <AlertDescription>
-                    This version needs Google Chrome or Microsoft Edge on
-                    Windows so the app can save and open your database file.
-                  </AlertDescription>
+                  <TriangleAlert />
+                  <AlertDescription>{t("obFileUnsupported")}</AlertDescription>
                 </Alert>
               ) : null}
-              {existingDbName ? (
-                <p className="text-sm text-muted-foreground">
-                  Linked file: <strong className="text-foreground">{existingDbName}</strong>
+              {fileError ? (
+                <Alert variant="destructive">
+                  <TriangleAlert />
+                  <AlertDescription>{fileError}</AlertDescription>
+                </Alert>
+              ) : null}
+              {loading ? (
+                <p className="flex items-center gap-2 text-base text-muted-foreground">
+                  <Spinner />
+                  {t("obWorking")}
                 </p>
               ) : null}
-              {dbLocationError ? (
-                <Alert variant="destructive">
-                  <AlertDescription>{dbLocationError}</AlertDescription>
-                </Alert>
+              {existingDbName ? (
+                <ChoiceButton
+                  icon={<HardDrive className="size-5" />}
+                  variant="default"
+                  title={t("obFileLinked", { name: existingDbName })}
+                  hint={t("obFileLinkedHint")}
+                  disabled={loading}
+                  onClick={() =>
+                    void runFileAction(async () => {
+                      await openDB();
+                      if (await goToLoginIfExistingWorkspace()) return;
+                      setStep("data");
+                    })
+                  }
+                />
               ) : null}
-              <Button
-                type="button"
+              <ChoiceButton
+                icon={<FilePlus2 className="size-5" />}
+                variant={existingDbName ? "outline" : "default"}
+                title={t("obFileNew")}
+                hint={t("obFileNewHint")}
                 disabled={loading || !isFileSystemAccessSupported()}
-                className="min-h-12 w-full text-base sm:h-12"
-                onClick={async () => {
-                  setDbLocationError("");
-                  setLoading(true);
-                  try {
+                onClick={() =>
+                  void runFileAction(async () => {
                     await pickAndCreateNewSqliteFile();
                     await openDB();
-                    setStep(1);
-                  } catch (err) {
-                    const msg =
-                      err instanceof Error ? err.message : String(err);
-                    if (!String(msg).toLowerCase().includes("abort")) {
-                      setDbLocationError(msg);
-                    }
-                  } finally {
-                    setLoading(false);
-                  }
-                }}
-              >
-                {loading ? (
-                  <>
-                    <Spinner data-icon="inline-start" />
-                    Working…
-                  </>
-                ) : (
-                  "Create new database file…"
-                )}
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
+                    setStep("data");
+                  })
+                }
+              />
+              <ChoiceButton
+                icon={<FolderOpen className="size-5" />}
+                title={t("obFileExisting")}
+                hint={t("obFileExistingHint")}
                 disabled={loading || !isFileSystemAccessSupported()}
-                className="min-h-12 w-full text-base sm:h-12"
-                onClick={async () => {
-                  setDbLocationError("");
-                  setLoading(true);
-                  try {
+                onClick={() =>
+                  void runFileAction(async () => {
                     await pickAndOpenExistingSqliteFile();
                     await openDB();
                     if (await goToLoginIfExistingWorkspace()) return;
-                    setStep(1);
-                  } catch (err) {
-                    const msg =
-                      err instanceof Error ? err.message : String(err);
-                    if (!String(msg).toLowerCase().includes("abort")) {
-                      setDbLocationError(msg);
-                    }
-                  } finally {
-                    setLoading(false);
-                  }
-                }}
-              >
-                {loading ? (
-                  <>
-                    <Spinner data-icon="inline-start" />
-                    Working…
-                  </>
-                ) : (
-                  "Use existing database file…"
-                )}
-              </Button>
-              {existingDbName ? (
-                <Button
-                  type="button"
-                  variant="secondary"
-                  disabled={loading}
-                  className="min-h-12 w-full text-base"
-                  onClick={async () => {
-                    setDbLocationError("");
-                    setLoading(true);
-                    try {
-                      await openDB();
-                      if (await goToLoginIfExistingWorkspace()) return;
-                      setStep(1);
-                    } catch (err) {
-                      setDbLocationError(
-                        err instanceof Error ? err.message : String(err),
-                      );
-                    } finally {
-                      setLoading(false);
-                    }
-                  }}
-                >
-                  Continue with linked file
-                </Button>
-              ) : null}
+                    setStep("data");
+                  })
+                }
+              />
             </CardContent>
           </>
         ) : null}
 
-        {step === 1 ? (
-          <>
-            <CardHeader className="pb-4 pt-8 text-center sm:pt-10">
-              <p className="mb-3 font-heading text-sm font-medium text-primary">
-                You&apos;re in the right place
-              </p>
-              <CardTitle
-                className={cn(
-                  welcomeDisplay.className,
-                  "text-balance text-3xl font-semibold sm:text-4xl",
-                )}
-              >
-                Welcome to ProdTrack
-              </CardTitle>
-              <p className="mx-auto mt-4 max-w-lg text-pretty text-base leading-relaxed text-muted-foreground sm:text-lg">
-                Track production by item and shift, manage advances, and run
-                salary periods—built for factory teams who need clarity without
-                the cloud.
-              </p>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-3 pb-8 sm:pb-10">
-              {isSqliteFileMode() ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setStep(0)}
-                  className="min-h-12 w-full text-base"
-                >
-                  Change database file…
-                </Button>
-              ) : null}
-              <Button
-                onClick={() => setStep(2)}
-                className="min-h-12 w-full text-base"
-              >
-                Continue setup
-              </Button>
-            </CardContent>
-          </>
-        ) : null}
-
-        {step === 2 ? (
+        {step === "data" && !choosingFile ? (
           <>
             <CardHeader className="pb-4 pt-8 sm:pt-10">
               <CardTitle className="font-heading text-2xl sm:text-3xl">
-                Do you have existing data?
+                {t("obDataTitle")}
               </CardTitle>
               <p className="text-base leading-relaxed text-muted-foreground sm:text-lg">
-                Import from a JSON or .db backup, or start with an empty
-                workspace.
+                {t("obDataDesc")}
               </p>
             </CardHeader>
             <CardContent className="flex flex-col gap-4 pb-8 sm:pb-10">
-              <Button
+              <ChoiceButton
+                icon={<Upload className="size-5" />}
                 variant="default"
-                className="min-h-12 w-full justify-center text-base sm:min-h-12"
+                title={t("obDataImport")}
+                hint={t("obDataImportHint")}
                 onClick={() => {
-                  setWantsImport(true);
-                  setStep(3);
+                  setImportError("");
+                  setImportDone(false);
+                  setChoosingFile(true);
                 }}
-              >
-                Yes — import a backup
-              </Button>
-              <Button
-                variant="outline"
-                className="min-h-12 w-full justify-center text-base"
-                onClick={() => {
-                  setWantsImport(false);
-                  setStep(4);
-                }}
-              >
-                No — start fresh
-              </Button>
+              />
+              <ChoiceButton
+                icon={<Sparkles className="size-5" />}
+                title={t("obDataSkip")}
+                hint={t("obDataSkipHint")}
+                onClick={() => setStep("password")}
+              />
+              {steps[0] === "file" ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="h-12 self-start px-3 text-base"
+                  onClick={() => setStep("file")}
+                >
+                  <ArrowLeft className="size-4" />
+                  {t("obBack")}
+                </Button>
+              ) : null}
             </CardContent>
           </>
         ) : null}
 
-        {step === 3 ? (
+        {step === "data" && choosingFile ? (
           <>
             <CardHeader className="pb-4 pt-8 sm:pt-10">
               <CardTitle className="font-heading text-2xl sm:text-3xl">
-                Import your data
+                {t("obImportTitle")}
               </CardTitle>
               <p className="text-base leading-relaxed text-muted-foreground sm:text-lg">
-                {isTauri()
-                  ? "Import a JSON backup (same as web export) or a SQLite .db file. Either replaces existing data."
-                  : "Choose a JSON or .db file. Import will replace any existing data."}
+                {t("obImportDesc")}
               </p>
             </CardHeader>
-            <CardContent className="flex flex-col gap-5 pb-8 sm:pb-10">
+            <CardContent className="flex flex-col gap-4 pb-8 sm:pb-10">
               <input
-                ref={jsonFileInputRef}
+                ref={fileInputRef}
                 type="file"
-                accept=".json,application/json"
+                accept=".json,.db,.sqlite,.sqlite3,application/json,application/x-sqlite3"
                 className="sr-only"
                 onChange={handleImportFile}
               />
-              {!isTauri() && (
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept=".json,.db,.sqlite,.sqlite3,application/json,application/x-sqlite3"
-                  className="sr-only"
-                  onChange={handleImportFile}
-                />
-              )}
+              <ChoiceButton
+                icon={<Upload className="size-5" />}
+                variant="default"
+                title={t("obImportChooseJson")}
+                disabled={loading}
+                onClick={() =>
+                  guardImport(() => fileInputRef.current?.click())
+                }
+              />
               {isTauri() ? (
-                <div className="flex flex-col gap-3">
-                  <Button
-                    type="button"
-                    variant="default"
-                    className="min-h-12 w-full text-base"
-                    onClick={() => jsonFileInputRef.current?.click()}
-                    disabled={loading}
-                  >
-                    {loading ? (
-                      <>
-                        <Spinner data-icon="inline-start" />
-                        Importing…
-                      </>
-                    ) : (
-                      "Import JSON backup"
-                    )}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="min-h-12 w-full text-base"
-                    onClick={async () => {
-                      setLoading(true);
-                      setImportError("");
-                      setImportSuccess(false);
-                      try {
-                        await openDB();
-                        const result = await importDbFromFile();
-                        if (result.success) setImportSuccess(true);
-                        else if (!result.error?.includes("cancelled"))
-                          setImportError(result.error || "Import failed.");
-                      } catch (err) {
-                        setImportError((err as Error).message);
-                      } finally {
-                        setLoading(false);
-                      }
-                    }}
-                    disabled={loading}
-                  >
-                    {loading ? (
-                      <>
-                        <Spinner data-icon="inline-start" />
-                        Importing…
-                      </>
-                    ) : (
-                      "Import SQLite (.db)"
-                    )}
-                  </Button>
-                </div>
-              ) : (
-                <Button
-                  type="button"
-                  className="min-h-12 w-full text-base"
-                  onClick={() => fileInputRef.current?.click()}
+                <ChoiceButton
+                  icon={<HardDrive className="size-5" />}
+                  title={t("obImportChooseDb")}
                   disabled={loading}
-                >
-                  {loading ? (
-                    <>
-                      <Spinner data-icon="inline-start" />
-                      Importing…
-                    </>
-                  ) : (
-                    "Choose file (JSON or .db)"
-                  )}
-                </Button>
-              )}
-              {importError && (
+                  onClick={() => guardImport(importFromNativeDbFile)}
+                />
+              ) : null}
+              {loading ? (
+                <p className="flex items-center gap-2 text-base text-muted-foreground">
+                  <Spinner />
+                  {t("obImportRunning")}
+                </p>
+              ) : null}
+              {importError ? (
                 <Alert variant="destructive">
+                  <TriangleAlert />
                   <AlertDescription>{importError}</AlertDescription>
                 </Alert>
-              )}
-              {importSuccess && (
+              ) : null}
+              {importDone ? (
                 <Alert>
-                  <AlertDescription>Import complete.</AlertDescription>
+                  <Check />
+                  <AlertDescription>{t("obImportDone")}</AlertDescription>
                 </Alert>
-              )}
-              <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
+              ) : null}
+              <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:justify-between">
                 <Button
+                  type="button"
                   variant="outline"
-                  className="min-h-12 w-full sm:w-auto"
-                  onClick={() => setStep(2)}
+                  className="h-12 w-full text-base sm:w-auto sm:px-6"
+                  disabled={loading}
+                  onClick={() => setChoosingFile(false)}
                 >
-                  Back
+                  <ArrowLeft className="size-4" />
+                  {t("obBack")}
                 </Button>
                 <Button
-                  className="min-h-12 w-full sm:w-auto"
-                  onClick={() => setStep(4)}
+                  type="button"
+                  className="h-12 w-full text-base sm:w-auto sm:px-6"
+                  disabled={loading}
+                  onClick={() => setStep("password")}
                 >
-                  Continue
+                  {t("obContinue")}
                 </Button>
               </div>
             </CardContent>
           </>
         ) : null}
 
-        {step === 4 ? (
+        {step === "password" ? (
           <>
             <CardHeader className="pb-4 pt-8 sm:pt-10">
               <CardTitle className="font-heading text-2xl sm:text-3xl">
-                Create your password
+                {t("twoPwObTitle")}
               </CardTitle>
               <p className="text-base leading-relaxed text-muted-foreground sm:text-lg">
-                Set a password to protect your data. You&apos;ll need it each
-                time you sign in.
+                {t("twoPwObDesc")}
               </p>
             </CardHeader>
             <CardContent className="pb-8 sm:pb-10">
-              <form
-                onSubmit={handleSetPassword}
-                className="flex flex-col gap-6"
-              >
-                <div className="flex flex-col gap-2">
-                  <Label htmlFor="onboarding-password" className="text-base">
-                    Password
-                  </Label>
-                  <Input
-                    id="onboarding-password"
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="At least 4 characters"
-                    minLength={4}
-                    required
-                    className="min-h-12 text-base"
-                  />
+              <form onSubmit={handleSetPassword} className="flex flex-col gap-6">
+                <div className="flex flex-col gap-4 rounded-lg border border-border p-4">
+                  <div className="flex flex-col gap-2">
+                    <Label htmlFor="onboarding-daily" className="text-base">
+                      {t("twoPwObDailyLabel")}
+                    </Label>
+                    <p className="text-sm leading-relaxed text-muted-foreground">
+                      {t("twoPwObDailyHint")}
+                    </p>
+                    <Input
+                      id="onboarding-daily"
+                      type={showPassword ? "text" : "password"}
+                      autoComplete="new-password"
+                      value={dailyPassword}
+                      onChange={(e) => setDailyPassword(e.target.value)}
+                      placeholder={t("twoPwObDailyPlaceholder")}
+                      required
+                      className="h-12 text-base"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <Label
+                      htmlFor="onboarding-daily-confirm"
+                      className="text-base"
+                    >
+                      {t("twoPwObDailyConfirmLabel")}
+                    </Label>
+                    <Input
+                      id="onboarding-daily-confirm"
+                      type={showPassword ? "text" : "password"}
+                      autoComplete="new-password"
+                      value={dailyConfirm}
+                      onChange={(e) => setDailyConfirm(e.target.value)}
+                      placeholder={t("obPassConfirmPlaceholder")}
+                      required
+                      className="h-12 text-base"
+                    />
+                  </div>
+                  {dailyError ? (
+                    <p className="text-base font-medium text-destructive">
+                      {dailyError}
+                    </p>
+                  ) : null}
                 </div>
-                <div className="flex flex-col gap-2">
-                  <Label htmlFor="onboarding-confirm" className="text-base">
-                    Confirm password
-                  </Label>
-                  <Input
-                    id="onboarding-confirm"
-                    type="password"
-                    value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
-                    placeholder="Repeat password"
-                    required
-                    className="min-h-12 text-base"
-                  />
+
+                <div className="flex flex-col gap-4 rounded-lg border border-border p-4">
+                  <div className="flex flex-col gap-2">
+                    <Label htmlFor="onboarding-owner" className="text-base">
+                      {t("twoPwObOwnerLabel")}
+                    </Label>
+                    <p className="text-sm leading-relaxed text-muted-foreground">
+                      {t("twoPwObOwnerHint")}
+                    </p>
+                    <Input
+                      id="onboarding-owner"
+                      type={showPassword ? "text" : "password"}
+                      autoComplete="new-password"
+                      value={ownerPassword}
+                      onChange={(e) => setOwnerPassword(e.target.value)}
+                      placeholder={t("twoPwObOwnerPlaceholder")}
+                      required
+                      className="h-12 text-base"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <Label
+                      htmlFor="onboarding-owner-confirm"
+                      className="text-base"
+                    >
+                      {t("twoPwObOwnerConfirmLabel")}
+                    </Label>
+                    <Input
+                      id="onboarding-owner-confirm"
+                      type={showPassword ? "text" : "password"}
+                      autoComplete="new-password"
+                      value={ownerConfirm}
+                      onChange={(e) => setOwnerConfirm(e.target.value)}
+                      placeholder={t("obPassConfirmPlaceholder")}
+                      required
+                      className="h-12 text-base"
+                    />
+                  </div>
+                  {ownerError ? (
+                    <p className="text-base font-medium text-destructive">
+                      {ownerError}
+                    </p>
+                  ) : null}
                 </div>
-                {passwordError && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="h-11 self-start px-3 text-base"
+                  onClick={() => setShowPassword((v) => !v)}
+                >
+                  {showPassword ? (
+                    <EyeOff className="size-4" />
+                  ) : (
+                    <Eye className="size-4" />
+                  )}
+                  {showPassword ? t("obPassHide") : t("obPassShow")}
+                </Button>
+
+                <Alert>
+                  <KeyRound />
+                  <AlertTitle className="text-base">
+                    {t("obPassWarnTitle")}
+                  </AlertTitle>
+                  <AlertDescription className="text-base leading-relaxed">
+                    {t("obPassWarnBody")}
+                  </AlertDescription>
+                </Alert>
+
+                {passwordError ? (
                   <Alert variant="destructive">
-                    <AlertDescription>{passwordError}</AlertDescription>
+                    <TriangleAlert />
+                    <AlertDescription className="text-base">
+                      {passwordError}
+                    </AlertDescription>
                   </Alert>
-                )}
-                <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
+                ) : null}
+
+                <div className="flex flex-col gap-3 sm:flex-row sm:justify-between">
                   <Button
                     type="button"
                     variant="outline"
-                    className="min-h-12 w-full sm:w-auto"
-                    onClick={() => setStep(wantsImport ? 3 : 2)}
+                    className="h-12 w-full text-base sm:w-auto sm:px-6"
+                    disabled={loading}
+                    onClick={() => setStep("data")}
                   >
-                    Back
+                    <ArrowLeft className="size-4" />
+                    {t("obBack")}
                   </Button>
                   <Button
                     type="submit"
                     disabled={loading}
-                    className="min-h-12 w-full sm:w-auto"
+                    className="h-12 w-full text-base sm:w-auto sm:px-6"
                   >
                     {loading ? (
                       <>
                         <Spinner data-icon="inline-start" />
-                        Setting up…
+                        {t("obFinishing")}
                       </>
                     ) : (
-                      "Finish setup"
+                      t("obFinish")
                     )}
                   </Button>
                 </div>
@@ -685,6 +784,39 @@ export default function OnboardingPage() {
           </>
         ) : null}
       </Card>
+
+      <AlertDialog
+        open={confirmOpen}
+        onOpenChange={(open) => {
+          setConfirmOpen(open);
+          if (!open) pendingImport.current = null;
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("obConfirmTitle")}</AlertDialogTitle>
+            <AlertDialogDescription className="text-base leading-relaxed">
+              {t("obConfirmBody")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="h-12 text-base">
+              {t("obConfirmNo")}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              className="h-12 text-base"
+              onClick={() => {
+                const action = pendingImport.current;
+                pendingImport.current = null;
+                setConfirmOpen(false);
+                void action?.();
+              }}
+            >
+              {t("obConfirmYes")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

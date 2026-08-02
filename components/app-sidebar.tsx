@@ -1,84 +1,44 @@
 "use client";
 
-import { useState } from "react";
+import * as React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import {
-  Package2,
-  LayoutGrid,
-  Warehouse,
-  Clock,
-  FileBarChart,
-  FileSpreadsheet,
-  UsersRound,
-  SlidersHorizontal,
-  Cog,
-  ChevronRight,
-} from "lucide-react";
+import { Home, Package2 } from "lucide-react";
 import {
   SidebarContent,
   SidebarGroup,
+  SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
-  SidebarMenuAction,
   SidebarMenuButton,
   SidebarMenuItem,
-  SidebarMenuSub,
-  SidebarMenuSubButton,
-  SidebarMenuSubItem,
+  SidebarSeparator,
   SidebarTrigger,
 } from "@/components/ui/sidebar";
 import { useLanguage } from "@/components/language-provider";
 import { isAdmin } from "@/lib/auth";
-import type { MessageKey } from "@/lib/i18n/messages";
-import { CATEGORY_THEME } from "@/components/inventory/category-theme";
-import { INVENTORY_CATEGORIES } from "@/lib/services/inventoryService";
-
-const inventoryChildren = [
-  { href: "/inventory", icon: LayoutGrid, labelKey: "inventoryNavDashboard" as const },
-  ...INVENTORY_CATEGORIES.map(({ value }) => ({
-    href: `/inventory/${value}`,
-    icon: CATEGORY_THEME[value].icon,
-    labelKey: CATEGORY_THEME[value].labelKey,
-  })),
-] satisfies { href: string; icon: typeof LayoutGrid; labelKey: MessageKey }[];
-
-const navLinks = [
-  { href: "/", icon: LayoutGrid, labelKey: "navDashboard" as const },
-  { href: "/shifts", icon: Clock, labelKey: "navShifts" as const },
-  { href: "/machine", icon: Cog, labelKey: "navMachine" as const },
-  { href: "/reports", icon: FileBarChart, labelKey: "navReports" as const },
-  {
-    href: "/salary-sheet",
-    icon: FileSpreadsheet,
-    labelKey: "navSalarySheet" as const,
-    adminOnly: true,
-  },
-  { href: "/employees", icon: UsersRound, labelKey: "navEmployees" as const },
-  {
-    href: "/settings",
-    icon: SlidersHorizontal,
-    labelKey: "navSettings" as const,
-    adminOnly: true,
-  },
-] satisfies {
-  href: string;
-  icon: typeof LayoutGrid;
-  labelKey: MessageKey;
-  adminOnly?: boolean;
-}[];
+import {
+  activeItemHref,
+  moduleForPath,
+  visibleModules,
+} from "@/components/navigation";
 
 export function AppSidebar() {
   const pathname = usePathname();
   const { t } = useLanguage();
-  const admin = isAdmin();
-  const visibleLinks = navLinks.filter((link) => !link.adminOnly || admin);
-  const inventoryIsCurrent = pathname === "/inventory" || pathname.startsWith("/inventory/");
-  const [inventoryOpen, setInventoryOpen] = useState(inventoryIsCurrent);
-  const expanded = inventoryOpen || inventoryIsCurrent;
-  const inventoryInsertIndex = visibleLinks.findIndex((link) => link.href === "/shifts");
-  const linksBeforeInventory = visibleLinks.slice(0, inventoryInsertIndex);
-  const linksAfterInventory = visibleLinks.slice(inventoryInsertIndex);
+
+  // Role is read after mount, never during render: `isAdmin()` touches
+  // localStorage, so calling it while rendering makes the server/first-paint
+  // markup disagree with the client and hydrate the wrong menu.
+  const [admin, setAdmin] = React.useState(false);
+  React.useEffect(() => {
+    setAdmin(isAdmin());
+  }, [pathname]);
+
+  const modules = visibleModules(admin);
+  const currentModule = moduleForPath(pathname);
+  const currentItem = activeItemHref(pathname);
+  const onHome = pathname === "/";
 
   return (
     <>
@@ -97,95 +57,41 @@ export function AppSidebar() {
         </Link>
         <SidebarTrigger className="size-10 shrink-0" />
       </SidebarHeader>
-      <SidebarContent>
-        <SidebarGroup className="group-data-[collapsible=icon]:px-1.5">
-          <SidebarMenu>
-            {linksBeforeInventory.map(({ href, icon: Icon, labelKey }) => {
-              const label = t(labelKey);
-              return (
-                <SidebarMenuItem key={href}>
-                  <SidebarMenuButton
-                    asChild
-                    isActive={pathname === href}
-                    tooltip={label}
-                    size="lg"
-                  >
-                    <Link href={href}>
-                      <Icon data-icon="inline-start" className="size-5 shrink-0" />
-                      <span className="group-data-[collapsible=icon]:hidden">
-                        {label}
-                      </span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              );
-            })}
 
+      <SidebarContent>
+        {/* Module switcher — always visible, so you can hop between sections
+            without going back Home. */}
+        <SidebarGroup className="group-data-[collapsible=icon]:px-1.5">
+          <SidebarGroupLabel>{t("navSections")}</SidebarGroupLabel>
+          <SidebarMenu>
             <SidebarMenuItem>
               <SidebarMenuButton
                 asChild
-                isActive={pathname === "/inventory"}
-                tooltip={t("navInventory")}
+                isActive={onHome}
+                tooltip={t("navHome")}
                 size="lg"
-                onClick={() => setInventoryOpen(true)}
               >
-                <Link href="/inventory">
-                  <Warehouse data-icon="inline-start" className="size-5 shrink-0" />
+                <Link href="/">
+                  <Home data-icon="inline-start" className="size-5 shrink-0" />
                   <span className="group-data-[collapsible=icon]:hidden">
-                    {t("navInventory")}
+                    {t("navHome")}
                   </span>
                 </Link>
               </SidebarMenuButton>
-              <SidebarMenuAction
-                type="button"
-                className="!top-1/2 !-translate-y-1/2 group-data-[collapsible=icon]:hidden peer-data-[active=true]/menu-button:text-white"
-                onClick={() => setInventoryOpen((open) => !open)}
-                aria-expanded={expanded}
-                aria-label={t("navInventory")}
-              >
-                <ChevronRight
-                  className={`size-4 shrink-0 transition-transform ${
-                    expanded ? "rotate-90" : ""
-                  }`}
-                />
-              </SidebarMenuAction>
-              {expanded && (
-                <SidebarMenuSub>
-                  <div className="mb-1 px-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-sidebar-foreground/35">
-                    {t("inventoryBrowseCategories")}
-                  </div>
-                  {inventoryChildren.map(({ href, icon: Icon, labelKey }) => {
-                    const label = t(labelKey);
-                    const isActive =
-                      href === "/inventory"
-                        ? pathname === "/inventory"
-                        : pathname === href || pathname.startsWith(`${href}/`);
-                    return (
-                      <SidebarMenuSubItem key={href}>
-                        <SidebarMenuSubButton asChild isActive={isActive}>
-                          <Link href={href}>
-                            <Icon className="size-4 shrink-0" />
-                            <span>{label}</span>
-                          </Link>
-                        </SidebarMenuSubButton>
-                      </SidebarMenuSubItem>
-                    );
-                  })}
-                </SidebarMenuSub>
-              )}
             </SidebarMenuItem>
 
-            {linksAfterInventory.map(({ href, icon: Icon, labelKey }) => {
-              const label = t(labelKey);
+            {modules.map((mod) => {
+              const label = t(mod.labelKey);
+              const Icon = mod.icon;
               return (
-                <SidebarMenuItem key={href}>
+                <SidebarMenuItem key={mod.id}>
                   <SidebarMenuButton
                     asChild
-                    isActive={pathname === href}
+                    isActive={currentModule?.id === mod.id}
                     tooltip={label}
                     size="lg"
                   >
-                    <Link href={href}>
+                    <Link href={mod.href}>
                       <Icon data-icon="inline-start" className="size-5 shrink-0" />
                       <span className="group-data-[collapsible=icon]:hidden">
                         {label}
@@ -197,6 +103,44 @@ export function AppSidebar() {
             })}
           </SidebarMenu>
         </SidebarGroup>
+
+        {/* Pages inside the section you are in. A single-page section (Salary,
+            Settings) is already fully described by its switcher entry. */}
+        {currentModule &&
+        currentModule.items.length > 1 &&
+        (!currentModule.adminOnly || admin) ? (
+          <>
+            <SidebarSeparator className="group-data-[collapsible=icon]:hidden" />
+            <SidebarGroup className="group-data-[collapsible=icon]:px-1.5">
+              <SidebarGroupLabel>{t(currentModule.labelKey)}</SidebarGroupLabel>
+              <SidebarMenu>
+                {currentModule.items.map(({ href, labelKey, icon: Icon }) => {
+                  const label = t(labelKey);
+                  return (
+                    <SidebarMenuItem key={href}>
+                      <SidebarMenuButton
+                        asChild
+                        isActive={currentItem === href}
+                        tooltip={label}
+                        size="lg"
+                      >
+                        <Link href={href}>
+                          <Icon
+                            data-icon="inline-start"
+                            className="size-5 shrink-0"
+                          />
+                          <span className="group-data-[collapsible=icon]:hidden">
+                            {label}
+                          </span>
+                        </Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  );
+                })}
+              </SidebarMenu>
+            </SidebarGroup>
+          </>
+        ) : null}
       </SidebarContent>
     </>
   );
