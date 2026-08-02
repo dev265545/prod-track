@@ -291,7 +291,13 @@ const SidebarTrigger = React.forwardRef<
       variant="outline"
       size="icon"
       className={cn(
-        "h-10 w-10 shrink-0 border-border bg-background hover:bg-muted",
+        // `p-0 justify-center` is load-bearing. The button's default size applies
+        // `px-2.5` plus `has-data-[icon=inline-start]:pl-2`, i.e. 8px left / 10px
+        // right — asymmetric spacing intended for icon-AND-text buttons. This one
+        // is icon-only (the label is sr-only), so that padding pushed the chevron
+        // ~2px left of centre while every nav icon below centres exactly, and the
+        // collapsed rail read as misaligned.
+        "h-10 w-10 shrink-0 justify-center border-border bg-background p-0 hover:bg-muted",
         className
       )}
       onClick={(event) => {
@@ -303,9 +309,9 @@ const SidebarTrigger = React.forwardRef<
       {...props}
     >
       {showExpandIcon ? (
-        <ChevronsRight data-icon="inline-start" className="size-5" />
+        <ChevronsRight className="size-5" aria-hidden />
       ) : (
-        <ChevronsLeft data-icon="inline-start" className="size-5" />
+        <ChevronsLeft className="size-5" aria-hidden />
       )}
       <span className="sr-only">{showExpandIcon ? "Open sidebar" : "Collapse sidebar"}</span>
     </Button>
