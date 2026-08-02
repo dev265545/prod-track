@@ -321,7 +321,7 @@ export default function AttendancePage() {
         <PageHeader title={t("rostPageTitle")} intro={t("rostPageIntro")} />
 
         {/* Date first: this is the one thing chosen per session. */}
-        <Card className="border-border">
+        <Card>
           <CardContent className="flex min-w-0 flex-col gap-3 p-4 sm:flex-row sm:flex-wrap sm:items-end">
             <div className="flex min-w-0 flex-col gap-1.5 sm:w-[220px]">
               <Label

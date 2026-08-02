@@ -52,7 +52,7 @@ export function RuntimeCalculator({
   );
 
   return (
-    <Card className="overflow-hidden border-border shadow-sm">
+    <Card className="overflow-hidden">
       <CardHeader className="border-b border-border bg-surface-2 pb-6">
         <CardTitle className="flex items-center gap-2 font-heading text-xl font-semibold">
           <Calculator className="size-5 text-primary" aria-hidden />

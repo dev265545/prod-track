@@ -51,7 +51,7 @@ function ItemAnswerCard({
       ? "bg-surface-3 text-warning"
       : "bg-surface-3 text-foreground";
   return (
-    <Card className="relative overflow-hidden border-border bg-card shadow-sm">
+    <Card className="relative overflow-hidden bg-card">
       <span className={`absolute inset-y-0 left-0 w-1 ${rule}`} aria-hidden />
       <CardContent className="flex items-center gap-4 p-5 sm:p-6">
         <div

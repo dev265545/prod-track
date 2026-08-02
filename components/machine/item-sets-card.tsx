@@ -102,7 +102,7 @@ export function ItemSetsCard({
   }
 
   return (
-    <Card className="overflow-hidden border-border shadow-sm">
+    <Card className="overflow-hidden">
       <CardHeader className="flex min-w-0 flex-col gap-4 border-b border-border bg-surface-2 pb-6 sm:flex-row sm:items-end sm:justify-between">
         <div className="flex min-w-0 flex-col gap-1.5">
           <CardTitle className="flex min-w-0 items-center gap-2 font-heading text-xl font-semibold">

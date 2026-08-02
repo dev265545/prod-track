@@ -210,7 +210,7 @@ export default function EmployeesPage() {
           }
         />
 
-        <Card className="border-border">
+        <Card>
           <CardHeader className="pb-4">
             <CardTitle className={HEADING_CLASS}>{t("employeesListTitle")}</CardTitle>
             {/* A quiet line, not a banner: it is not an error that somebody has

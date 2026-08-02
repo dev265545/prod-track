@@ -392,7 +392,7 @@ export default function InventoryPage() {
       <AppShell>
         <main className="flex min-w-0 flex-col gap-8">
           {header}
-          <Card className="min-w-0 border-border bg-card shadow-sm">
+          <Card className="min-w-0 bg-card">
             <CardContent className="p-6">
               <Empty>
                 <EmptyHeader>
@@ -433,7 +433,7 @@ export default function InventoryPage() {
         {header}
 
         {rows.length === 0 ? (
-          <Card className="min-w-0 border-border bg-card shadow-sm">
+          <Card className="min-w-0 bg-card">
             <CardContent className="p-6">
               <Empty>
                 <EmptyHeader>
@@ -532,7 +532,7 @@ export default function InventoryPage() {
 
             {/* Chart layer */}
             <div className="grid min-w-0 grid-cols-1 gap-4 lg:grid-cols-5">
-              <Card className="min-w-0 border-border bg-card shadow-sm lg:col-span-2">
+              <Card className="min-w-0 bg-card lg:col-span-2">
                 <CardHeader className="pb-2">
                   <CardTitle className="font-heading text-base">
                     {t("inventoryStockHealthTitle")}
@@ -569,7 +569,7 @@ export default function InventoryPage() {
                 </CardContent>
               </Card>
 
-              <Card className="min-w-0 border-border bg-card shadow-sm lg:col-span-3">
+              <Card className="min-w-0 bg-card lg:col-span-3">
                 <CardHeader className="pb-2">
                   <CardTitle className="font-heading text-base">
                     {t("inventoryStockByCategoryTitle")}
@@ -584,7 +584,7 @@ export default function InventoryPage() {
               </Card>
             </div>
 
-            <Card className="min-w-0 border-border bg-card shadow-sm">
+            <Card className="min-w-0 bg-card">
               <CardHeader className="pb-2">
                 <CardTitle className="font-heading text-base">
                   {t("inventoryMovementTrendTitle")}
@@ -617,7 +617,7 @@ export default function InventoryPage() {
             </Card>
 
             {/* Action layer — the items the metrics point at. */}
-            <Card className="min-w-0 border-border bg-card shadow-sm">
+            <Card className="min-w-0 bg-card">
               <CardHeader className="pb-2">
                 <CardTitle className="font-heading text-base">
                   {t("invHubNeedsStockTitle")}

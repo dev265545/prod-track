@@ -38,7 +38,7 @@ export function LoadError({
 }) {
   const { t } = useLanguage();
   return (
-    <Card className="min-w-0 border-border bg-card shadow-sm">
+    <Card className="min-w-0 bg-card">
       <CardContent className="p-6">
         <Empty>
           <EmptyHeader>
