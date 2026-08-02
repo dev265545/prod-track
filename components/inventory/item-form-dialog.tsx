@@ -176,7 +176,7 @@ export function ItemFormDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto">
+      <DialogContent className="max-h-[var(--dialog-max-h)] max-w-lg overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
             {item ? t("inventoryEditItem") : t("inventoryAddItem")}

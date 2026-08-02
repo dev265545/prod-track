@@ -48,7 +48,7 @@ export function HealthDonut({
   });
 
   return (
-    <div className="flex flex-col items-center gap-4 sm:flex-row sm:items-center sm:gap-6">
+    <div className="flex min-w-0 flex-col items-center gap-4 sm:flex-row sm:items-center sm:gap-6">
       <svg
         width={size}
         height={size}
@@ -77,27 +77,40 @@ export function HealthDonut({
               strokeDasharray={a.dasharray}
               strokeDashoffset={a.dashoffset}
               strokeLinecap="butt"
-              className={cn("transition-[stroke-dasharray] duration-700 ease-out", a.colorClassName)}
+              className={cn(
+                "transition-[stroke-dasharray] duration-700 ease-out",
+                a.colorClassName,
+              )}
             />
           ) : null,
         )}
       </svg>
-      <div className="flex flex-1 flex-col gap-2">
+      <div className="flex w-full min-w-0 flex-1 flex-col gap-2">
         <div className="flex items-baseline gap-2 sm:hidden">
-          <span className="text-2xl font-extrabold tabular-nums">{centerValue}</span>
+          <span className="text-2xl font-extrabold tabular-nums">
+            {centerValue}
+          </span>
           <span className="text-xs text-muted-foreground">{centerLabel}</span>
         </div>
         <ul className="flex flex-col gap-1.5">
           {segments.map((s) => (
-            <li key={s.key} className="flex items-center justify-between gap-4 text-sm">
-              <span className="flex items-center gap-2 text-muted-foreground">
+            <li
+              key={s.key}
+              className="flex min-w-0 items-center justify-between gap-4 text-sm"
+            >
+              <span className="flex min-w-0 items-center gap-2 text-muted-foreground">
                 <span
-                  className={cn("size-2.5 shrink-0 rounded-full", s.colorClassName.replace("stroke-", "bg-"))}
+                  className={cn(
+                    "size-2.5 shrink-0 rounded-full",
+                    s.colorClassName.replace("stroke-", "bg-"),
+                  )}
                   aria-hidden
                 />
-                {s.label}
+                <span className="min-w-0 truncate">{s.label}</span>
               </span>
-              <span className="font-semibold tabular-nums">{s.value}</span>
+              <span className="shrink-0 font-semibold tabular-nums">
+                {s.value}
+              </span>
             </li>
           ))}
         </ul>
@@ -120,15 +133,18 @@ export interface HBarDatum {
 export function HorizontalBarChart({ data }: { data: HBarDatum[] }) {
   const max = Math.max(1, ...data.map((d) => d.value));
   return (
-    <ul className="flex flex-col gap-3">
+    <ul className="flex min-w-0 flex-col gap-3">
       {data.map((d, i) => (
-        <li key={d.key} className="flex items-center gap-3">
+        <li key={d.key} className="flex min-w-0 items-center gap-3">
           <span className="w-20 shrink-0 truncate text-sm text-muted-foreground sm:w-24">
             {d.label}
           </span>
-          <div className="relative h-6 flex-1 overflow-hidden rounded-md bg-muted/50">
+          <div className="relative h-6 min-w-0 flex-1 overflow-hidden rounded-md bg-muted/50">
             <div
-              className={cn("h-full rounded-md transition-[width] duration-700 ease-out", d.colorClassName)}
+              className={cn(
+                "h-full rounded-md transition-[width] duration-700 ease-out",
+                d.colorClassName,
+              )}
               style={{
                 width: `${(d.value / max) * 100}%`,
                 animationDelay: `${i * 40}ms`,
@@ -173,31 +189,41 @@ export function MovementTrendChart({
   const plotH = height - padBottom;
 
   return (
-    <div className="flex flex-col gap-2">
-      <div className="flex items-center gap-4 text-xs text-muted-foreground">
+    <div className="flex min-w-0 flex-col gap-2">
+      <div className="flex min-w-0 flex-wrap items-center gap-4 text-xs text-muted-foreground">
         <span className="flex items-center gap-1.5">
-          <span className="size-2.5 rounded-full bg-[var(--chart-2)]" aria-hidden />
+          <span
+            className="size-2.5 rounded-full bg-[var(--chart-2)]"
+            aria-hidden
+          />
           {inwardLabel}
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="size-2.5 rounded-full bg-muted-foreground/50" aria-hidden />
+          <span
+            className="size-2.5 rounded-full bg-muted-foreground/50"
+            aria-hidden
+          />
           {outwardLabel}
         </span>
       </div>
-      <div className="overflow-x-auto">
+      <div className="min-w-0 overflow-x-auto">
         <svg
           width="100%"
           height={height}
           viewBox={`0 0 ${width} ${height}`}
           preserveAspectRatio="none"
-          className="min-w-full"
+          style={{ minWidth: width }}
           role="img"
           aria-label={`${inwardLabel} vs ${outwardLabel} trend`}
         >
           <defs>
             <linearGradient id={`${gradId}-in`} x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%" stopColor="var(--chart-2)" stopOpacity="0.9" />
-              <stop offset="100%" stopColor="var(--chart-2)" stopOpacity="0.55" />
+              <stop
+                offset="100%"
+                stopColor="var(--chart-2)"
+                stopOpacity="0.55"
+              />
             </linearGradient>
           </defs>
           {/* baseline */}
@@ -226,19 +252,36 @@ export function MovementTrendChart({
                 onBlur={() => setHover((h) => (h === i ? null : h))}
                 className="cursor-pointer outline-none"
               >
-                <rect x={cx - barW - 1} y={plotH - inH} width={barW} height={inH} rx={2}
+                <rect
+                  x={cx - barW - 1}
+                  y={plotH - inH}
+                  width={barW}
+                  height={inH}
+                  rx={2}
                   fill={`url(#${gradId}-in)`}
                   opacity={isHover ? 1 : 0.9}
                 />
-                <rect x={cx + 1} y={plotH - outH} width={barW} height={outH} rx={2}
+                <rect
+                  x={cx + 1}
+                  y={plotH - outH}
+                  width={barW}
+                  height={outH}
+                  rx={2}
                   className="fill-muted-foreground/50"
                   opacity={isHover ? 1 : 0.85}
                 />
                 {isHover && (
-                  <rect x={cx - slot / 2} y={0} width={slot} height={plotH}
-                    className="fill-foreground/5" />
+                  <rect
+                    x={cx - slot / 2}
+                    y={0}
+                    width={slot}
+                    height={plotH}
+                    className="fill-foreground/5"
+                  />
                 )}
-                {(i === 0 || i === points.length - 1 || i % Math.ceil(points.length / 6) === 0) && (
+                {(i === 0 ||
+                  i === points.length - 1 ||
+                  i % Math.ceil(points.length / 6) === 0) && (
                   <text
                     x={cx}
                     y={height - 6}
@@ -254,13 +297,19 @@ export function MovementTrendChart({
         </svg>
       </div>
       {hover !== null && points[hover] && (
-        <div className="flex w-fit items-center gap-3 rounded-lg border border-border bg-popover px-3 py-1.5 text-xs shadow-sm">
+        <div className="flex w-fit min-w-0 max-w-full flex-wrap items-center gap-3 rounded-lg border border-border bg-popover px-3 py-1.5 text-xs shadow-sm">
           <span className="font-semibold">{points[hover].dayLabel}</span>
           <span className="text-[var(--chart-2)]">
-            {inwardLabel}: <span className="font-semibold tabular-nums">{points[hover].inward}</span>
+            {inwardLabel}:{" "}
+            <span className="font-semibold tabular-nums">
+              {points[hover].inward}
+            </span>
           </span>
           <span className="text-muted-foreground">
-            {outwardLabel}: <span className="font-semibold tabular-nums">{points[hover].outward}</span>
+            {outwardLabel}:{" "}
+            <span className="font-semibold tabular-nums">
+              {points[hover].outward}
+            </span>
           </span>
         </div>
       )}
@@ -279,13 +328,21 @@ export function StockDeficitBar({
   current: number;
   threshold: number;
 }) {
-  const pct = threshold > 0 ? Math.max(0, Math.min(1, current / threshold)) : current > 0 ? 1 : 0;
+  const pct =
+    threshold > 0
+      ? Math.max(0, Math.min(1, current / threshold))
+      : current > 0
+        ? 1
+        : 0;
   const tone = current <= 0 ? "bg-destructive" : "bg-warning";
   return (
-    <div className="flex items-center gap-2">
-      <div className="relative h-2 w-24 overflow-hidden rounded-full bg-muted sm:w-28">
+    <div className="flex min-w-0 items-center gap-2">
+      <div className="relative h-2 w-24 shrink-0 overflow-hidden rounded-full bg-muted sm:w-28">
         <div
-          className={cn("h-full rounded-full transition-[width] duration-500", tone)}
+          className={cn(
+            "h-full rounded-full transition-[width] duration-500",
+            tone,
+          )}
           style={{ width: `${Math.max(pct * 100, current > 0 ? 4 : 0)}%` }}
         />
       </div>

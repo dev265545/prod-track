@@ -102,7 +102,7 @@ function SearchBody({
   );
 
   return (
-    <DialogContent className="flex max-h-[85vh] min-w-0 flex-col gap-4 sm:max-w-lg">
+    <DialogContent className="flex max-h-[var(--dialog-max-h)] min-w-0 flex-col gap-4 sm:max-w-lg">
       <DialogHeader>
         <DialogTitle>{t("invFindTitle")}</DialogTitle>
         <DialogDescription>{t("invFindDesc")}</DialogDescription>

@@ -35,7 +35,7 @@ import { getItems } from "@/lib/services/itemService";
 import { getPeriodForDate, getPeriodsWithData } from "@/lib/utils/date";
 import { number, dateDisplay } from "@/lib/utils/formatter";
 import { printHtml } from "@/lib/utils/print";
-import { buildPrintStyles } from "@/lib/print/styles";
+import { buildProductionReportHtml } from "@/lib/print/productionReport";
 import { Package, BarChart2, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { useLanguage } from "@/components/language-provider";
@@ -182,74 +182,13 @@ export default function ReportsPage() {
   }, [productions, items]);
 
   const handlePrint = async () => {
-    const scope = printScope;
-    const cumRows = cumulativeRows;
-
-    const periodLabel = `${dateDisplay(from)} – ${dateDisplay(to)}`;
-    const filterLabel =
-      scope === "day"
-        ? t("reportsPrintFilterDayOnly")
-        : scope === "night"
-          ? t("reportsPrintFilterNightOnly")
-          : "";
-    const cumulativeDesc =
-      scope === "day"
-        ? t("reportsPrintCumulativeDescDay")
-        : scope === "night"
-          ? t("reportsPrintCumulativeDescNight")
-          : t("reportsPrintCumulativeDescBoth");
-
-    const colGroup = t("reportsColPackagingGroup");
-    const colDay = t("colDay");
-    const colNight = t("colNight");
-    const colTotal = t("colTotal");
-    const emptyRow = t("reportsNoProductionInPeriod");
-
-    let cumulativeTableHeader: string;
-    let cumulativeRowsHtml: string;
-    if (scope === "day") {
-      cumulativeTableHeader =
-        `<tr class="border"><th class="border" style="padding:6px">${colGroup}</th><th class="border text-right" style="padding:6px">${colDay}</th></tr>`;
-      cumulativeRowsHtml =
-        cumRows.length === 0
-          ? `<tr><td colspan="2" class="border" style="padding:6px;color:#71717a">${emptyRow}</td></tr>`
-          : cumRows
-              .map(
-                (r) =>
-                  `<tr><td class="border" style="padding:4px 6px">${r.itemName}</td><td class="border text-right" style="padding:4px 6px">${number(r.dayQty)}</td></tr>`,
-              )
-              .join("");
-    } else if (scope === "night") {
-      cumulativeTableHeader =
-        `<tr class="border"><th class="border" style="padding:6px">${colGroup}</th><th class="border text-right" style="padding:6px">${colNight}</th></tr>`;
-      cumulativeRowsHtml =
-        cumRows.length === 0
-          ? `<tr><td colspan="2" class="border" style="padding:6px;color:#71717a">${emptyRow}</td></tr>`
-          : cumRows
-              .map(
-                (r) =>
-                  `<tr><td class="border" style="padding:4px 6px">${r.itemName}</td><td class="border text-right" style="padding:4px 6px">${number(r.nightQty)}</td></tr>`,
-              )
-              .join("");
-    } else {
-      cumulativeTableHeader =
-        `<tr class="border"><th class="border" style="padding:6px">${colGroup}</th><th class="border text-right" style="padding:6px">${colDay}</th><th class="border text-right" style="padding:6px">${colNight}</th><th class="border text-right" style="padding:6px">${colTotal}</th></tr>`;
-      cumulativeRowsHtml =
-        cumRows.length === 0
-          ? `<tr><td colspan="4" class="border" style="padding:6px;color:#71717a">${emptyRow}</td></tr>`
-          : cumRows
-              .map(
-                (r) =>
-                  `<tr><td class="border" style="padding:4px 6px">${r.itemName}</td><td class="border text-right" style="padding:4px 6px">${number(r.dayQty)}</td><td class="border text-right" style="padding:4px 6px">${number(r.nightQty)}</td><td class="border text-right" style="padding:4px 6px">${number(r.qty)}</td></tr>`,
-              )
-              .join("");
-    }
-
-    const printStyles = buildPrintStyles();
-    const docLang = locale === "hi" ? "hi" : "en";
-    const title = `${t("reportsPrintTitleSuffix")} – ${periodLabel}`;
-    const html = `<!DOCTYPE html><html lang="${docLang}"><head><meta charset="UTF-8"><title>${title}</title><style>${printStyles}</style></head><body><div style="max-width:100%;margin:0 auto"><div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px"><div><h1 class="text-2xl">${t("appName")}</h1><p class="text-sm text-gray-600">${t("reportsPrintTitleSuffix")}${filterLabel}</p></div><div class="text-sm text-right"><p><strong>${t("reportsPrintPeriodLabel")}</strong> ${periodLabel}</p></div></div><h2 class="text-lg" style="font-weight:600;margin-bottom:6px">${t("reportsPrintCumulativeHeading")}</h2><p class="text-sm text-gray-600 mb-4">${cumulativeDesc}</p><table class="table w-full mb-6"><thead>${cumulativeTableHeader}</thead><tbody>${cumulativeRowsHtml}</tbody></table></div></body></html>`;
-    console.log("[print] Print button clicked (reports), HTML length:", html?.length ?? 0);
+    const html = buildProductionReportHtml({
+      rows: cumulativeRows,
+      scope: printScope,
+      periodLabel: `${dateDisplay(from)} – ${dateDisplay(to)}`,
+      tr: t,
+      lang: locale === "hi" ? "hi" : "en",
+    });
     try {
       await printHtml(html);
     } catch (error) {
@@ -283,7 +222,7 @@ export default function ReportsPage() {
           <Card className="p-6 sm:p-8">
             <CardHeader className="p-0 mb-4">
               <CardTitle className="text-xl font-semibold font-heading flex items-center gap-2">
-                <AlertTriangle className="size-5 text-destructive" />
+                <AlertTriangle className="size-5 shrink-0 text-destructive" />
                 {t("plainReportsLoadFailed")}
               </CardTitle>
               <p className="text-base text-muted-foreground mt-1">
@@ -313,11 +252,11 @@ export default function ReportsPage() {
     <AppShell>
       <main className="flex flex-col gap-8 animate-fade-in">
         <div className="flex flex-wrap items-end justify-between gap-4">
-          <h1 className="text-3xl font-bold text-foreground font-heading">
+          <h1 className="min-w-0 text-3xl font-bold text-foreground font-heading">
             {t("reportsPageTitle")}
           </h1>
-          <div className="flex flex-wrap items-end gap-4">
-            <div className="flex flex-col gap-2">
+          <div className="flex min-w-0 flex-wrap items-end gap-4">
+            <div className="flex min-w-0 flex-col gap-2">
               <Label>{t("reportsPeriod")}</Label>
               <Select
                 value={periodValue || undefined}
@@ -329,7 +268,7 @@ export default function ReportsPage() {
                 }}
                 disabled={hasNoData}
               >
-                <SelectTrigger className="min-w-[220px] min-h-12">
+                <SelectTrigger className="w-full min-w-0 min-h-12 sm:min-w-[220px]">
                   <SelectValue
                     placeholder={
                       hasNoData
@@ -347,13 +286,13 @@ export default function ReportsPage() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="flex flex-col gap-2">
+            <div className="flex min-w-0 flex-col gap-2">
               <Label>{t("reportsPrint")}</Label>
               <Select
                 value={printScope}
                 onValueChange={(v) => setPrintScope(v as PrintScope)}
               >
-                <SelectTrigger className="min-w-[180px] min-h-12">
+                <SelectTrigger className="w-full min-w-0 min-h-12 sm:min-w-[180px]">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -384,7 +323,7 @@ export default function ReportsPage() {
             <Card className="p-6 sm:p-8">
               <CardHeader className="p-0 mb-5">
                 <CardTitle className="text-xl font-semibold font-heading flex items-center gap-2">
-                  <Package className="size-5 text-primary" />
+                  <Package className="size-5 shrink-0 text-primary" />
                   {t("reportsCumulativeTitle")}
                 </CardTitle>
                 <p className="text-base leading-relaxed text-muted-foreground mt-1">
@@ -392,7 +331,7 @@ export default function ReportsPage() {
                 </p>
               </CardHeader>
               <CardContent className="p-0">
-              <div className="overflow-x-auto">
+              <div className="min-w-0 overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -431,7 +370,7 @@ export default function ReportsPage() {
             <Card className="p-6 sm:p-8">
               <CardHeader className="p-0 mb-5">
                 <CardTitle className="text-xl font-semibold font-heading flex items-center gap-2">
-                  <BarChart2 className="size-5 text-primary" />
+                  <BarChart2 className="size-5 shrink-0 text-primary" />
                   {t("reportsByDateDayTitle")}
                 </CardTitle>
                 <p className="text-base text-muted-foreground mt-1">
@@ -439,7 +378,7 @@ export default function ReportsPage() {
                 </p>
               </CardHeader>
               <CardContent className="p-0">
-              <div className="overflow-x-auto">
+              <div className="min-w-0 overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -496,7 +435,7 @@ export default function ReportsPage() {
             <Card className="p-6 sm:p-8">
               <CardHeader className="p-0 mb-5">
                 <CardTitle className="text-xl font-semibold font-heading flex items-center gap-2">
-                  <BarChart2 className="size-5 text-primary" />
+                  <BarChart2 className="size-5 shrink-0 text-primary" />
                   {t("reportsByDateNightTitle")}
                 </CardTitle>
                 <p className="text-base text-muted-foreground mt-1">
@@ -504,7 +443,7 @@ export default function ReportsPage() {
                 </p>
               </CardHeader>
               <CardContent className="p-0">
-              <div className="overflow-x-auto">
+              <div className="min-w-0 overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>

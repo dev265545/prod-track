@@ -345,12 +345,64 @@
   }
 }
 
-/* Layout – app-wrap used by AppShell for main content; full width, no max-width */
+/*
+ * Layout – app-wrap used by AppShell for main content.
+ *
+ * `max-width` matters as much as the small-screen work: on a 2560px monitor an
+ * uncapped column gives unreadable line lengths and absurdly stretched table
+ * cells. The cap is a variable so a page that genuinely wants more room (a wide
+ * pivot table, say) can raise it locally rather than fighting a magic number.
+ */
 .app-wrap {
   width: 100%;
+  max-width: var(--app-wrap-max, 1600px);
+  margin-inline: auto;
+  min-width: 0; /* a flex child defaults to min-width:auto and refuses to shrink */
   min-height: 0; /* allow flex child to shrink for scroll */
+  /*
+   * Both axes are declared on purpose. `overflow-y: auto` alone already forces
+   * the computed `overflow-x` to `auto` (CSS will not pair `visible` with a
+   * non-visible value), so this container was silently the horizontal scroller
+   * anyway — saying it out loud keeps that from being edited away by accident.
+   *
+   * This is the backstop for the rule "the page body never scrolls sideways",
+   * not the fix: any content that actually reaches it should be given its own
+   * `overflow-x-auto` box instead.
+   */
+  overflow-x: auto;
   overflow-y: auto;
   padding: var(--app-wrap-padding) clamp(1rem, 4vw, 2rem);
+}
+
+/*
+ * Opt-out for screens whose primary content is one very wide table: capping the
+ * column there just moves the horizontal scroll inward without gaining any
+ * readability. The table still scrolls inside its own box.
+ */
+.app-wrap-wide {
+  --app-wrap-max: 2100px;
+}
+
+/*
+ * Dialog/sheet height budget.
+ *
+ * A centred `position: fixed` panel taller than the viewport is unrecoverable —
+ * its top is clipped off-screen and no scrollbar exists to reach it. That is the
+ * failure mode on a phone in landscape and on a 1280x600 laptop, so every dialog
+ * gets this cap for free from `DialogContent`.
+ *
+ * `dvh` is Chrome 108+, so the hard target (Chrome 109 on Windows 7) does honour
+ * it — but the plain `vh` declaration is kept first so any older engine, and the
+ * legacy CSS build, still land on a sane value instead of dropping the property.
+ */
+:root {
+  --dialog-max-h: calc(100vh - 2rem);
+}
+
+@supports (height: 100dvh) {
+  :root {
+    --dialog-max-h: calc(100dvh - 2rem);
+  }
 }
 
 /* Loading screen entrance – fade + subtle scale */

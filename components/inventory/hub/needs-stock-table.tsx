@@ -78,11 +78,11 @@ export function NeedsStockTable({
             return (
               <tr key={row.id} className="border-b border-border last:border-0">
                 <td className="px-3 py-3">
-                  <div className="flex flex-col">
+                  <div className="flex min-w-0 flex-col">
                     <span className="font-semibold text-foreground">
                       {row.name}
                     </span>
-                    <span className="font-mono text-xs text-muted-foreground">
+                    <span className="break-all font-mono text-xs text-muted-foreground">
                       {row.code}
                     </span>
                   </div>
@@ -94,7 +94,9 @@ export function NeedsStockTable({
                   <div className="flex flex-col gap-1.5">
                     <div className="flex items-center gap-2">
                       <Badge variant={isOut ? "destructive" : "warning"}>
-                        {isOut ? t("inventoryStatusOut") : t("inventoryStatusLow")}
+                        {isOut
+                          ? t("inventoryStatusOut")
+                          : t("inventoryStatusLow")}
                       </Badge>
                       <span className="tabular-nums text-foreground">
                         {formatInventoryQuantity(row.currentStock)}

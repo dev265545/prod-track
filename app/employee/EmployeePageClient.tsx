@@ -596,7 +596,7 @@ export function EmployeePageClient() {
     return (
       <AppShell headerContent={<EmployeePageHeader />}>
         <main id="main" className="flex flex-col gap-8">
-          <div className="grid grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
             {[1, 2, 3, 4].map((i) => (
               <Skeleton key={i} className="h-28 rounded-xl" />
             ))}
@@ -837,9 +837,9 @@ export function EmployeePageClient() {
       headerContent={<EmployeePageHeader />}
     >
       <main id="main" className="flex flex-col gap-8">
-        <div className="animate-fade-in flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <h1 className="text-3xl font-semibold text-foreground">
+        <div className="animate-fade-in flex min-w-0 flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0">
+            <h1 className="break-words text-2xl font-semibold text-foreground sm:text-3xl">
               {employee.name as string}
             </h1>
           </div>
@@ -848,7 +848,7 @@ export function EmployeePageClient() {
               <PopoverTrigger asChild>
                 <button
                   type="button"
-                  className="relative flex items-center justify-center rounded-lg p-2 text-destructive hover:bg-destructive/10 focus:outline-none focus:ring-2 focus:ring-destructive/30 transition-colors"
+                  className="relative flex size-11 shrink-0 items-center justify-center rounded-lg p-2 text-destructive hover:bg-destructive/10 focus:outline-none focus:ring-2 focus:ring-destructive/30 transition-colors"
                   aria-label={t("dashboardMissingDataAria", {
                     count: missingDataDays.length,
                   })}
@@ -1100,7 +1100,7 @@ export function EmployeePageClient() {
         )}
 
         <div className="flex flex-col xl:flex-row gap-4 xl:items-stretch animate-fade-in animate-stagger-2">
-          <div className="xl:shrink-0 xl:min-w-[350px] xl:w-[350px]">
+          <div className="min-w-0 xl:shrink-0 xl:min-w-[350px] xl:w-[350px]">
             <EmployeeCalendar
               year={calYear}
               month={calMonth}
@@ -1165,8 +1165,8 @@ export function EmployeePageClient() {
               periodBadgeLoading={salarySheetRowLoading}
             />
           </div>
-          <div className="grid grid-cols-2 gap-2 flex-1 min-w-0 xl:min-w-[280px]">
-            <Card className="p-3 flex flex-col min-h-0">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 flex-1 min-w-0 xl:min-w-[280px]">
+            <Card className="p-3 flex flex-col min-h-0 min-w-0">
               <CardHeader className="p-0 pb-1">
                 <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-1">
                   <UserCheck className="size-3.5 text-primary shrink-0" />
@@ -1220,8 +1220,8 @@ export function EmployeePageClient() {
                 </div>
               </CardContent>
             </Card>
-            <div className="grid grid-cols-2 gap-2">
-              <Card className="p-3">
+            <div className="grid min-w-0 grid-cols-2 gap-2">
+              <Card className="p-3 min-w-0">
                 <CardHeader className="p-0 pb-1 shrink-0">
                   <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-1">
                     <Clock className="size-3.5 text-primary shrink-0" />
@@ -1244,7 +1244,7 @@ export function EmployeePageClient() {
                   )}
                 </CardContent>
               </Card>
-              <Card className="p-3">
+              <Card className="p-3 min-w-0">
                 <CardHeader className="p-0 pb-1 shrink-0">
                   <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-1">
                     <Package className="size-3.5 text-primary shrink-0" />
@@ -1267,7 +1267,7 @@ export function EmployeePageClient() {
                   )}
                 </CardContent>
               </Card>
-              <Card className="p-3">
+              <Card className="p-3 min-w-0">
                 <CardHeader className="p-0 pb-1 shrink-0">
                   <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-1">
                     <Clock className="size-3.5 text-primary shrink-0" />
@@ -1288,7 +1288,7 @@ export function EmployeePageClient() {
                   )}
                 </CardContent>
               </Card>
-              <Card className="p-3">
+              <Card className="p-3 min-w-0">
                 <CardHeader className="p-0 pb-1 shrink-0">
                   <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-1">
                     <LayoutGrid className="size-3.5 text-primary shrink-0" />
@@ -1310,7 +1310,7 @@ export function EmployeePageClient() {
                 </CardContent>
               </Card>
             </div>
-            <Card className="p-3 flex flex-col min-h-0">
+            <Card className="p-3 flex flex-col min-h-0 min-w-0">
               <CardHeader className="p-0 pb-1">
                 <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-1">
                   <CalendarDays className="size-3.5 text-primary shrink-0" />
@@ -1670,8 +1670,8 @@ export function EmployeePageClient() {
               </CardContent>
             </Card>
 
-            <div className="grid grid-cols-2 gap-2">
-              <Card className="p-3">
+            <div className="grid min-w-0 grid-cols-2 gap-2">
+              <Card className="p-3 min-w-0">
                 <CardHeader className="p-0 pb-1 shrink-0">
                   <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-1">
                     <Clock className="size-3.5 text-primary shrink-0" />
@@ -1692,7 +1692,7 @@ export function EmployeePageClient() {
                   )}
                 </CardContent>
               </Card>
-              <Card className="p-3">
+              <Card className="p-3 min-w-0">
                 <CardHeader className="p-0 pb-1 shrink-0">
                   <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-1">
                     <Package className="size-3.5 text-primary shrink-0" />
@@ -1720,8 +1720,8 @@ export function EmployeePageClient() {
         {!isProductionEmp && (
         <>
         <Card className="p-6 sm:p-8 transition-all duration-300 ease-out animate-fade-in animate-stagger-3">
-          <CardHeader className="p-0 mb-4 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-            <div>
+          <CardHeader className="p-0 mb-4 flex min-w-0 flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0">
               <CardTitle className="text-xl font-semibold font-heading flex items-center gap-2">
                 <FileSpreadsheet className="size-5 text-primary shrink-0" />
                 {t("empMonthlyAttendancePrint")}
@@ -1778,8 +1778,8 @@ export function EmployeePageClient() {
 
         <Card className="p-6 sm:p-8 transition-all duration-300 ease-out animate-fade-in animate-stagger-4">
           <CardHeader className="p-0 mb-5">
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-              <div className="space-y-2">
+            <div className="flex min-w-0 flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              <div className="min-w-0 space-y-2">
                 <div className="flex flex-wrap items-center gap-2">
                   <CardTitle className="text-xl font-semibold font-heading">
                     {t("empSalaryAttendanceRange")}
@@ -2396,8 +2396,8 @@ export function EmployeePageClient() {
         <Dialog open={productionsModalOpen} onOpenChange={setProductionsModalOpen}>
           <DialogTrigger asChild>
             <Card className="p-6 sm:p-8 cursor-pointer transition-all duration-200 ease-out hover:ring-2 hover:ring-primary/20 focus-within:ring-2 focus-within:ring-primary/20 focus:outline-none">
-              <CardContent className="p-0 flex items-center justify-between">
-                <div className="flex items-center gap-3">
+              <CardContent className="p-0 flex min-w-0 flex-wrap items-center justify-between gap-3">
+                <div className="flex min-w-0 items-center gap-3">
                   <div className="rounded-lg bg-primary/10 p-3">
                     <Package className="size-5 text-primary" />
                   </div>
@@ -2416,7 +2416,7 @@ export function EmployeePageClient() {
               </CardContent>
             </Card>
           </DialogTrigger>
-          <DialogContent className="sm:max-w-2xl max-h-[85vh] flex flex-col">
+          <DialogContent className="sm:max-w-2xl max-h-[var(--dialog-max-h)] flex flex-col">
             <DialogHeader>
               <DialogTitle>{t("empProdDialogTitle")}</DialogTitle>
             </DialogHeader>
@@ -2474,7 +2474,7 @@ export function EmployeePageClient() {
                                   type="button"
                                   variant="ghost"
                                   size="sm"
-                                  className="h-8 w-8 p-0 text-destructive hover:text-destructive"
+                                  className="size-11 p-0 text-destructive hover:text-destructive"
                                 >
                                   <X className="size-4" />
                                 </Button>
@@ -2542,8 +2542,8 @@ export function EmployeePageClient() {
         <Dialog open={advancesModalOpen} onOpenChange={setAdvancesModalOpen}>
           <DialogTrigger asChild>
             <Card className="p-6 sm:p-8 cursor-pointer transition-all duration-200 ease-out hover:ring-2 hover:ring-primary/20 focus-within:ring-2 focus-within:ring-primary/20 focus:outline-none">
-              <CardContent className="p-0 flex items-center justify-between">
-                <div className="flex items-center gap-3">
+              <CardContent className="p-0 flex min-w-0 flex-wrap items-center justify-between gap-3">
+                <div className="flex min-w-0 items-center gap-3">
                   <div className="rounded-lg bg-primary/10 p-3">
                     <Wallet className="size-5 text-primary" />
                   </div>
@@ -2574,7 +2574,7 @@ export function EmployeePageClient() {
             <div className="flex gap-1 p-1 rounded-lg bg-muted/50">
               <button
                 type="button"
-                className={`flex-1 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+                className={`min-h-[44px] min-w-0 flex-1 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
                   advancesModalTab === "advances"
                     ? "bg-background shadow-sm text-foreground"
                     : "text-muted-foreground hover:text-foreground"
@@ -2585,7 +2585,7 @@ export function EmployeePageClient() {
               </button>
               <button
                 type="button"
-                className={`flex-1 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+                className={`min-h-[44px] min-w-0 flex-1 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
                   advancesModalTab === "settlements"
                     ? "bg-background shadow-sm text-foreground"
                     : "text-muted-foreground hover:text-foreground"
@@ -2639,7 +2639,7 @@ export function EmployeePageClient() {
                                     type="button"
                                     variant="ghost"
                                     size="sm"
-                                    className="h-8 w-8 p-0 text-destructive hover:text-destructive"
+                                    className="size-11 p-0 text-destructive hover:text-destructive"
                                   >
                                     <X className="size-4" />
                                   </Button>

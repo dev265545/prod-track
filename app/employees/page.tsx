@@ -187,7 +187,7 @@ export default function EmployeesPage() {
                     <TableHead scope="col">{t("employeesColShift")}</TableHead>
                     <TableHead scope="col">{t("employeesColSundayCat")}</TableHead>
                     <TableHead scope="col">{t("employeesColStatus")}</TableHead>
-                    <TableHead className="w-[52px]" scope="col">
+                    <TableHead className="w-[64px]" scope="col">
                       <span className="sr-only">{t("commonActions")}</span>
                     </TableHead>
                   </TableRow>
@@ -235,7 +235,7 @@ export default function EmployeesPage() {
                             await load();
                           }}
                         >
-                          <SelectTrigger className="w-36 min-h-9">
+                          <SelectTrigger className="w-36 min-h-[44px]">
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
@@ -270,7 +270,7 @@ export default function EmployeesPage() {
                           : t("employeesStatusInactive")}
                       </TableCell>
                       <TableCell
-                        className="w-[52px]"
+                        className="w-[64px]"
                         onClick={(ev) => ev.stopPropagation()}
                         onKeyDown={(ev) => ev.stopPropagation()}
                       >
@@ -280,6 +280,7 @@ export default function EmployeesPage() {
                               type="button"
                               variant="destructive"
                               size="icon"
+                              className="size-11"
                               title={t("employeesDeleteTitle")}
                               aria-label={t("employeesDeleteEmployeeAria", {
                                 name: String(e.name),

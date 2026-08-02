@@ -65,7 +65,7 @@ function PickerBody({
   }, [items, query]);
 
   return (
-    <DialogContent className="flex max-h-[85vh] flex-col gap-4 sm:max-w-md">
+    <DialogContent className="flex max-h-[var(--dialog-max-h)] flex-col gap-4 sm:max-w-md">
       <DialogHeader>
         <DialogTitle>{t("invHubPickItem")}</DialogTitle>
         <DialogDescription>{t("invHubPickItemDesc")}</DialogDescription>
@@ -107,7 +107,7 @@ function PickerBody({
                   onClick={() => onPick(item)}
                   className="flex min-h-[44px] w-full min-w-0 items-center gap-3 rounded-md px-3 py-2 text-left hover:bg-surface-3"
                 >
-                  <span className="shrink-0 font-mono text-xs text-muted-foreground">
+                  <span className="max-w-[8rem] shrink-0 truncate font-mono text-xs text-muted-foreground">
                     {item.code}
                   </span>
                   <span className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">

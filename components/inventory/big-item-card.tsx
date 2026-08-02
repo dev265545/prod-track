@@ -108,7 +108,7 @@ export function BigItemCard({
             </h3>
           </div>
           <div className="mt-2 flex min-w-0 flex-wrap items-center gap-2">
-            <span className="rounded-md bg-surface-3 px-2 py-0.5 font-mono text-xs font-semibold tracking-wider text-foreground">
+            <span className="max-w-full break-all rounded-md bg-surface-3 px-2 py-0.5 font-mono text-xs font-semibold tracking-wider text-foreground">
               {item.code}
             </span>
             <span className="min-w-0 truncate text-xs text-muted-foreground">
@@ -154,7 +154,10 @@ export function BigItemCard({
         >
           <div className="relative h-2.5 w-full min-w-0 overflow-hidden rounded-full bg-surface-3">
             <div
-              className={cn("absolute inset-y-0 left-0 rounded-full", meterFill)}
+              className={cn(
+                "absolute inset-y-0 left-0 rounded-full",
+                meterFill,
+              )}
               style={{ width: `${meter.percent}%` }}
             />
             {meter.lowMarkPercent !== null && (

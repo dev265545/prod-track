@@ -235,15 +235,15 @@ export function SalarySheetAdjustDialog({
     >
       <DialogContent
         className={cn(
-          "flex max-h-[min(88vh,calc(100dvh-2.5rem))] flex-col gap-0 overflow-hidden border-border p-0",
-          "w-[min(96rem,calc(100vw-1.5rem))] max-w-none rounded-xl shadow-xl",
+          "flex max-h-[var(--dialog-max-h)] flex-col gap-0 overflow-hidden border-border p-0",
+          "w-[min(96rem,calc(100%-1.5rem))] max-w-none rounded-xl shadow-xl",
         )}
       >
         {row && (
           <>
             <DialogHeader className="sticky top-0 z-10 shrink-0 gap-3 border-b bg-background/95 px-5 py-4 backdrop-blur sm:px-7">
               <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                <div className="space-y-1.5">
+                <div className="min-w-0 space-y-1.5">
                   <DialogTitle className="text-xl font-semibold">
                     {t("salaryAdjustTitle", { name: row.name })}
                   </DialogTitle>
@@ -254,7 +254,7 @@ export function SalarySheetAdjustDialog({
                     })}
                   </DialogDescription>
                 </div>
-                <Card className="min-w-[220px] rounded-2xl border-chart-1/30 bg-chart-1/10 shadow-none">
+                <Card className="min-w-0 shrink-0 rounded-2xl lg:min-w-[220px] border-chart-1/30 bg-chart-1/10 shadow-none">
                   <CardContent className="px-4 py-4">
                     <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-chart-4">
                       {t("salaryAdjustCurrentSalary")}
@@ -286,10 +286,10 @@ export function SalarySheetAdjustDialog({
                     </div>
                     <div className="grid gap-3 rounded-xl border border-chart-1/20 bg-background/95 p-4 text-sm">
                       <div className="flex items-center justify-between gap-3">
-                        <span className="text-muted-foreground">
+                        <span className="min-w-0 text-muted-foreground">
                           {t("salaryAdjustOverrideStatus")}
                         </span>
-                        <span className="font-medium text-foreground">
+                        <span className="min-w-0 font-medium text-foreground">
                           {row.hasOverrides
                             ? t("salaryAdjustManualSaved")
                             : t("salaryAdjustAutomaticOnly")}
@@ -297,10 +297,10 @@ export function SalarySheetAdjustDialog({
                       </div>
                       <Separator />
                       <div className="flex items-center justify-between gap-3">
-                        <span className="text-muted-foreground">
+                        <span className="min-w-0 text-muted-foreground">
                           {t("salaryAdjustLastAdjusted")}
                         </span>
-                        <span className="text-right text-foreground">
+                        <span className="min-w-0 text-right text-foreground">
                           {row.overrideUpdatedAt || t("salaryAdjustNotYet")}
                         </span>
                       </div>
@@ -317,7 +317,7 @@ export function SalarySheetAdjustDialog({
                       >
                         <CardHeader className="px-5 pb-3 pt-5">
                           <div className="flex items-start justify-between gap-3">
-                            <div className="space-y-1">
+                            <div className="min-w-0 space-y-1">
                               <Label
                                 htmlFor={`payroll-override-${field.key}`}
                                 className="text-sm font-medium text-foreground"
@@ -367,7 +367,7 @@ export function SalarySheetAdjustDialog({
                               type="button"
                               variant="ghost"
                               size="sm"
-                              className="h-8 shrink-0 px-2.5 text-xs text-chart-4 hover:text-chart-5"
+                              className="min-h-11 shrink-0 px-2.5 text-xs text-chart-4 hover:text-chart-5"
                               onClick={() => resetDraftField(field.key)}
                             >
                               {t("salaryAdjustAutoButton")}
@@ -380,7 +380,7 @@ export function SalarySheetAdjustDialog({
                               type="button"
                               variant="outline"
                               size="icon-sm"
-                              className="border-chart-1/30 bg-chart-1/5 hover:bg-chart-1/15"
+                              className="size-11 shrink-0 border-chart-1/30 bg-chart-1/5 hover:bg-chart-1/15"
                               onClick={() =>
                                 setDraftDrivers((current) =>
                                   current
@@ -402,7 +402,7 @@ export function SalarySheetAdjustDialog({
                               id={`payroll-override-${field.key}`}
                               min={0}
                               max={maxForAdjustDriver(field.key)}
-                              className="h-11 border-chart-1/30 bg-background text-center text-base tabular-nums"
+                              className="h-11 min-w-0 flex-1 border-chart-1/30 bg-background text-center text-base tabular-nums"
                               value={String(draftState.drivers[field.key])}
                               onChange={(event) => {
                                 const next = Number(event.target.value);
@@ -422,7 +422,7 @@ export function SalarySheetAdjustDialog({
                               type="button"
                               variant="outline"
                               size="icon-sm"
-                              className="border-chart-1/30 bg-chart-1/5 hover:bg-chart-1/15"
+                              className="size-11 shrink-0 border-chart-1/30 bg-chart-1/5 hover:bg-chart-1/15"
                               disabled={(() => {
                                 const cap = maxForAdjustDriver(field.key);
                                 return (
@@ -463,7 +463,7 @@ export function SalarySheetAdjustDialog({
                         {t("salaryAdjustAutoResultsSubtitle")}
                       </p>
                     </CardHeader>
-                    <CardContent className="grid gap-4 px-5 pb-5 md:grid-cols-3">
+                    <CardContent className="grid gap-4 px-5 pb-5 sm:grid-cols-2 md:grid-cols-3">
                       {(
                         [
                           ["absentDays", "salaryAdjustDerivedAbsent"],
@@ -484,11 +484,11 @@ export function SalarySheetAdjustDialog({
                             }`}
                           >
                             <div className="flex items-center justify-between gap-3">
-                              <p className="text-sm font-medium text-foreground">
+                              <p className="min-w-0 text-sm font-medium text-foreground">
                                 {t(labelKey)}
                               </p>
                               {isChanged ? (
-                                <span className="rounded-full bg-chart-2/10 px-2 py-0.5 text-[11px] font-medium text-chart-4">
+                                <span className="shrink-0 rounded-full bg-chart-2/10 px-2 py-0.5 text-[11px] font-medium text-chart-4">
                                   {t("salaryAdjustBadgeUpdated")}
                                 </span>
                               ) : null}
@@ -532,10 +532,11 @@ export function SalarySheetAdjustDialog({
               </div>
             </div>
 
-            <DialogFooter className="sticky bottom-0 z-10 shrink-0 border-t bg-background/95 px-5 py-4 backdrop-blur sm:px-7">
+            <DialogFooter className="sticky bottom-0 z-10 shrink-0 flex-wrap gap-2 border-t bg-background/95 px-5 py-4 backdrop-blur sm:px-7">
               <Button
                 type="button"
                 variant="outline"
+                className="min-h-11 px-4"
                 onClick={() => closeModal()}
                 disabled={savingOverride}
               >
@@ -544,6 +545,7 @@ export function SalarySheetAdjustDialog({
               <Button
                 type="button"
                 variant="ghost"
+                className="min-h-11 px-4"
                 onClick={resetAllDraftFields}
                 disabled={savingOverride}
               >
@@ -551,6 +553,7 @@ export function SalarySheetAdjustDialog({
               </Button>
               <Button
                 type="button"
+                className="min-h-11 px-4"
                 onClick={() => void saveAdjustments()}
                 disabled={savingOverride}
               >

@@ -154,7 +154,7 @@ export default function Home() {
 
   return (
     <AppShell>
-      <main className="flex flex-col gap-8 animate-fade-in">
+      <main className="flex w-full min-w-0 flex-col gap-8 animate-fade-in">
         <header className="flex flex-col gap-1">
           <h1 className="font-heading text-3xl font-bold tracking-tight text-foreground md:text-4xl">
             {t("homeTitle")}

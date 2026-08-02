@@ -53,11 +53,11 @@ import {
   formatMonthYear,
   type DisplayLocale,
 } from "@/lib/utils/date";
-import { currency, number } from "@/lib/utils/formatter";
 import { printHtml } from "@/lib/utils/print";
-import { buildPrintStyles } from "@/lib/print/styles";
-import { buildPrintDocument, escapeHtml } from "@/lib/print/html";
-import { buildProductionPaySheetBodyHtml } from "@/lib/print/productionPaySheet";
+import {
+  SALARY_SHEET_COLUMNS,
+  buildPrintableHtml,
+} from "@/lib/print/salarySheet";
 import {
   getProductionPaySheetForRange,
   type ProductionPaySheet,
@@ -91,130 +91,12 @@ function getMonthOptions(
 
 type SalarySheetCategory = "all" | "salaried" | "production" | "operator";
 
-/**
- * One description of the salary-sheet table, used by the on-screen header,
- * the on-screen body, and the printable HTML. Adding a column here adds it
- * to all three at once.
- */
-interface SalarySheetColumn {
-  key: string;
-  labelKey: MessageKey;
-  align: "left" | "right";
-  format: (row: SalarySheetRow) => string;
-  /** The employee-name column also carries the "changed by hand" note. */
-  isName?: boolean;
-  muted?: boolean;
-  emphasis?: boolean;
-  nowrap?: boolean;
-}
-
-const SALARY_SHEET_COLUMNS: SalarySheetColumn[] = [
-  { key: "name", labelKey: "colEmployee", align: "left", format: (r) => r.name, isName: true },
-  { key: "presentDays", labelKey: "calTitlePresent", align: "right", format: (r) => number(r.presentDays) },
-  { key: "absentDays", labelKey: "calTitleAbsent", align: "right", format: (r) => number(r.absentDays) },
-  { key: "holidayPresentDays", labelKey: "salarySheetColHolidayPresent", align: "right", nowrap: true, format: (r) => number(r.holidayPresentDays) },
-  { key: "earnedSundayPayDays", labelKey: "salarySheetColEarnedSun", align: "right", nowrap: true, format: (r) => number(r.earnedSundayPayDays) },
-  { key: "sundayPresentBonusDays", labelKey: "salarySheetColSunPlus", align: "right", nowrap: true, format: (r) => number(r.sundayPresentBonusDays) },
-  { key: "totalPaidDays", labelKey: "salarySheetColPaidDays", align: "right", nowrap: true, format: (r) => number(r.totalPaidDays) },
-  { key: "monthlySalary", labelKey: "salarySheetColMonthly", align: "right", nowrap: true, muted: true, format: (r) => currency(r.monthlySalary) },
-  { key: "ratePerDay", labelKey: "salarySheetColPerDay", align: "right", nowrap: true, muted: true, format: (r) => currency(r.ratePerDay) },
-  { key: "ratePerHour", labelKey: "salarySheetColPerHr", align: "right", nowrap: true, muted: true, format: (r) => currency(r.ratePerHour) },
-  { key: "hoursExtraTotal", labelKey: "salarySheetColPlusHrs", align: "right", nowrap: true, format: (r) => number(r.hoursExtraTotal) },
-  { key: "hoursReducedTotal", labelKey: "salarySheetColMinusHrs", align: "right", nowrap: true, format: (r) => number(r.hoursReducedTotal) },
-  { key: "calculatedSalary", labelKey: "salarySheetColSalary", align: "right", nowrap: true, emphasis: true, format: (r) => currency(r.calculatedSalary) },
-];
-
 const CATEGORY_TABS: { value: SalarySheetCategory; labelKey: MessageKey }[] = [
   { value: "all", labelKey: "salarySheetTabAll" },
   { value: "salaried", labelKey: "employeeTypeSalaried" },
   { value: "production", labelKey: "employeeTypeProduction" },
   { value: "operator", labelKey: "employeeTypeOperator" },
 ];
-
-/** The attendance salary-sheet table, as printable HTML. */
-function buildSalaryTableHtml(
-  rows: SalarySheetRow[],
-  tr: (key: MessageKey, vars?: Record<string, string | number>) => string,
-): string {
-  const colCount = SALARY_SHEET_COLUMNS.length;
-  const rowsHtml =
-    rows.length === 0
-      ? `<tr><td colspan="${colCount}" class="border" style="padding:12px;color:#71717a;text-align:center">${tr("salarySheetPrintEmpty")}</td></tr>`
-      : rows
-          .map(
-            (r) =>
-              `<tr>${SALARY_SHEET_COLUMNS.map((col) => {
-                const cls = [
-                  "border",
-                  col.align === "right" ? "text-right" : "",
-                  col.emphasis ? "font-semibold" : "",
-                ]
-                  .filter(Boolean)
-                  .join(" ");
-                return `<td class="${cls}" style="padding:5px 6px">${escapeHtml(col.format(r))}</td>`;
-              }).join("")}</tr>`,
-          )
-          .join("");
-
-  const totalSalary = rows.reduce((sum, r) => sum + r.calculatedSalary, 0);
-  const totalRow =
-    rows.length > 0
-      ? `<tr class="border-t-2" style="border-top:2px solid #0a0a0a">
-          <td class="border font-semibold" style="padding:8px">${tr("salarySheetPrintTotal")}</td>
-          <td class="border text-right" colspan="${colCount - 2}" style="padding:8px"></td>
-          <td class="border text-right font-bold" style="padding:8px">${currency(totalSalary)}</td>
-        </tr>`
-      : "";
-
-  const head = `<tr class="border">${SALARY_SHEET_COLUMNS.map(
-    (col) =>
-      `<th class="border${col.align === "right" ? " text-right" : ""}" style="padding:5px 6px">${escapeHtml(tr(col.labelKey))}</th>`,
-  ).join("")}</tr>`;
-
-  return `<table class="table w-full mb-6"><thead>${head}</thead><tbody>${rowsHtml}${totalRow}</tbody></table>`;
-}
-
-/**
- * Compose the printed document. Which sections it carries follows the tab the
- * owner is looking at: the attendance salary sheet, the production work
- * record, or — on "All" — both, so one print run covers every worker.
- */
-function buildPrintableHtml({
-  rows,
-  productionSheet,
-  monthLabel,
-  from,
-  to,
-  tr,
-}: {
-  rows: SalarySheetRow[] | null;
-  productionSheet: ProductionPaySheet | null;
-  monthLabel: string;
-  from: string;
-  to: string;
-  tr: (key: MessageKey, vars?: Record<string, string | number>) => string;
-}): string {
-  const sections: string[] = [];
-  if (rows) sections.push(buildSalaryTableHtml(rows, tr));
-  if (productionSheet)
-    sections.push(buildProductionPaySheetBodyHtml(productionSheet, tr));
-
-  const subtitle = rows
-    ? `${tr("navSalarySheet")} – ${monthLabel}`
-    : `${tr("prepTitle")} – ${monthLabel}`;
-
-  return buildPrintDocument({
-    title: subtitle,
-    appName: tr("appName"),
-    subtitle,
-    meta: [
-      { label: tr("salarySheetPrintMonth"), value: monthLabel },
-      { label: tr("salarySheetPrintPeriod"), value: `${from} – ${to}` },
-    ],
-    body: sections.join(""),
-    styles: buildPrintStyles({ tableFontSize: 10, cellPadding: "5px 6px" }),
-  });
-}
 
 export default function SalarySheetPage() {
   const router = useRouter();
@@ -438,7 +320,7 @@ export default function SalarySheetPage() {
     <AppShell>
       <main className="flex flex-col gap-8 animate-fade-in">
         <div className="flex flex-wrap items-end justify-between gap-4">
-          <div className="space-y-1">
+          <div className="min-w-0 space-y-1">
             <h1 className="text-3xl font-bold text-foreground font-heading">
               {tr("navSalarySheet")}
             </h1>
@@ -446,14 +328,14 @@ export default function SalarySheetPage() {
               {tr("salarySheetIntro")}
             </p>
           </div>
-          <div className="flex flex-wrap items-end gap-4">
-            <div className="flex flex-col gap-2">
+          <div className="flex min-w-0 flex-wrap items-end gap-4">
+            <div className="flex min-w-0 flex-col gap-2">
               <Label htmlFor="salary-month">{tr("dashboardMonth")}</Label>
               <Select
                 value={monthValue}
                 onValueChange={handleMonthChange}
               >
-                <SelectTrigger id="salary-month" className="min-w-[200px] min-h-12">
+                <SelectTrigger id="salary-month" className="w-full min-w-0 min-h-12 sm:min-w-[200px]">
                   <SelectValue placeholder={tr("salarySheetSelectMonth")} />
                 </SelectTrigger>
                 <SelectContent>
@@ -468,7 +350,7 @@ export default function SalarySheetPage() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="flex flex-col gap-2">
+            <div className="flex min-w-0 flex-col gap-2">
               <Label htmlFor="salary-range-mode">{tr("salarySheetRange")}</Label>
               <Select
                 value={rangeMode}
@@ -476,7 +358,7 @@ export default function SalarySheetPage() {
               >
                 <SelectTrigger
                   id="salary-range-mode"
-                  className="min-w-[200px] min-h-12"
+                  className="w-full min-w-0 min-h-12 sm:min-w-[200px]"
                 >
                   <SelectValue placeholder={tr("salarySheetSelectRange")} />
                 </SelectTrigger>
@@ -494,7 +376,7 @@ export default function SalarySheetPage() {
             </div>
             {rangeMode === "custom" && (
               <>
-                <div className="flex flex-col gap-2">
+                <div className="flex min-w-0 flex-col gap-2">
                   <Label htmlFor="salary-range-from">{tr("salarySheetLabelFrom")}</Label>
                   <DatePicker
                     id="salary-range-from"
@@ -502,10 +384,10 @@ export default function SalarySheetPage() {
                     onChange={handleCustomFromChange}
                     min={monthBounds.from}
                     max={monthBounds.to}
-                    className="min-w-[180px] min-h-12"
+                    className="w-full min-w-0 min-h-12 sm:min-w-[180px]"
                   />
                 </div>
-                <div className="flex flex-col gap-2">
+                <div className="flex min-w-0 flex-col gap-2">
                   <Label htmlFor="salary-range-to">{tr("salarySheetLabelTo")}</Label>
                   <DatePicker
                     id="salary-range-to"
@@ -513,7 +395,7 @@ export default function SalarySheetPage() {
                     onChange={handleCustomToChange}
                     min={monthBounds.from}
                     max={monthBounds.to}
-                    className="min-w-[180px] min-h-12"
+                    className="w-full min-w-0 min-h-12 sm:min-w-[180px]"
                   />
                 </div>
               </>
@@ -544,20 +426,28 @@ export default function SalarySheetPage() {
           value={category}
           onValueChange={(value) => setCategory(value as SalarySheetCategory)}
         >
-          <TabsList>
-            {CATEGORY_TABS.map((tab) => (
-              <TabsTrigger key={tab.value} value={tab.value}>
-                {tr(tab.labelKey)}
-              </TabsTrigger>
-            ))}
-          </TabsList>
+          {/* The four tabs together can be wider than a phone screen, so the
+              strip scrolls on its own instead of widening the page. */}
+          <div className="min-w-0 overflow-x-auto">
+            <TabsList className="h-auto">
+              {CATEGORY_TABS.map((tab) => (
+                <TabsTrigger
+                  key={tab.value}
+                  value={tab.value}
+                  className="min-h-11 px-4"
+                >
+                  {tr(tab.labelKey)}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </div>
         </Tabs>
 
         {showSalaryTable && (
         <Card className="p-6 sm:p-8">
           <CardHeader className="p-0 mb-5">
             <CardTitle className="text-xl font-semibold font-heading flex items-center gap-2">
-              <FileSpreadsheet className="size-5 text-primary" />
+              <FileSpreadsheet className="size-5 shrink-0 text-primary" />
               {rangeMode === "full-month" ? monthLabel : selectedRange.label}
             </CardTitle>
             <p className="text-sm text-muted-foreground mt-1">
@@ -614,12 +504,12 @@ export default function SalarySheetPage() {
                 </EmptyHeader>
               </Empty>
             ) : (
-              <div className="overflow-x-auto">
+              <div className="min-w-0 overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
                       {reorderMode && (
-                        <TableHead className="w-[88px]">{tr("salarySheetColOrder")}</TableHead>
+                        <TableHead className="w-[104px]">{tr("salarySheetColOrder")}</TableHead>
                       )}
                       {SALARY_SHEET_COLUMNS.map((col) => (
                         <TableHead
@@ -654,7 +544,7 @@ export default function SalarySheetPage() {
                       >
                         {reorderMode && (
                           <TableCell
-                            className="w-[88px]"
+                            className="w-[104px]"
                             onClick={(event) => event.stopPropagation()}
                             onKeyDown={(event) => event.stopPropagation()}
                           >
@@ -663,6 +553,7 @@ export default function SalarySheetPage() {
                                 type="button"
                                 variant="ghost"
                                 size="icon-sm"
+                                className="size-11"
                                 disabled={savingOrder || visibleRows[0]?.id === r.id}
                                 onClick={() => void moveRow(r.id, -1)}
                                 aria-label={tr("salarySheetMoveUpAria", { name: r.name })}
@@ -673,6 +564,7 @@ export default function SalarySheetPage() {
                                 type="button"
                                 variant="ghost"
                                 size="icon-sm"
+                                className="size-11"
                                 disabled={savingOrder || visibleRows[visibleRows.length - 1]?.id === r.id}
                                 onClick={() => void moveRow(r.id, 1)}
                                 aria-label={tr("salarySheetMoveDownAria", { name: r.name })}

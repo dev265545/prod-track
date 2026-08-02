@@ -107,7 +107,12 @@ export function EmployeeCalendar({
   const pad = (n: number) => String(n).padStart(2, "0");
 
   return (
-    <div className="flex h-full w-full min-w-[320px] max-w-[380px] flex-col rounded-xl border border-border bg-card p-3 sm:p-4">
+    // The 320px floor only applies from `sm` up: at a 320px viewport the page
+    // padding leaves ~288px, so an unconditional `min-w-[320px]` is exactly the
+    // thing that makes the whole page scroll sideways. The 7-column grid uses
+    // `minmax(0,1fr)` columns and the day cells drop to `p-1` below `sm`, so it
+    // stays legible down to ~260px without a min width at all.
+    <div className="flex h-full w-full min-w-0 max-w-[380px] flex-col rounded-xl border border-border bg-card p-3 sm:min-w-[320px] sm:p-4">
       <div className="mb-3 flex items-center justify-between gap-2">
         <Button
           type="button"
@@ -119,7 +124,7 @@ export function EmployeeCalendar({
             onMonthChange(py, prev);
           }}
           aria-label={t("calPrevMonth")}
-          className="shrink-0"
+          className="size-11 shrink-0"
         >
           <ChevronLeft data-icon="inline-start" />
         </Button>
@@ -146,7 +151,7 @@ export function EmployeeCalendar({
             onMonthChange(ny, next);
           }}
           aria-label={t("calNextMonth")}
-          className="shrink-0"
+          className="size-11 shrink-0"
         >
           <ChevronRight data-icon="inline-start" />
         </Button>
@@ -185,7 +190,7 @@ export function EmployeeCalendar({
               type="button"
               variant="ghost"
               className={cn(
-                "relative flex h-auto min-h-[48px] flex-col items-center justify-center rounded-lg p-2 text-sm transition-all",
+                "relative flex h-auto min-h-[48px] min-w-0 flex-col items-center justify-center rounded-lg p-1 text-sm transition-all sm:p-2",
                 isSelected && "bg-chart-1/50 ring-2 ring-chart-1",
                 inPeriod && !isSelected && "bg-chart-1/20",
                 !inPeriod && !isSelected && "hover:bg-muted",

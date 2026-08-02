@@ -64,7 +64,7 @@ export function ProductionPayRecord({
     <Card className="p-6 sm:p-8">
       <CardHeader className="p-0 mb-5">
         <CardTitle className="text-xl font-semibold font-heading flex items-center gap-2">
-          <Package className="size-5 text-primary" />
+          <Package className="size-5 shrink-0 text-primary" />
           {tr("prepTitle")} — {periodLabel}
         </CardTitle>
         <p className="text-sm text-muted-foreground mt-1">{tr("prepIntro")}</p>
@@ -74,7 +74,7 @@ export function ProductionPayRecord({
           <h3 className="text-base font-semibold text-foreground">
             {tr("prepPayHeading")}
           </h3>
-          <div className="overflow-x-auto">
+          <div className="min-w-0 overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -167,7 +167,7 @@ export function ProductionPayRecord({
               {tr("prepNoWorkAtAll")}
             </p>
           ) : (
-            <div className="overflow-x-auto">
+            <div className="min-w-0 overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>

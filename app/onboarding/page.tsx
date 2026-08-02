@@ -101,7 +101,10 @@ function StepProgress({
     <div className="mb-8 w-full">
       <ol className="flex w-full items-stretch gap-2" aria-hidden>
         {steps.map((step, i) => (
-          <li key={step} className="flex flex-1 flex-col gap-2">
+          // `min-w-0`: a row flex child defaults to `min-width:auto`, so each
+          // step refused to shrink below its longest label word and four of them
+          // pushed the stepper past a 320px screen.
+          <li key={step} className="flex min-w-0 flex-1 flex-col gap-2">
             <span
               className={cn(
                 "block h-2 rounded-full",
@@ -110,7 +113,7 @@ function StepProgress({
             />
             <span
               className={cn(
-                "text-xs font-medium leading-snug sm:text-sm",
+                "block break-words text-xs font-medium leading-snug sm:text-sm",
                 i === index ? "text-foreground" : "text-muted-foreground",
               )}
             >

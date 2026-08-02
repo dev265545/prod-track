@@ -71,7 +71,7 @@ export function ItemDetailsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] max-w-md overflow-y-auto">
+      <DialogContent className="max-h-[var(--dialog-max-h)] max-w-md overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="break-words">{item.name}</DialogTitle>
           <DialogDescription className="break-words">

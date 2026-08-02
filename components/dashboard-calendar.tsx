@@ -86,7 +86,11 @@ export function DashboardCalendar({
   const pad = (n: number) => String(n).padStart(2, "0");
 
   return (
-    <div className="flex h-full min-h-0 w-full min-w-[320px] max-w-[400px] flex-col rounded-xl border border-border bg-card p-4 sm:p-6">
+    // The 320px floor is a *comfort* width, not a requirement: at a 320px
+    // viewport the content box is only ~288px, so an unconditional `min-w-[320px]`
+    // pushed the whole page sideways. Below `sm` the seven day-columns simply
+    // share whatever width there is.
+    <div className="flex h-full min-h-0 w-full min-w-0 max-w-[400px] flex-col rounded-xl border border-border bg-card p-4 sm:min-w-[320px] sm:p-6">
       <div className="mb-4 flex items-center justify-between">
         <Button
           type="button"

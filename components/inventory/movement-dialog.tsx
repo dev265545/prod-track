@@ -119,7 +119,7 @@ export function MovementDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] max-w-md overflow-y-auto">
+      <DialogContent className="max-h-[var(--dialog-max-h)] max-w-md overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex min-w-0 items-center gap-2">
             <Icon className="size-5 shrink-0" aria-hidden />

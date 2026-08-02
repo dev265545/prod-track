@@ -202,7 +202,7 @@ export default function MachinePage() {
 
   return (
     <AppShell>
-      <main className="flex flex-col gap-10 animate-fade-in">
+      <main className="flex w-full min-w-0 flex-col gap-10 animate-fade-in">
         <header className="flex flex-col gap-2">
           <h1 className="font-heading text-3xl font-bold tracking-tight text-foreground md:text-4xl">
             {t("machinePageTitle")}

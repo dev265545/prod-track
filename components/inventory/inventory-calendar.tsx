@@ -65,24 +65,26 @@ export function InventoryCalendar({
   };
 
   return (
-    <div className="flex min-h-[340px] w-full min-w-[320px] max-w-[400px] flex-col rounded-xl bg-card p-4 sm:p-6">
-      <div className="mb-4 flex items-center justify-between">
+    <div className="flex min-h-[340px] w-full min-w-0 max-w-[400px] flex-col rounded-xl bg-card p-4 sm:p-6">
+      <div className="mb-4 flex min-w-0 items-center justify-between gap-2">
         <Button
           type="button"
           variant="outline"
           size="icon"
+          className="size-11"
           onClick={() => changeMonth(-1)}
           aria-label={t("calPrevMonth")}
         >
           <ChevronLeft data-icon="inline-start" />
         </Button>
-        <h3 className="font-heading text-lg font-bold text-foreground">
+        <h3 className="min-w-0 truncate font-heading text-lg font-bold text-foreground">
           {formatMonthCalendarHeading(year, month, locale)}
         </h3>
         <Button
           type="button"
           variant="outline"
           size="icon"
+          className="size-11"
           onClick={() => changeMonth(1)}
           aria-label={t("calNextMonth")}
         >
@@ -90,68 +92,75 @@ export function InventoryCalendar({
         </Button>
       </div>
 
-      <div className="mb-1 grid grid-cols-7 gap-1">
-        {dayLabels.map((label) => (
-          <div
-            key={label}
-            className="py-1 text-center text-xs font-semibold text-muted-foreground"
-          >
-            {label}
-          </div>
-        ))}
-      </div>
-
-      <div className="grid flex-1 grid-cols-7 gap-1">
-        {cells.map((day, index) => {
-          if (day === null) return <div key={`empty-${index}`} />;
-          const date = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-          const summary: InventoryDateSummary | undefined = summaries.get(date);
-          const isSelected = date === selectedDate;
-          const isToday = date === today;
-          const isSunday = new Date(year, month, day).getDay() === 0;
-
-          return (
-            <Button
-              key={date}
-              type="button"
-              variant="ghost"
-              className={cn(
-                "relative flex h-auto min-h-[48px] flex-col items-center justify-center rounded-lg p-2 text-sm transition-colors",
-                isSelected && "bg-primary/10 ring-2 ring-primary",
-                !isSelected && "hover:bg-muted",
-                isSunday && !isSelected && "text-destructive/70",
-              )}
-              onClick={() => onDateClick(date)}
-              aria-label={`${date}${summary ? `, ${summary.count} ${t("inventoryCalendarEntries")}` : ""}`}
-              title={date}
-            >
-              <span
-                className={cn(
-                  "text-xs leading-none",
-                  isToday &&
-                    !isSelected &&
-                    "flex size-6 items-center justify-center rounded-full bg-primary text-primary-foreground",
-                  isToday &&
-                    isSelected &&
-                    "flex size-6 items-center justify-center rounded-full bg-foreground/15 font-semibold text-foreground",
-                )}
+      {/* The seven-day week is not collapsible, so it keeps a floor width and
+          scrolls inside its own box rather than widening the page. */}
+      <div className="flex min-w-0 flex-1 flex-col overflow-x-auto">
+        <div className="flex min-w-[20rem] flex-1 flex-col">
+          <div className="mb-1 grid grid-cols-7 gap-1">
+            {dayLabels.map((label) => (
+              <div
+                key={label}
+                className="py-1 text-center text-xs font-semibold text-muted-foreground"
               >
-                {day}
-              </span>
-              {summary && (
-                <span
-                  className="mt-1 flex min-w-4 items-center justify-center rounded-full bg-primary/15 px-1 text-[10px] font-bold leading-4 text-primary"
-                  aria-hidden
+                {label}
+              </div>
+            ))}
+          </div>
+
+          <div className="grid flex-1 grid-cols-7 gap-1">
+            {cells.map((day, index) => {
+              if (day === null) return <div key={`empty-${index}`} />;
+              const date = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+              const summary: InventoryDateSummary | undefined =
+                summaries.get(date);
+              const isSelected = date === selectedDate;
+              const isToday = date === today;
+              const isSunday = new Date(year, month, day).getDay() === 0;
+
+              return (
+                <Button
+                  key={date}
+                  type="button"
+                  variant="ghost"
+                  className={cn(
+                    "relative flex h-auto min-h-[48px] flex-col items-center justify-center rounded-lg p-2 text-sm transition-colors",
+                    isSelected && "bg-primary/10 ring-2 ring-primary",
+                    !isSelected && "hover:bg-muted",
+                    isSunday && !isSelected && "text-destructive/70",
+                  )}
+                  onClick={() => onDateClick(date)}
+                  aria-label={`${date}${summary ? `, ${summary.count} ${t("inventoryCalendarEntries")}` : ""}`}
+                  title={date}
                 >
-                  {summary.count}
-                </span>
-              )}
-            </Button>
-          );
-        })}
+                  <span
+                    className={cn(
+                      "text-xs leading-none",
+                      isToday &&
+                        !isSelected &&
+                        "flex size-6 items-center justify-center rounded-full bg-primary text-primary-foreground",
+                      isToday &&
+                        isSelected &&
+                        "flex size-6 items-center justify-center rounded-full bg-foreground/15 font-semibold text-foreground",
+                    )}
+                  >
+                    {day}
+                  </span>
+                  {summary && (
+                    <span
+                      className="mt-1 flex min-w-4 items-center justify-center rounded-full bg-primary/15 px-1 text-[10px] font-bold leading-4 text-primary"
+                      aria-hidden
+                    >
+                      {summary.count}
+                    </span>
+                  )}
+                </Button>
+              );
+            })}
+          </div>
+        </div>
       </div>
 
-      <div className="mt-4 flex items-center gap-2 text-xs text-muted-foreground">
+      <div className="mt-4 flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
         <span className="size-2 rounded-full bg-primary" aria-hidden />
         {t("inventoryCalendarEntries")}
       </div>
