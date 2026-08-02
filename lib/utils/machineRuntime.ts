@@ -18,7 +18,11 @@ import {
   findBottleneckItemId,
   type ItemCombo,
 } from "@/lib/services/itemComboService";
-import type { Machine } from "@/lib/services/machineService";
+import {
+  findMachineProblems,
+  type Machine,
+  type MachineProblem,
+} from "@/lib/services/machineService";
 
 /** The two lookups the machine screen builds off the raw item rows. */
 export interface ItemLookups {
@@ -70,7 +74,10 @@ export interface TopUpView {
   producedItemSets: number;
   /** Pieces to make, always a whole piece. */
   neededPieces: number;
-  runtimeSeconds: number;
+  /** null when the chosen machine cannot run — never 0, which reads as instant. */
+  runtimeSeconds: number | null;
+  /** Empty when the machine is fine; otherwise what the operator must fill in. */
+  machineProblems: MachineProblem[];
   /** Whole sets available once the run is done. */
   setsAfterRun: number;
   /** Nothing to do: stock is already level. */
@@ -101,6 +108,7 @@ export function resolveTopUpView(
     producedItemSets: Math.floor(plan.producedUnitsPossible),
     neededPieces: Math.ceil(plan.neededPieces),
     runtimeSeconds: plan.runtimeSeconds,
+    machineProblems: plan.machineProblems,
     setsAfterRun: Math.floor(plan.resultingComboUnits),
     alreadyEnough: plan.neededPieces <= 0,
   };
@@ -115,8 +123,16 @@ export interface TargetRow {
   neededPieces: number;
   /** "" when no machine has been picked for this row. */
   machineId: string;
-  /** null when no machine has been picked for this row. */
+  /**
+   * null when no machine has been picked for this row, *or* when the machine
+   * picked cannot run. `machineProblems` tells the two apart.
+   */
   runtimeSeconds: number | null;
+  /**
+   * Empty when no machine is picked or the machine is fine; otherwise what
+   * that machine needs filled in before it can be planned with.
+   */
+  machineProblems: MachineProblem[];
 }
 
 export interface TargetPlan {
@@ -129,8 +145,35 @@ export interface TargetPlan {
   totalSeconds: number;
   /** At least one row has a machine, so a total can be shown. */
   hasAssignments: boolean;
-  /** A row still needing pieces has no machine, so the total is understated. */
+  /**
+   * A row still needing pieces has no *usable* machine — none picked, one that
+   * no longer exists, or one that cannot run — so the total is understated.
+   */
   missingAssignment: boolean;
+}
+
+/** The machines in a plan that were picked but cannot run, worst problem first. */
+export function unusableMachinesInPlan(
+  plan: TargetPlan,
+  machines: Machine[],
+): Array<{ machineId: string; name: string; problems: MachineProblem[] }> {
+  const seen = new Set<string>();
+  const out: Array<{
+    machineId: string;
+    name: string;
+    problems: MachineProblem[];
+  }> = [];
+  for (const row of plan.rows) {
+    if (row.machineProblems.length === 0 || seen.has(row.machineId)) continue;
+    seen.add(row.machineId);
+    out.push({
+      machineId: row.machineId,
+      name:
+        machines.find((m) => m.id === row.machineId)?.name ?? row.machineId,
+      problems: row.machineProblems,
+    });
+  }
+  return out;
 }
 
 export function buildTargetPlan(
@@ -157,6 +200,10 @@ export function buildTargetPlan(
     const machineId = machineByItemId[need.itemId] ?? "";
     const machine = machines.find((m) => m.id === machineId) ?? null;
     const neededPieces = Math.ceil(need.neededAdditionalPieces);
+    const machineProblems = machine ? findMachineProblems(machine) : [];
+    // A machine that cannot run contributes nothing to the busiest-machine
+    // maximum and nothing to any machine's running total. Counting it as 0
+    // would make it the fastest choice on the panel.
     const runtimeSeconds = machine
       ? calculateMachineRuntimeSeconds(
           neededPieces,
@@ -181,6 +228,7 @@ export function buildTargetPlan(
       neededPieces,
       machineId,
       runtimeSeconds,
+      machineProblems,
     };
   });
 

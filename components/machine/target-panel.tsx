@@ -22,8 +22,17 @@ import { StatTile } from "@/components/inventory/stat-tile";
 import { Timer } from "lucide-react";
 import { useLanguage } from "@/components/language-provider";
 import type { ItemCombo } from "@/lib/services/itemComboService";
-import type { Machine } from "@/lib/services/machineService";
-import { buildTargetPlan, formatRunDuration } from "@/lib/utils/machineRuntime";
+import { isMachineUsable, type Machine } from "@/lib/services/machineService";
+import {
+  buildTargetPlan,
+  formatRunDuration,
+  unusableMachinesInPlan,
+} from "@/lib/utils/machineRuntime";
+import {
+  MachineProblemChip,
+  MachineProblemNotice,
+  machineProblemMessageKey,
+} from "./machine-problem";
 
 const NO_MACHINE = "_none";
 
@@ -57,6 +66,12 @@ export function TargetPanel({
     () => buildTargetPlan(combo, itemsById, machines, targetQty, machineByItemId),
     [combo, itemsById, machines, targetQty, machineByItemId],
   );
+  // Machines picked here that cannot run at all. They are already excluded
+  // from the total by buildTargetPlan; this is the visible half of that.
+  const unusable = React.useMemo(
+    () => unusableMachinesInPlan(plan, machines),
+    [plan, machines],
+  );
 
   return (
     <div className="flex flex-col gap-6">
@@ -77,6 +92,15 @@ export function TargetPanel({
         </p>
       ) : (
         <div className="flex w-full min-w-0 flex-col gap-4">
+          {unusable.map((m) => (
+            <MachineProblemNotice
+              key={m.machineId}
+              headline={`${m.name} — ${t("machChkCannotRun")}`}
+              problem={t(machineProblemMessageKey(m.problems) ?? "machChkBoth")}
+              hint={t("machChkFixHint")}
+            />
+          ))}
+
           <div className="w-full min-w-0 overflow-x-auto">
             <Table>
               <TableHeader>
@@ -136,16 +160,22 @@ export function TargetPanel({
                           </SelectItem>
                           {machines.map((m) => (
                             <SelectItem key={m.id} value={m.id}>
-                              {m.name}
+                              {isMachineUsable(m)
+                                ? m.name
+                                : `${m.name} — ${t("machChkNeedsFixing")}`}
                             </SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
                     </TableCell>
                     <TableCell className="text-right tabular-nums">
-                      {row.runtimeSeconds === null
-                        ? "—"
-                        : formatRunDuration(row.runtimeSeconds)}
+                      {row.machineProblems.length > 0 ? (
+                        <MachineProblemChip label={t("machChkNeedsFixing")} />
+                      ) : row.runtimeSeconds === null ? (
+                        "—"
+                      ) : (
+                        formatRunDuration(row.runtimeSeconds)
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}
@@ -159,9 +189,11 @@ export function TargetPanel({
               plan.hasAssignments ? formatRunDuration(plan.totalSeconds) : "—"
             }
             caption={
-              plan.missingAssignment
-                ? t("runtimeCalcTargetMissingAssignment")
-                : t("runtimeCalcTargetTotalHint")
+              unusable.length > 0
+                ? t("machChkNotCounted")
+                : plan.missingAssignment
+                  ? t("runtimeCalcTargetMissingAssignment")
+                  : t("runtimeCalcTargetTotalHint")
             }
             icon={Timer}
             tone={plan.missingAssignment ? "amber" : "emerald"}

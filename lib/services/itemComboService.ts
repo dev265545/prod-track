@@ -1,6 +1,8 @@
 import { getAll, get, put, remove, STORES } from "@/lib/db/adapter";
 import { AUDIT_ACTIONS, diffEntity, record as auditRecord } from "./auditService";
 import { nameOnRow } from "./auditNames";
+import { findMachineProblems, isMachineUsable } from "./machineService";
+import type { MachineProblem } from "./machineService";
 
 export interface ItemComboComponent {
   itemId: string;
@@ -96,13 +98,20 @@ export function findBottleneckItemId(
  * A machine can only complete whole cycles — it can't run for a fraction of
  * one. Each cycle yields `cavities` pieces, so the runtime for `pieces` is
  * always a whole number of cycles rounded up, never a fractional cycle.
+ *
+ * Returns **null**, not 0, when the machine's own numbers cannot produce
+ * anything (zero/negative/NaN pieces-per-shot or seconds-per-shot). 0 means
+ * "no run needed"; null means "this machine cannot run at all". Conflating
+ * them made a broken machine look like the fastest one on the floor, so every
+ * caller must decide what to show instead of a duration.
  */
 export function calculateMachineRuntimeSeconds(
   pieces: number,
   cavities: number,
   cycleTimeSeconds: number,
-): number {
-  if (pieces <= 0 || cavities <= 0 || cycleTimeSeconds <= 0) return 0;
+): number | null {
+  if (!isMachineUsable({ cavities, cycleTimeSeconds })) return null;
+  if (!(pieces > 0)) return 0;
   const cycles = Math.ceil(pieces / cavities);
   return cycles * cycleTimeSeconds;
 }
@@ -123,9 +132,13 @@ export function calculateTopUpPlan(
   bottleneckUnits: number;
   producedUnitsPossible: number;
   neededPieces: number;
-  runtimeSeconds: number;
+  /** null when the machine's own numbers mean it cannot run at all. */
+  runtimeSeconds: number | null;
+  /** Empty when the machine is fine; otherwise what needs filling in. */
+  machineProblems: MachineProblem[];
   resultingComboUnits: number;
 } {
+  const machineProblems = findMachineProblems(machine);
   const producedComponent = combo.components.find(
     (c) => c.itemId === producedItemId,
   );
@@ -138,7 +151,8 @@ export function calculateTopUpPlan(
       bottleneckUnits: 0,
       producedUnitsPossible: 0,
       neededPieces: 0,
-      runtimeSeconds: 0,
+      runtimeSeconds: machineProblems.length > 0 ? null : 0,
+      machineProblems,
       resultingComboUnits: 0,
     };
   }
@@ -171,6 +185,7 @@ export function calculateTopUpPlan(
     producedUnitsPossible,
     neededPieces,
     runtimeSeconds,
+    machineProblems,
     resultingComboUnits,
   };
 }

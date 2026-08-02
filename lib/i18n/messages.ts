@@ -716,6 +716,25 @@ const en = {
   machineAddSuccess: "Machine added",
   machineAddFail: "Failed to add machine",
 
+  // Machine check: a machine whose two numbers cannot produce anything.
+  machChkNeedsFixing: "Needs fixing",
+  machChkCannotRun: "Cannot run",
+  machChkCavities: "This machine needs its pieces-per-shot filled in.",
+  machChkCycleTime: "This machine needs its seconds-per-shot filled in.",
+  machChkBoth:
+    "This machine needs its pieces-per-shot and seconds-per-shot filled in.",
+  machChkFixHint:
+    "Open the Machines tab, delete this machine, and add it again with both numbers filled in.",
+  machChkRowBadge: "Cannot run — {problem}",
+  machChkNotCounted:
+    "Machines that need fixing are left out of the total, so the real time will be longer.",
+  machChkPlanNotice:
+    "{name} cannot run yet: {problem} Until it is fixed, its rows are left out of the total.",
+  machChkAddBadCavities:
+    "Pieces per shot must be 1 or more. A machine that makes 0 pieces in a shot cannot run.",
+  machChkAddBadCycleTime:
+    "Seconds per shot must be more than 0. A shot cannot take no time at all.",
+
   comboCardTitle: "Item sets",
   comboCardSubtitle:
     "Items that are made together and go out together. Write how many pieces of each item make one full set.",
@@ -1897,6 +1916,24 @@ const en = {
   itmSaveSuccess: "Item saved.",
   itmSaveFail: "Could not save. Nothing was changed.",
   itmLoadFail: "Could not open the item list.",
+
+  // Accessibility-only strings. These name a control, a table or a chart for
+  // somebody who cannot see the layout that already makes it obvious. They are
+  // never rendered as ordinary visible copy.
+  a11yProgressLabel: "How much of the list is written down",
+  a11yItemsTableLabel: "Items and what each one pays",
+  a11yNeedsStockTableLabel: "Items that need stock",
+  a11yStockTableLabel: "Stock items in this section",
+  a11ySundayPreviewLabel: "What this rule pays",
+  a11yCapPreviewLabel: "What a day pays under this limit",
+  a11ySettingsTabsLabel: "Settings sections",
+  a11yRowActions: "Actions for this row",
+  a11yChartDayList: "The same figures, day by day",
+  a11yTrendDayItem: "{date}: {count} made",
+  a11yMovementDayItem: "{date}: {inward} in, {outward} out",
+  a11yFavouriteMark: "Starred item",
+  a11yOpenEmployee: "Open {name}",
+  a11yResultCount: "{count} shown",
 } as const;
 
 export type MessageKey = keyof typeof en;
@@ -2614,6 +2651,24 @@ const hi: Record<MessageKey, string> = {
   machineFormSubmit: "मशीन जोड़ें",
   machineAddSuccess: "मशीन जुड़ गई",
   machineAddFail: "मशीन नहीं जुड़ी",
+
+  machChkNeedsFixing: "सुधार ज़रूरी",
+  machChkCannotRun: "चल नहीं सकती",
+  machChkCavities: "इस मशीन में 'एक शॉट में पीस' भरना बाकी है।",
+  machChkCycleTime: "इस मशीन में 'एक शॉट के सेकंड' भरना बाकी है।",
+  machChkBoth:
+    "इस मशीन में 'एक शॉट में पीस' और 'एक शॉट के सेकंड' दोनों भरना बाकी है।",
+  machChkFixHint:
+    "मशीनें टैब खोलें, इस मशीन को हटाएँ, और दोनों नंबर भरकर दोबारा जोड़ें।",
+  machChkRowBadge: "चल नहीं सकती — {problem}",
+  machChkNotCounted:
+    "जिन मशीनों में सुधार ज़रूरी है वे कुल समय में नहीं गिनी जातीं, इसलिए असली समय इससे ज़्यादा लगेगा।",
+  machChkPlanNotice:
+    "{name} अभी चल नहीं सकती: {problem} जब तक सुधार नहीं होता, इसकी लाइनें कुल समय में नहीं जुड़तीं।",
+  machChkAddBadCavities:
+    "'एक शॉट में पीस' 1 या उससे ज़्यादा होना चाहिए। जो मशीन एक शॉट में 0 पीस बनाती है वह चल नहीं सकती।",
+  machChkAddBadCycleTime:
+    "'एक शॉट के सेकंड' 0 से ज़्यादा होने चाहिए। कोई शॉट बिना समय के नहीं होता।",
 
   comboCardTitle: "आइटम सेट",
   comboCardSubtitle:
@@ -3778,6 +3833,21 @@ const hi: Record<MessageKey, string> = {
   itmSaveSuccess: "\u0906\u0907\u091f\u092e \u0938\u0947\u0935 \u0939\u094b \u0917\u092f\u093e\u0964",
   itmSaveFail: "\u0938\u0947\u0935 \u0928\u0939\u0940\u0902 \u0939\u0941\u0906\u0964 \u0915\u0941\u091b \u0928\u0939\u0940\u0902 \u092c\u0926\u0932\u093e\u0964",
   itmLoadFail: "\u0906\u0907\u091f\u092e \u0938\u0942\u091a\u0940 \u0928\u0939\u0940\u0902 \u0916\u0941\u0932 \u092a\u093e\u0908\u0964",
+
+  a11yProgressLabel: "\u0938\u0942\u091a\u0940 \u092e\u0947\u0902 \u0915\u093f\u0924\u0928\u093e \u0932\u093f\u0916\u093e \u091c\u093e \u091a\u0941\u0915\u093e \u0939\u0948",
+  a11yItemsTableLabel: "\u0906\u0907\u091f\u092e \u0914\u0930 \u0939\u0930 \u090f\u0915 \u0915\u093e \u092a\u0948\u0938\u093e",
+  a11yNeedsStockTableLabel: "\u091c\u093f\u0928 \u0906\u0907\u091f\u092e \u0915\u093e \u0938\u094d\u091f\u0949\u0915 \u091a\u093e\u0939\u093f\u090f",
+  a11yStockTableLabel: "\u0907\u0938 \u0935\u093f\u092d\u093e\u0917 \u0915\u0947 \u0938\u094d\u091f\u0949\u0915 \u0906\u0907\u091f\u092e",
+  a11ySundayPreviewLabel: "\u092f\u0939 \u0928\u093f\u092f\u092e \u0915\u093f\u0924\u0928\u093e \u0926\u0947\u0924\u093e \u0939\u0948",
+  a11yCapPreviewLabel: "\u0907\u0938 \u0938\u0940\u092e\u093e \u092e\u0947\u0902 \u090f\u0915 \u0926\u093f\u0928 \u0915\u093e \u0915\u093f\u0924\u0928\u093e \u092c\u0928\u0924\u093e \u0939\u0948",
+  a11ySettingsTabsLabel: "\u0938\u0947\u091f\u093f\u0902\u0917 \u0915\u0947 \u0939\u093f\u0938\u094d\u0938\u0947",
+  a11yRowActions: "\u0907\u0938 \u092a\u0902\u0915\u094d\u0924\u093f \u0915\u0947 \u0915\u093e\u092e",
+  a11yChartDayList: "\u0935\u0939\u0940 \u0906\u0902\u0915\u0921\u093c\u0947, \u0926\u093f\u0928 \u0915\u0947 \u0939\u093f\u0938\u093e\u092c \u0938\u0947",
+  a11yTrendDayItem: "{date}: {count} \u092c\u0928\u093e",
+  a11yMovementDayItem: "{date}: {inward} \u0906\u092f\u093e, {outward} \u0917\u092f\u093e",
+  a11yFavouriteMark: "\u0924\u093e\u0930\u093e \u0932\u0917\u093e \u0906\u0907\u091f\u092e",
+  a11yOpenEmployee: "{name} \u0915\u094b \u0916\u094b\u0932\u0947\u0902",
+  a11yResultCount: "{count} \u0926\u093f\u0916 \u0930\u0939\u0947 \u0939\u0948\u0902",
 };
 
 export const messages: Record<AppLocale, Record<MessageKey, string>> = {

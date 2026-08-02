@@ -15,11 +15,15 @@ import { Boxes, Hammer, Timer, TriangleAlert } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useLanguage } from "@/components/language-provider";
 import type { ItemCombo } from "@/lib/services/itemComboService";
-import type { Machine } from "@/lib/services/machineService";
+import { isMachineUsable, type Machine } from "@/lib/services/machineService";
 import {
   formatRunDuration,
   resolveTopUpView,
 } from "@/lib/utils/machineRuntime";
+import {
+  MachineProblemNotice,
+  machineProblemMessageKey,
+} from "./machine-problem";
 
 /**
  * An answer whose value is an item *name*, not a figure.
@@ -99,6 +103,9 @@ export function TopUpPanel({
     [combo, machine, itemsById],
   );
   const nameOf = (id: string) => itemNameById[id] ?? id;
+  // The machine's own record is broken, so there is no honest duration to
+  // show. Say so instead of printing a figure the operator would act on.
+  const problemKey = machineProblemMessageKey(view?.machineProblems ?? []);
 
   return (
     <div className="flex flex-col gap-6">
@@ -114,7 +121,9 @@ export function TopUpPanel({
           <SelectContent>
             {machines.map((m) => (
               <SelectItem key={m.id} value={m.id}>
-                {m.name}
+                {isMachineUsable(m)
+                  ? m.name
+                  : `${m.name} — ${t("machChkNeedsFixing")}`}
               </SelectItem>
             ))}
           </SelectContent>
@@ -125,6 +134,12 @@ export function TopUpPanel({
         <p className="text-sm text-muted-foreground">
           {t("runtimeCalcSelectHint")}
         </p>
+      ) : problemKey ? (
+        <MachineProblemNotice
+          headline={`${machine.name} — ${t("machChkCannotRun")}`}
+          problem={t(problemKey)}
+          hint={t("machChkFixHint")}
+        />
       ) : !view || !view.inCombo ? (
         <p className="text-sm text-muted-foreground">
           {t("runtimeCalcNotInCombo")}
@@ -152,7 +167,8 @@ export function TopUpPanel({
           />
           <StatTile
             label={t("runtimeCalcRuntime")}
-            value={formatRunDuration(view.runtimeSeconds)}
+            // Non-null here: an unusable machine took the notice branch above.
+            value={formatRunDuration(view.runtimeSeconds ?? 0)}
             caption={
               view.alreadyEnough
                 ? t("runtimeCalcAlreadyEnough")

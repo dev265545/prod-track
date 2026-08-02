@@ -4,6 +4,7 @@ import {
   buildTargetPlan,
   formatRunDuration,
   resolveTopUpView,
+  unusableMachinesInPlan,
 } from "./machineRuntime";
 import type { ItemCombo } from "@/lib/services/itemComboService";
 import type { Machine } from "@/lib/services/machineService";
@@ -243,5 +244,148 @@ describe("buildTargetPlan", () => {
     );
     expect(plan.rows[0].neededPieces).toBe(3);
     expect(plan.totalSeconds).toBe(3);
+  });
+});
+
+/**
+ * A machine saved with 0 pieces-per-shot (or 0 seconds-per-shot) can never
+ * make anything. The maths used to report it as 0 seconds, which on a panel
+ * that ranks machines by run time makes the broken one look like the fastest.
+ * Nothing below may report a duration for such a machine.
+ */
+describe("machines that cannot run", () => {
+  const combo: ItemCombo = {
+    id: "c1",
+    name: "Container set",
+    components: [
+      { itemId: "lid", ratio: 1 },
+      { itemId: "base", ratio: 2 },
+    ],
+  };
+  const itemsById = { lid: { stock: 10 }, base: { stock: 0 } };
+
+  const broken = (id: string, cavities: number, cycle: number) =>
+    machine(id, cavities, cycle);
+
+  describe("resolveTopUpView", () => {
+    const twoItem: ItemCombo = {
+      id: "c1",
+      name: "Container set",
+      components: [
+        { itemId: "lid", ratio: 1 },
+        { itemId: "base", ratio: 1 },
+      ],
+    };
+    const stock = { lid: { stock: 100 }, base: { stock: 40 } };
+
+    it("reports no run time and names zero pieces-per-shot", () => {
+      const view = resolveTopUpView(twoItem, broken("m", 0, 1), stock);
+      expect(view!.runtimeSeconds).toBeNull();
+      expect(view!.machineProblems).toEqual(["cavities"]);
+      expect(view!.neededPieces).toBe(60);
+    });
+
+    it("names zero seconds-per-shot", () => {
+      const view = resolveTopUpView(twoItem, broken("m", 4, 0), stock);
+      expect(view!.runtimeSeconds).toBeNull();
+      expect(view!.machineProblems).toEqual(["cycleTime"]);
+    });
+
+    it("names both when both are wrong", () => {
+      const view = resolveTopUpView(twoItem, broken("m", -1, Number.NaN), stock);
+      expect(view!.runtimeSeconds).toBeNull();
+      expect(view!.machineProblems).toEqual(["cavities", "cycleTime"]);
+    });
+
+    it("still reports no run time when stock is already level", () => {
+      // 0s here would be indistinguishable from "nothing to do".
+      const view = resolveTopUpView(twoItem, broken("m", 0, 1), {
+        lid: { stock: 50 },
+        base: { stock: 50 },
+      });
+      expect(view!.runtimeSeconds).toBeNull();
+      expect(view!.machineProblems).toEqual(["cavities"]);
+    });
+
+    it("leaves a good machine's answer exactly as before", () => {
+      const view = resolveTopUpView(twoItem, machine("m", 1, 1), stock);
+      expect(view!.runtimeSeconds).toBe(60);
+      expect(view!.machineProblems).toEqual([]);
+    });
+  });
+
+  describe("buildTargetPlan", () => {
+    const machines = [machine("good", 1, 1), broken("bad", 0, 1)];
+
+    it("does not total a broken machine as zero, and never ranks it best", () => {
+      // good: 90 pieces at 1/s = 90s. bad: 200 pieces, but it cannot run.
+      const plan = buildTargetPlan(combo, itemsById, machines, 100, {
+        lid: "good",
+        base: "bad",
+      });
+      expect(plan.rows[0].runtimeSeconds).toBe(90);
+      expect(plan.rows[1].runtimeSeconds).toBeNull();
+      expect(plan.rows[1].machineProblems).toEqual(["cavities"]);
+      // The busiest machine is the only one that can actually run.
+      expect(plan.totalSeconds).toBe(90);
+      // The total is understated, and the panel must say so.
+      expect(plan.missingAssignment).toBe(true);
+    });
+
+    it("shows no total at all when every picked machine is broken", () => {
+      const plan = buildTargetPlan(combo, itemsById, machines, 100, {
+        lid: "bad",
+        base: "bad",
+      });
+      expect(plan.hasAssignments).toBe(false);
+      expect(plan.totalSeconds).toBe(0);
+      expect(plan.missingAssignment).toBe(true);
+      expect(plan.rows.every((r) => r.runtimeSeconds === null)).toBe(true);
+    });
+
+    it("keeps machineProblems empty when no machine is picked", () => {
+      const plan = buildTargetPlan(combo, itemsById, machines, 100, {});
+      expect(plan.rows.every((r) => r.machineProblems.length === 0)).toBe(true);
+    });
+
+    it("keeps machineProblems empty for a machine id that no longer exists", () => {
+      const plan = buildTargetPlan(combo, itemsById, machines, 100, {
+        lid: "deleted",
+      });
+      expect(plan.rows[0].machineProblems).toEqual([]);
+      expect(plan.rows[0].runtimeSeconds).toBeNull();
+    });
+
+    it("flags a broken machine even on a row that needs no pieces", () => {
+      const stocked = { lid: { stock: 1000 }, base: { stock: 1000 } };
+      const plan = buildTargetPlan(combo, stocked, machines, 100, {
+        lid: "bad",
+      });
+      expect(plan.rows[0].neededPieces).toBe(0);
+      expect(plan.rows[0].runtimeSeconds).toBeNull();
+      expect(plan.rows[0].machineProblems).toEqual(["cavities"]);
+    });
+  });
+
+  describe("unusableMachinesInPlan", () => {
+    const machines = [machine("good", 1, 1), broken("bad", 0, 1)];
+
+    it("names the broken machine once, even when it is picked twice", () => {
+      const plan = buildTargetPlan(combo, itemsById, machines, 100, {
+        lid: "bad",
+        base: "bad",
+      });
+      expect(unusableMachinesInPlan(plan, machines)).toEqual([
+        { machineId: "bad", name: "bad", problems: ["cavities"] },
+      ]);
+    });
+
+    it("is empty when every picked machine works", () => {
+      const plan = buildTargetPlan(combo, itemsById, machines, 100, {
+        lid: "good",
+        base: "good",
+      });
+      expect(unusableMachinesInPlan(plan, machines)).toEqual([]);
+    });
   });
 });

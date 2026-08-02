@@ -31,9 +31,14 @@ import { toast } from "sonner";
 import { useLanguage } from "@/components/language-provider";
 import {
   deleteMachine,
+  findMachineProblems,
   saveMachine,
   type Machine,
 } from "@/lib/services/machineService";
+import {
+  MachineProblemChip,
+  machineProblemMessageKey,
+} from "./machine-problem";
 
 export interface MachinesCardProps {
   machines: Machine[];
@@ -51,6 +56,17 @@ export function MachinesCard({ machines, onChanged }: MachinesCardProps) {
   async function handleAdd(event: React.FormEvent) {
     event.preventDefault();
     if (!name.trim()) return;
+    // Say which number is wrong, before the save is attempted. `saveMachine`
+    // refuses these too, but a generic "failed to add" would not tell the
+    // operator what to change.
+    if (!(piecesPerShot > 0)) {
+      toast.error(t("machChkAddBadCavities"));
+      return;
+    }
+    if (!(secondsPerShot > 0)) {
+      toast.error(t("machChkAddBadCycleTime"));
+      return;
+    }
     try {
       await saveMachine({
         name: name.trim(),
@@ -116,12 +132,31 @@ export function MachinesCard({ machines, onChanged }: MachinesCardProps) {
                   </TableCell>
                 </TableRow>
               ) : (
-                machines.map((m) => (
+                machines.map((m) => {
+                  // Records saved before the save guard existed can still hold
+                  // a zero, so the list names the problem where it is fixed.
+                  const problems = findMachineProblems(m);
+                  const problemKey = machineProblemMessageKey(problems);
+                  return (
                   <TableRow
                     key={m.id}
                     className="transition-colors hover:bg-surface-2"
                   >
-                    <TableCell className="font-medium">{m.name}</TableCell>
+                    <TableCell className="font-medium">
+                      <div className="flex flex-col gap-1">
+                        <span>{m.name}</span>
+                        {problemKey ? (
+                          <>
+                            <MachineProblemChip
+                              label={t("machChkNeedsFixing")}
+                            />
+                            <span className="max-w-72 text-xs leading-snug text-muted-foreground">
+                              {t(problemKey)} {t("machChkFixHint")}
+                            </span>
+                          </>
+                        ) : null}
+                      </div>
+                    </TableCell>
                     <TableCell className="text-right tabular-nums">
                       {m.cavities}
                     </TableCell>
@@ -165,7 +200,8 @@ export function MachinesCard({ machines, onChanged }: MachinesCardProps) {
                       </AlertDialog>
                     </TableCell>
                   </TableRow>
-                ))
+                  );
+                })
               )}
             </TableBody>
           </Table>
