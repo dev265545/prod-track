@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/app-shell";
 import { AppLoadingScreen } from "@/components/app-loading-screen";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -56,6 +56,13 @@ export default function MachinePage() {
       .catch(() => setData(EMPTY));
   }, [guardReady]);
 
+  // Stable identities so the calculator's memoised maths only re-runs when the
+  // item rows actually change.
+  const { itemsById, itemNameById } = useMemo(
+    () => buildItemLookups(data?.items ?? []),
+    [data?.items],
+  );
+
   if (!guardReady || data === null) {
     return (
       <AppLoadingScreen
@@ -64,8 +71,6 @@ export default function MachinePage() {
       />
     );
   }
-
-  const { itemsById, itemNameById } = buildItemLookups(data.items);
 
   return (
     <AppShell>

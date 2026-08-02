@@ -132,18 +132,6 @@
   .dark .bg-muted-foreground\/50 {
     background-color: rgba(160, 152, 137, 0.5) !important;
   }
-  .bg-muted\/15 {
-    background-color: rgba(241, 238, 234, 0.15) !important;
-  }
-  .dark .bg-muted\/15 {
-    background-color: rgba(41, 38, 32, 0.15) !important;
-  }
-  .bg-muted\/25 {
-    background-color: rgba(241, 238, 234, 0.25) !important;
-  }
-  .dark .bg-muted\/25 {
-    background-color: rgba(41, 38, 32, 0.25) !important;
-  }
   .bg-muted\/30 {
     background-color: rgba(241, 238, 234, 0.3) !important;
   }
@@ -215,12 +203,6 @@
   }
   .dark .bg-warning\/60 {
     background-color: rgba(224, 163, 64, 0.6) !important;
-  }
-  .border-border\/60 {
-    border-color: rgba(210, 206, 199, 0.6) !important;
-  }
-  .dark .border-border\/60 {
-    border-color: rgba(52, 48, 42, 0.6) !important;
   }
   .border-border\/80 {
     border-color: rgba(210, 206, 199, 0.8) !important;
@@ -389,12 +371,6 @@
   }
   .dark .hover\:bg-destructive\/90:hover {
     background-color: rgba(240, 119, 106, 0.9) !important;
-  }
-  .hover\:bg-muted\/40:hover {
-    background-color: rgba(241, 238, 234, 0.4) !important;
-  }
-  .dark .hover\:bg-muted\/40:hover {
-    background-color: rgba(41, 38, 32, 0.4) !important;
   }
   .hover\:bg-muted\/50:hover {
     background-color: rgba(241, 238, 234, 0.5) !important;
