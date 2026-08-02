@@ -1101,8 +1101,8 @@ const en = {
   invUxKindMade: "Goods we make",
   invUxKindBoughtShort: "We buy it",
   invUxKindMadeShort: "We make it",
-  invUxStockKindLabel: "Kinds of stock",
-  invUxStockKindValue: "{bought} we buy · {made} we make",
+  invUxStockKindLabel: "Items we buy",
+  invUxStockKindValue: "and {made} more that we make",
   invUxDataMenu: "Data",
   invUxDataMenuTitle: "File and printing",
   invUxRecordStockHint: "Add what came in, or take out what was used",
@@ -1268,6 +1268,10 @@ const en = {
   setgCleanupConfirmTitle: "Remove these records for good?",
   setgCleanupConfirmDesc:
     "{summary} will be removed permanently. This cannot be undone. Salary already worked out for those months will not change.",
+  auditWirePurge:
+    "Old records were deleted: {work} work entries and {advances} advances from before {date}",
+  auditWireReportPrint: "The production report for {period} was printed",
+  auditWireSalarySheetPrint: "The salary sheet for {period} was printed",
   setgCleanupSummaryWork: "{count} work entries",
   setgCleanupSummaryAdvances: "{count} advances",
   setgCleanupSummaryAnd: "{a} and {b}",
@@ -2807,8 +2811,8 @@ const hi: Record<MessageKey, string> = {
   invUxKindMade: "जो माल हम बनाते हैं",
   invUxKindBoughtShort: "हम खरीदते हैं",
   invUxKindMadeShort: "हम बनाते हैं",
-  invUxStockKindLabel: "स्टॉक के प्रकार",
-  invUxStockKindValue: "{bought} खरीदते हैं · {made} बनाते हैं",
+  invUxStockKindLabel: "जो सामान हम खरीदते हैं",
+  invUxStockKindValue: "और {made} जो हम बनाते हैं",
   invUxDataMenu: "डेटा",
   invUxDataMenuTitle: "फ़ाइल और छपाई",
   invUxRecordStockHint: "जो आया वो जोड़ें, जो लगा वो निकालें",
@@ -2971,6 +2975,10 @@ const hi: Record<MessageKey, string> = {
   setgCleanupConfirmTitle: "यह हिसाब हमेशा के लिए हटा दें?",
   setgCleanupConfirmDesc:
     "{summary} हमेशा के लिए हट जाएँगे। यह वापस नहीं हो सकता। उन महीनों की जो सैलरी बन चुकी है वो नहीं बदलेगी।",
+  auditWirePurge:
+    "पुराने रिकॉर्ड मिटाए गए: {date} से पहले के {work} काम की एंट्री और {advances} एडवांस",
+  auditWireReportPrint: "{period} की उत्पादन रिपोर्ट प्रिंट की गई",
+  auditWireSalarySheetPrint: "{period} की सैलरी शीट प्रिंट की गई",
   setgCleanupSummaryWork: "{count} काम की एंट्री",
   setgCleanupSummaryAdvances: "{count} एडवांस",
   setgCleanupSummaryAnd: "{a} और {b}",

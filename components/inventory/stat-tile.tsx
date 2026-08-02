@@ -33,6 +33,8 @@ const TONE_CLASSES: Record<
 export interface StatTileProps {
   label: string;
   value: number | string;
+  /** Optional wrapping line under the figure, for context that is not a number. */
+  caption?: string;
   icon: LucideIcon;
   tone?: StatTileTone;
   className?: string;
@@ -42,6 +44,7 @@ export interface StatTileProps {
 export function StatTile({
   label,
   value,
+  caption,
   icon: Icon,
   tone = "neutral",
   className,
@@ -76,6 +79,15 @@ export function StatTile({
           >
             {value}
           </span>
+          {/* Context that belongs with the figure but is not itself a figure.
+              `value` is set in a large bold nowrap face built for something like
+              "1,284"; putting a sentence there cannot wrap and overflows the
+              card. Captions wrap. */}
+          {caption ? (
+            <span className="text-xs leading-snug text-muted-foreground">
+              {caption}
+            </span>
+          ) : null}
         </div>
       </CardContent>
     </Card>

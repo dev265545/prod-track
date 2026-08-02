@@ -523,10 +523,8 @@ export default function InventoryPage() {
               />
               <StatTile
                 label={t("invUxStockKindLabel")}
-                value={t("invUxStockKindValue", {
-                  bought: kindCounts.bought,
-                  made: kindCounts.made,
-                })}
+                value={kindCounts.bought}
+                caption={t("invUxStockKindValue", { made: kindCounts.made })}
                 icon={ShoppingCart}
               />
               <StatTile
