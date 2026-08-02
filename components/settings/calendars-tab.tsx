@@ -3,6 +3,7 @@
 import { CalendarOff, CalendarHeart } from "lucide-react";
 import { useLanguage } from "@/components/language-provider";
 import { HolidayListCard } from "./holiday-list-card";
+import { SundayPremiumDefaultsCard } from "./sunday-premium-defaults-card";
 import { useHolidays } from "./use-holidays";
 
 const OPERATOR_HOLIDAY_NAMES = [
@@ -48,6 +49,11 @@ export function CalendarsTab() {
         onAdd={holidays.addOperator}
         onDelete={holidays.removeOperator}
       />
+      {/* Sundays are the other kind of day whose pay differs from a plain
+          working day, so the factory-wide Sunday fallback sits beside the
+          holiday calendars rather than under Production (which configures the
+          item list) or Data (backups). */}
+      <SundayPremiumDefaultsCard />
     </div>
   );
 }
