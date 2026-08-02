@@ -40,9 +40,9 @@ const en = {
   homeUnconfirmedTypes: "{count} people have no job type set",
 
   salarySheetIntro:
-    "Keep employee rows in the order you want for this sheet. To manually adjust payroll drivers for a period, open that employee and tap the period badge under the calendar.",
+    "Keep employee rows in the order you want for this sheet. To change the day counts used for pay in a period, open that employee and tap the period badge under the calendar.",
 
-  themeToggle: "Toggle theme",
+  themeToggle: "Change light or dark",
   themeLightMode: "Light mode",
   themeDarkMode: "Dark mode",
   languageToggle: "Switch language",
@@ -156,13 +156,20 @@ const en = {
 
   periodAdjusted: "adjusted",
   periodNotAdjusted: "not adjusted",
-  periodBadgeAdjustHint: "Tap to adjust payroll drivers for this period.",
+  periodBadgeAdjustHint: "Tap to change the day counts used for pay in this period.",
 
   commonCancel: "Cancel",
   commonDelete: "Delete",
   commonSave: "Save",
-  commonRetry: "Retry",
+  commonRetry: "Try again",
   commonActions: "Actions",
+  // One wording for every "this screen could not load" card. See
+  // components/load-error.tsx.
+  ux2LoadFailedTitle: "Could not open this screen",
+  ux2LoadFailedDesc: "Something went wrong reading your data. Please try again.",
+  ux2HolidaySaveFailed: "Could not change the holiday. Please try again.",
+  ux2PayTypeSaved: "Pay type changed",
+  ux2PayTypeSaveFailed: "Could not change the pay type. Please try again.",
   commonClose: "Close",
   commonContinue: "Continue",
   commonErrorWithMessage: "Error: {msg}",
@@ -173,12 +180,12 @@ const en = {
   loadingOpeningItemsDesc: "Loading packaging item groups from your database.",
   loadingOpeningShifts: "Opening shifts…",
   loadingOpeningShiftsDesc: "Loading shift definitions from your database.",
-  loadingOpeningDatabase: "Opening your database…",
+  loadingOpeningDatabase: "Opening your data file…",
   loadingOpeningDatabaseDesc:
     "Connecting to your ProdTrack file. This usually takes a moment.",
 
-  dbCannotOpenTitle: "We can't open your database",
-  dbChooseDifferentFile: "Choose a different database file…",
+  dbCannotOpenTitle: "We can't open your data file",
+  dbChooseDifferentFile: "Choose a different data file…",
   dbErrNoFile:
     "No database file is linked on this computer. If you use a USB stick, plug it in, then try again—or pick your database file again.",
   dbErrPermission:
@@ -517,7 +524,7 @@ const en = {
   prepColNightShift: "Made in night",
   prepColTotalMade: "Total made",
   prepColItem: "Item",
-  prepColRateForOne: "Rate for one",
+  prepColRateForOne: "Money for one piece",
   prepColWorkMoney: "Money for work",
   prepColAdvanceTaken: "Advance taken",
   prepColAdvanceToCut: "Advance to cut",
@@ -532,9 +539,9 @@ const en = {
 
   // Work that could not be priced, and money owed back. Both are figures the
   // owner must be told about rather than left to infer from a zero.
-  payFixNotPriced: "Not priced",
+  payFixNotPriced: "No money set",
   payFixUnpricedNote:
-    "{count} line(s) have no rate, so that work is not counted in the money above. Set a rate on the Items page.",
+    "{count} line(s) have no money set, so that work is not counted in the money above. Set the money on the Items page.",
   payFixOwedNote:
     "Advance is more than the work. Nothing to pay now; {amount} is still owed.",
 
@@ -809,9 +816,9 @@ const en = {
   inventoryColCategory: "Category",
   inventoryColUnit: "Unit",
   inventoryColOpening: "Opening",
-  inventoryColInward: "Inward",
-  inventoryColOutward: "Outward",
-  inventoryColClosing: "Closing",
+  inventoryColInward: "Came in",
+  inventoryColOutward: "Went out",
+  inventoryColClosing: "Stock now",
   inventoryColStatus: "Status",
   inventoryColThreshold: "Low-stock threshold",
   inventoryStatusLow: "LOW",
@@ -1296,7 +1303,7 @@ const en = {
   setgCleanupConfirmDesc:
     "{summary} will be removed permanently. This cannot be undone. Salary already worked out for those months will not change.",
   auditWirePurge:
-    "Old records were deleted: {work} work entries and {advances} advances from before {date}",
+    "Old records were removed: {work} work entries and {advances} advances from before {date}",
   auditWireReportPrint: "The production report for {period} was printed",
   auditWireSalarySheetPrint: "The salary sheet for {period} was printed",
   setgCleanupSummaryWork: "{count} work entries",
@@ -1519,7 +1526,7 @@ const en = {
     "Open the Items screen first and add a thing with the money for one piece.",
   pickNoRate: "No rate",
   pickNoRateHelp:
-    "Money for one piece is not set — open Items, where this is waiting at the top, and write it.",
+    "The money for one piece is not set — open Items, where this is waiting at the top, and write it.",
   pickHint: "Up/down arrow to move, Enter to choose.",
 
   /* Home dashboard — call to action, charts and the attention list. */
@@ -1683,15 +1690,15 @@ const en = {
   ruleTableEmpty: "No lines yet. Nobody earns extra days until you add one.",
   ruleRepeatEvery: "Every (days present)",
   ruleRepeatGive: "Give (days' pay)",
-  ruleLimitsTitle: "Windows and limits",
-  ruleCycleDays: "Window length (days)",
-  ruleMaxPerCycle: "Most per window",
+  ruleLimitsTitle: "Stretches and limits",
+  ruleCycleDays: "Days in one stretch",
+  ruleMaxPerCycle: "Most per stretch",
   ruleMaxPerMonth: "Most per month",
   ruleNoLimit: "No limit",
   ruleNoLimitSet: "No limit",
   ruleSetLimit: "Set a limit",
   ruleCycleExplain:
-    "The month is cut into windows of {n} days. Days present are counted in each window on its own.",
+    "The month is cut into stretches of {n} days. Days present are counted in each stretch on its own.",
   ruleCapWarning:
     "At {days} days present your rule gives {uncapped} days, but the limit pays only {earned}. Raise the limit or lower the rule.",
   rulePremiumTitle: "Extra pay for Sundays worked",
@@ -1703,16 +1710,16 @@ const en = {
   rulePremiumPrecedence:
     "A number set on one worker's own page wins over this. If neither is set, the factory default in Settings is used.",
   rulePreviewTitle: "What this pays",
-  rulePreviewColDays: "Days present in a window",
+  rulePreviewColDays: "Days present in a stretch",
   rulePreviewColEarned: "Extra days' pay earned",
   rulePreviewSentence:
-    "Someone present {days} days in a window earns {earned} extra days' pay.",
+    "Someone present {days} days in a stretch earns {earned} extra days' pay.",
   rulePreviewNothing: "This rule earns nobody any extra days.",
   ruleSummaryBracket: "{days} days \u2192 {give}",
   ruleSummaryRepeat: "every {every} days \u2192 {give}",
   ruleSummaryNothing: "earns nothing",
-  ruleSummaryCycle: "window {n} days",
-  ruleSummaryLimits: "most {cycle} per window, {month} per month",
+  ruleSummaryCycle: "stretch of {n} days",
+  ruleSummaryLimits: "most {cycle} per stretch, {month} per month",
   ruleSummaryNoLimits: "no limits",
   ruleSummaryPremium: "Sunday at {times}\u00d7 after {days} days",
   ruleEdit: "Edit",
@@ -2107,8 +2114,14 @@ const hi: Record<MessageKey, string> = {
   commonCancel: "रद्द करें",
   commonDelete: "हटाएँ",
   commonSave: "सेव करें",
-  commonRetry: "फिर कोशिश करें",
+  commonRetry: "दोबारा कोशिश करें",
   commonActions: "काम",
+  ux2LoadFailedTitle: "यह स्क्रीन नहीं खुल सकी",
+  ux2LoadFailedDesc:
+    "आपका डेटा पढ़ने में कुछ गड़बड़ हो गई। कृपया दोबारा कोशिश करें।",
+  ux2HolidaySaveFailed: "छुट्टी नहीं बदली जा सकी। दोबारा कोशिश करें।",
+  ux2PayTypeSaved: "पगार का तरीका बदल गया",
+  ux2PayTypeSaveFailed: "पगार का तरीका नहीं बदला जा सका। दोबारा कोशिश करें।",
   commonClose: "बंद करें",
   commonContinue: "आगे बढ़ें",
   commonErrorWithMessage: "गड़बड़: {msg}",
@@ -2119,16 +2132,16 @@ const hi: Record<MessageKey, string> = {
   loadingOpeningItemsDesc: "डेटाबेस से आइटम लिस्ट लोड हो रही है।",
   loadingOpeningShifts: "शिफ्ट खुल रही हैं…",
   loadingOpeningShiftsDesc: "डेटाबेस से शिफ्ट लोड हो रही हैं।",
-  loadingOpeningDatabase: "डेटाबेस खुल रहा है…",
+  loadingOpeningDatabase: "आपकी फाइल खुल रही है…",
   loadingOpeningDatabaseDesc:
     "आपकी ProdTrack फाइल से जुड़ रहे हैं। थोड़ा समय लग सकता है।",
 
-  dbCannotOpenTitle: "डेटाबेस नहीं खुल रहा",
-  dbChooseDifferentFile: "दूसरी डेटाबेस फाइल चुनें…",
+  dbCannotOpenTitle: "आपकी फाइल नहीं खुल रही",
+  dbChooseDifferentFile: "दूसरी फाइल चुनें…",
   dbErrNoFile:
     "इस कंप्यूटर पर कोई डेटाबेस फाइल लिंक नहीं है। USB लगाकर फिर कोशिश करें या फाइल दोबारा चुनें।",
   dbErrPermission:
-    "ब्राउज़र को फाइल पढ़ने-लिखने की इजाज़त चाहिए। रिट्राय दबाएँ और Allow चुनें।",
+    "ब्राउज़र को फाइल पढ़ने-लिखने की इजाज़त चाहिए। “दोबारा कोशिश करें” दबाएँ और Allow चुनें।",
   dbErrRead:
     "फाइल नहीं पढ़ी जा सकी। खो गई, खाली या खराब हो सकती है। USB चेक करके फिर कोशिश करें।",
   dbErrNotSupported:
@@ -2151,7 +2164,7 @@ const hi: Record<MessageKey, string> = {
   plainSalarySheetLoadFailed: "सैलरी शीट नहीं खुल सकी",
   plainSalarySheetLoadFailedDesc:
     "सेव किया हुआ काम पढ़ने में कुछ गड़बड़ हो गई। कृपया फिर कोशिश करें।",
-  plainTryAgain: "फिर कोशिश करें",
+  plainTryAgain: "दोबारा कोशिश करें",
   reportsCumulativeTitle: "कुल कितना बना, आइटम के हिसाब से",
   reportsCumulativeDesc:
     "चुनी हुई तारीखों में हर आइटम के कितने पीस बने — दिन की शिफ्ट और रात की शिफ्ट, सब कर्मचारी मिलाकर।",
@@ -2463,7 +2476,7 @@ const hi: Record<MessageKey, string> = {
   prepColNightShift: "रात में बनाया",
   prepColTotalMade: "कुल बनाया",
   prepColItem: "माल",
-  prepColRateForOne: "एक का भाव",
+  prepColRateForOne: "एक पीस का पैसा",
   prepColWorkMoney: "काम के पैसे",
   prepColAdvanceTaken: "लिया हुआ एडवांस",
   prepColAdvanceToCut: "काटने का एडवांस",
@@ -2476,7 +2489,7 @@ const hi: Record<MessageKey, string> = {
   prepLoadFailed: "उत्पादन का काम लोड नहीं हो पाया।",
   prepLoadFailedDesc: "चुनी हुई तारीखें देखकर दोबारा कोशिश करें।",
 
-  payFixNotPriced: "रेट नहीं है",
+  payFixNotPriced: "पैसा नहीं डाला",
   payFixUnpricedNote:
     "{count} लाइन का रेट नहीं है, इसलिए वह काम ऊपर के पैसों में नहीं जुड़ा है। आइटम पेज पर रेट डालें।",
   payFixOwedNote:
@@ -2750,9 +2763,9 @@ const hi: Record<MessageKey, string> = {
   inventoryColCategory: "श्रेणी",
   inventoryColUnit: "यूनिट",
   inventoryColOpening: "शुरुआती स्टॉक",
-  inventoryColInward: "इनवर्ड",
-  inventoryColOutward: "आउटवर्ड",
-  inventoryColClosing: "क्लोजिंग",
+  inventoryColInward: "आया",
+  inventoryColOutward: "गया",
+  inventoryColClosing: "अभी का स्टॉक",
   inventoryColStatus: "स्थिति",
   inventoryColThreshold: "लो-स्टॉक सीमा",
   inventoryStatusLow: "कम",
@@ -3049,7 +3062,7 @@ const hi: Record<MessageKey, string> = {
   invCatItemRestored: "सामान वापस आ गया",
   invCatLoadErrorTitle: "स्टॉक सूची नहीं खुली",
   invCatLoadErrorDesc: "स्टॉक पढ़ने में कुछ गड़बड़ी हुई। कृपया फिर कोशिश करें।",
-  invCatRetry: "फिर कोशिश करें",
+  invCatRetry: "दोबारा कोशिश करें",
   invCatEmptyTitle: "यहाँ अभी कोई सामान नहीं है",
   invCatEmptyDesc: "स्टॉक गिनना शुरू करने के लिए पहला {category} सामान जोड़ें।",
   invCatNoResultsTitle: "कुछ नहीं मिला",
@@ -3065,7 +3078,7 @@ const hi: Record<MessageKey, string> = {
   invUxStockKindLabel: "जो सामान हम खरीदते हैं",
   invUxStockKindValue: "और {made} जो हम बनाते हैं",
   invUxDataMenu: "डेटा",
-  invUxDataMenuTitle: "फ़ाइल और छपाई",
+  invUxDataMenuTitle: "फ़ाइल और प्रिंट",
   invUxRecordStockHint: "जो आया वो जोड़ें, जो लगा वो निकालें",
   invCatLowBelow: "{qty} {unit} से कम होने पर कम",
 
@@ -3607,15 +3620,15 @@ const hi: Record<MessageKey, string> = {
     "\u0905\u092d\u0940 \u0915\u094b\u0908 \u0932\u093e\u0907\u0928 \u0928\u0939\u0940\u0902\u0964 \u091c\u092c \u0924\u0915 \u091c\u094b\u0921\u093c\u0947\u0902\u0917\u0947 \u0928\u0939\u0940\u0902, \u0915\u093f\u0938\u0940 \u0915\u094b \u0905\u0924\u093f\u0930\u093f\u0915\u094d\u0924 \u0926\u093f\u0928 \u0928\u0939\u0940\u0902 \u092e\u093f\u0932\u0947\u0917\u093e\u0964",
   ruleRepeatEvery: "\u0939\u0930 (\u0939\u093e\u091c\u093c\u093f\u0930 \u0926\u093f\u0928)",
   ruleRepeatGive: "\u0926\u0947\u0902 (\u0926\u093f\u0928 \u0915\u0940 \u0924\u0928\u0916\u094d\u0935\u093e\u0939)",
-  ruleLimitsTitle: "\u0916\u093f\u0921\u093c\u0915\u0940 \u0914\u0930 \u0938\u0940\u092e\u093e",
-  ruleCycleDays: "\u0916\u093f\u0921\u093c\u0915\u0940 \u0915\u0940 \u0932\u0902\u092c\u093e\u0908 (\u0926\u093f\u0928)",
-  ruleMaxPerCycle: "\u090f\u0915 \u0916\u093f\u0921\u093c\u0915\u0940 \u092e\u0947\u0902 \u0905\u0927\u093f\u0915\u0924\u092e",
+  ruleLimitsTitle: "\u0926\u094c\u0930 \u0914\u0930 \u0938\u0940\u092e\u093e",
+  ruleCycleDays: "\u090f\u0915 \u0926\u094c\u0930 \u0915\u0947 \u0926\u093f\u0928",
+  ruleMaxPerCycle: "\u090f\u0915 \u0926\u094c\u0930 \u092e\u0947\u0902 \u091c\u093c\u094d\u092f\u093e\u0926\u093e \u0938\u0947 \u091c\u093c\u094d\u092f\u093e\u0926\u093e",
   ruleMaxPerMonth: "\u092e\u0939\u0940\u0928\u0947 \u092e\u0947\u0902 \u0905\u0927\u093f\u0915\u0924\u092e",
   ruleNoLimit: "\u0915\u094b\u0908 \u0938\u0940\u092e\u093e \u0928\u0939\u0940\u0902",
   ruleNoLimitSet: "\u0915\u094b\u0908 \u0938\u0940\u092e\u093e \u0928\u0939\u0940\u0902",
   ruleSetLimit: "\u0938\u0940\u092e\u093e \u0932\u0917\u093e\u090f\u0901",
   ruleCycleExplain:
-    "\u092e\u0939\u0940\u0928\u093e {n} \u0926\u093f\u0928 \u0915\u0940 \u0916\u093f\u0921\u093c\u0915\u093f\u092f\u094b\u0902 \u092e\u0947\u0902 \u092c\u0901\u091f\u0924\u093e \u0939\u0948\u0964 \u0939\u0930 \u0916\u093f\u0921\u093c\u0915\u0940 \u0915\u0947 \u0939\u093e\u091c\u093c\u093f\u0930 \u0926\u093f\u0928 \u0905\u0932\u0917-\u0905\u0932\u0917 \u0917\u093f\u0928\u0947 \u091c\u093e\u0924\u0947 \u0939\u0948\u0902\u0964",
+    "\u092e\u0939\u0940\u0928\u093e {n} \u0926\u093f\u0928 \u0915\u0947 \u0926\u094c\u0930 \u092e\u0947\u0902 \u092c\u0901\u091f\u0924\u093e \u0939\u0948\u0964 \u0939\u0930 \u0926\u094c\u0930 \u0915\u0947 \u0939\u093e\u091c\u093c\u093f\u0930 \u0926\u093f\u0928 \u0905\u0932\u0917-\u0905\u0932\u0917 \u0917\u093f\u0928\u0947 \u091c\u093e\u0924\u0947 \u0939\u0948\u0902\u0964",
   ruleCapWarning:
     "{days} \u0939\u093e\u091c\u093c\u093f\u0930 \u0926\u093f\u0928 \u092a\u0930 \u0906\u092a\u0915\u093e \u0928\u093f\u092f\u092e {uncapped} \u0926\u093f\u0928 \u0926\u0947\u0924\u093e \u0939\u0948, \u092a\u0930 \u0938\u0940\u092e\u093e \u0938\u093f\u0930\u094d\u092b\u093c {earned} \u0926\u0947\u0917\u0940\u0964 \u0938\u0940\u092e\u093e \u092c\u0922\u093c\u093e\u090f\u0901 \u092f\u093e \u0928\u093f\u092f\u092e \u0918\u091f\u093e\u090f\u0901\u0964",
   rulePremiumTitle: "\u0930\u0935\u093f\u0935\u093e\u0930 \u0915\u0947 \u0915\u093e\u092e \u092a\u0930 \u091c\u093c\u094d\u092f\u093e\u0926\u093e \u092a\u0948\u0938\u093e",
@@ -3628,25 +3641,25 @@ const hi: Record<MessageKey, string> = {
   rulePremiumPrecedence:
     "\u0915\u093f\u0938\u0940 \u090f\u0915 \u092e\u091c\u093c\u0926\u0942\u0930 \u0915\u0947 \u092a\u0928\u094d\u0928\u0947 \u092a\u0930 \u0932\u093f\u0916\u093e \u0928\u0902\u092c\u0930 \u0907\u0938\u0938\u0947 \u090a\u092a\u0930 \u0939\u0948\u0964 \u0926\u094b\u0928\u094b\u0902 \u0928 \u0939\u094b\u0902 \u0924\u094b \u0938\u0947\u091f\u093f\u0902\u0917 \u0915\u093e \u0921\u093f\u092b\u093c\u0949\u0932\u094d\u091f \u091a\u0932\u0924\u093e \u0939\u0948\u0964",
   rulePreviewTitle: "\u0907\u0938\u0938\u0947 \u0915\u093f\u0924\u0928\u093e \u092e\u093f\u0932\u0947\u0917\u093e",
-  rulePreviewColDays: "\u0916\u093f\u0921\u093c\u0915\u0940 \u092e\u0947\u0902 \u0939\u093e\u091c\u093c\u093f\u0930 \u0926\u093f\u0928",
+  rulePreviewColDays: "\u0926\u094c\u0930 \u092e\u0947\u0902 \u0939\u093e\u091c\u093c\u093f\u0930 \u0926\u093f\u0928",
   rulePreviewColEarned: "\u092e\u093f\u0932\u0928\u0947 \u0935\u093e\u0932\u0947 \u0905\u0924\u093f\u0930\u093f\u0915\u094d\u0924 \u0926\u093f\u0928",
   rulePreviewSentence:
-    "\u091c\u094b \u0916\u093f\u0921\u093c\u0915\u0940 \u092e\u0947\u0902 {days} \u0926\u093f\u0928 \u0939\u093e\u091c\u093c\u093f\u0930 \u0930\u0939\u093e, \u0909\u0938\u0947 {earned} \u0926\u093f\u0928 \u0915\u093e \u0905\u0924\u093f\u0930\u093f\u0915\u094d\u0924 \u092a\u0948\u0938\u093e \u092e\u093f\u0932\u0947\u0917\u093e\u0964",
+    "\u091c\u094b \u0926\u094c\u0930 \u092e\u0947\u0902 {days} \u0926\u093f\u0928 \u0939\u093e\u091c\u093c\u093f\u0930 \u0930\u0939\u093e, \u0909\u0938\u0947 {earned} \u0926\u093f\u0928 \u0915\u093e \u0905\u0924\u093f\u0930\u093f\u0915\u094d\u0924 \u092a\u0948\u0938\u093e \u092e\u093f\u0932\u0947\u0917\u093e\u0964",
   rulePreviewNothing:
     "\u0907\u0938 \u0928\u093f\u092f\u092e \u0938\u0947 \u0915\u093f\u0938\u0940 \u0915\u094b \u0905\u0924\u093f\u0930\u093f\u0915\u094d\u0924 \u0926\u093f\u0928 \u0928\u0939\u0940\u0902 \u092e\u093f\u0932\u0924\u0947\u0964",
   ruleSummaryBracket: "{days} \u0926\u093f\u0928 \u2192 {give}",
   ruleSummaryRepeat: "\u0939\u0930 {every} \u0926\u093f\u0928 \u2192 {give}",
   ruleSummaryNothing: "\u0915\u0941\u091b \u0928\u0939\u0940\u0902 \u092e\u093f\u0932\u0924\u093e",
-  ruleSummaryCycle: "\u0916\u093f\u0921\u093c\u0915\u0940 {n} \u0926\u093f\u0928",
+  ruleSummaryCycle: "\u0926\u094c\u0930 {n} \u0926\u093f\u0928",
   ruleSummaryLimits:
-    "\u0905\u0927\u093f\u0915\u0924\u092e {cycle} \u092a\u094d\u0930\u0924\u093f \u0916\u093f\u0921\u093c\u0915\u0940, {month} \u092a\u094d\u0930\u0924\u093f \u092e\u0939\u0940\u0928\u093e",
+    "\u0905\u0927\u093f\u0915\u0924\u092e {cycle} \u092a\u094d\u0930\u0924\u093f \u0926\u094c\u0930, {month} \u092a\u094d\u0930\u0924\u093f \u092e\u0939\u0940\u0928\u093e",
   ruleSummaryNoLimits: "\u0915\u094b\u0908 \u0938\u0940\u092e\u093e \u0928\u0939\u0940\u0902",
   ruleSummaryPremium:
     "{days} \u0926\u093f\u0928 \u0915\u0947 \u092c\u093e\u0926 \u0930\u0935\u093f\u0935\u093e\u0930 {times}\u00d7",
   ruleEdit: "\u092c\u0926\u0932\u0947\u0902",
-  ruleSaveEdit: "\u092c\u0926\u0932\u093e\u0935 \u0938\u0939\u0947\u091c\u0947\u0902",
+  ruleSaveEdit: "\u092c\u0926\u0932\u093e\u0935 \u0938\u0947\u0935 \u0915\u0930\u0947\u0902",
   ruleCancelEdit: "\u0930\u0939\u0928\u0947 \u0926\u0947\u0902",
-  ruleSaveSuccess: "\u0928\u093f\u092f\u092e \u0938\u0939\u0947\u091c\u093e \u0917\u092f\u093e",
+  ruleSaveSuccess: "\u0928\u093f\u092f\u092e \u0938\u0947\u0935 \u0939\u094b \u0917\u092f\u093e",
 
   capCardTitle: "\u090f\u0915 \u0926\u093f\u0928 \u092e\u0947\u0902 \u0938\u092c\u0938\u0947 \u091c\u093c\u094d\u092f\u093e\u0926\u093e \u0915\u093f\u0924\u0928\u093e",
   capCardSubtitle:
@@ -3672,13 +3685,13 @@ const hi: Record<MessageKey, string> = {
   capColPaidClipped: "{paid} ({uncapped} \u092c\u0928\u0924\u0940 \u0925\u0940)",
   capSummaryLimit: "\u090f\u0915 \u0926\u093f\u0928 \u092e\u0947\u0902 \u0905\u0927\u093f\u0915\u0924\u092e {days} \u0926\u093f\u0928 \u0915\u0940 \u092a\u0917\u093e\u0930",
   capSummaryNoLimit: "\u090f\u0915 \u0926\u093f\u0928 \u0915\u0940 \u092a\u0917\u093e\u0930 \u092a\u0930 \u0915\u094b\u0908 \u0938\u0940\u092e\u093e \u0928\u0939\u0940\u0902",
-  capSave: "\u0938\u0940\u092e\u093e \u0938\u0939\u0947\u091c\u0947\u0902",
-  capSaveSuccess: "\u0938\u0940\u092e\u093e \u0938\u0939\u0947\u091c\u0940 \u0917\u0908",
-  capSaveFail: "\u0938\u0940\u092e\u093e \u0938\u0939\u0947\u091c \u0928\u0939\u0940\u0902 \u0938\u0915\u0947\u0964 \u0915\u0941\u091b \u0928\u0939\u0940\u0902 \u092c\u0926\u0932\u093e\u0964",
+  capSave: "\u0938\u0940\u092e\u093e \u0938\u0947\u0935 \u0915\u0930\u0947\u0902",
+  capSaveSuccess: "\u0938\u0940\u092e\u093e \u0938\u0947\u0935 \u0939\u094b \u0917\u0908",
+  capSaveFail: "\u0938\u0940\u092e\u093e \u0938\u0947\u0935 \u0928\u0939\u0940\u0902 \u0939\u094b \u0938\u0915\u0940\u0964 \u0915\u0941\u091b \u0928\u0939\u0940\u0902 \u092c\u0926\u0932\u093e\u0964",
   capSheetClipped:
     "\u0907\u0938 \u0905\u0935\u0927\u093f \u092e\u0947\u0902 \u0938\u0940\u092e\u093e \u0928\u0947 {dates} \u0926\u093f\u0928 \u0915\u092e \u0915\u093f\u090f, \u0915\u0941\u0932 {days} \u0926\u093f\u0928 \u0915\u0940 \u092a\u0917\u093e\u0930\u0964 \u0909\u0928 \u0926\u093f\u0928\u094b\u0902 \u0928\u0947 {limit} \u0926\u093f\u0928 \u0915\u0940 \u0938\u0940\u092e\u093e \u0938\u0947 \u091c\u093c\u094d\u092f\u093e\u0926\u093e \u0915\u092e\u093e\u092f\u093e \u0925\u093e\u0964 \u0938\u092e\u092f \u0914\u0930 \u092a\u0917\u093e\u0930 \u0915\u0947 \u0928\u093f\u092f\u092e \u092e\u0947\u0902 \u092c\u0926\u0932\u0947\u0902\u0964",
   capOverrideTrimmed:
-    "\u0906\u092a\u0915\u093e \u0932\u093f\u0916\u093e \u0928\u0902\u092c\u0930 \u0907\u0938 \u0905\u0935\u0927\u093f \u0915\u0940 \u0938\u0940\u092e\u093e \u0938\u0947 \u090a\u092a\u0930 \u0925\u093e \u0914\u0930 \u0918\u091f\u093e \u0926\u093f\u092f\u093e \u0917\u092f\u093e: {fields}\u0964 \u092c\u0949\u0915\u094d\u0938 \u092e\u0947\u0902 \u0926\u093f\u0916 \u0930\u0939\u093e \u0928\u0902\u092c\u0930 \u0939\u0940 \u0938\u0939\u0947\u091c\u093e \u091c\u093e\u090f\u0917\u093e\u0964",
+    "\u0906\u092a\u0915\u093e \u0932\u093f\u0916\u093e \u0928\u0902\u092c\u0930 \u0907\u0938 \u0905\u0935\u0927\u093f \u0915\u0940 \u0938\u0940\u092e\u093e \u0938\u0947 \u090a\u092a\u0930 \u0925\u093e \u0914\u0930 \u0918\u091f\u093e \u0926\u093f\u092f\u093e \u0917\u092f\u093e: {fields}\u0964 \u092c\u0949\u0915\u094d\u0938 \u092e\u0947\u0902 \u0926\u093f\u0916 \u0930\u0939\u093e \u0928\u0902\u092c\u0930 \u0939\u0940 \u0938\u0947\u0935 \u0939\u094b\u0917\u093e\u0964",
   capPresentDaysNoLimit:
     "\u090f\u0915 \u0926\u093f\u0928 \u0915\u0940 \u092a\u0917\u093e\u0930 \u092a\u0930 \u0915\u094b\u0908 \u0938\u0940\u092e\u093e \u0928\u0939\u0940\u0902 \u0939\u0948, \u0907\u0938\u0932\u093f\u090f \u092f\u0939\u093e\u0901 \u092d\u0940 \u0915\u094b\u0908 \u090a\u092a\u0930\u0940 \u0938\u0940\u092e\u093e \u0928\u0939\u0940\u0902\u0964",
 
@@ -3792,7 +3805,7 @@ const hi: Record<MessageKey, string> = {
   itmFieldCodePlaceholder: "\u091c\u0948\u0938\u0947: RT04",
   itmFieldRate: "\u090f\u0915 \u092a\u0940\u0938 \u0915\u093e \u092a\u0948\u0938\u093e (\u20b9)",
   itmFieldRateHelp:
-    "\u090f\u0915 \u092a\u0940\u0938 \u092c\u0928\u093e\u0928\u0947 \u092a\u0930 \u0935\u0930\u094d\u0915\u0930 \u0915\u094b \u0915\u093f\u0924\u0928\u093e \u092e\u093f\u0932\u0947\u0917\u093e\u0964 \u0905\u0917\u0930 \u0905\u092d\u0940 \u0924\u092f \u0928\u0939\u0940\u0902 \u0915\u093f\u092f\u093e \u0924\u094b \u0916\u093e\u0932\u0940 \u091b\u094b\u0921\u093c \u0926\u0940\u091c\u093f\u090f \u2014 \u092a\u0930 \u0924\u092c \u0924\u0915 \u0907\u0938 \u0906\u0907\u091f\u092e \u0915\u0947 \u0915\u093e\u092e \u0915\u0940 \u092a\u0917\u093e\u0930 \u0928\u0939\u0940\u0902 \u091c\u0941\u0921\u093c\u0947\u0917\u0940\u0964",
+    "\u090f\u0915 \u092a\u0940\u0938 \u092c\u0928\u093e\u0928\u0947 \u092a\u0930 \u092e\u091c\u093c\u0926\u0942\u0930 \u0915\u094b \u0915\u093f\u0924\u0928\u093e \u092e\u093f\u0932\u0947\u0917\u093e\u0964 \u0905\u0917\u0930 \u0905\u092d\u0940 \u0924\u092f \u0928\u0939\u0940\u0902 \u0915\u093f\u092f\u093e \u0924\u094b \u0916\u093e\u0932\u0940 \u091b\u094b\u0921\u093c \u0926\u0940\u091c\u093f\u090f \u2014 \u092a\u0930 \u0924\u092c \u0924\u0915 \u0907\u0938 \u0906\u0907\u091f\u092e \u0915\u0947 \u0915\u093e\u092e \u0915\u0940 \u092a\u0917\u093e\u0930 \u0928\u0939\u0940\u0902 \u091c\u0941\u0921\u093c\u0947\u0917\u0940\u0964",
   itmFieldRatePlaceholder: "\u091c\u0948\u0938\u0947: 2.50",
   itmErrName: "\u0915\u0943\u092a\u092f\u093e \u0906\u0907\u091f\u092e \u0915\u093e \u0928\u093e\u092e \u0932\u093f\u0916\u093f\u090f\u0964",
   itmErrRateInvalid: "\u0915\u0943\u092a\u092f\u093e \u0938\u093f\u0930\u094d\u092b\u093c \u0905\u0902\u0915 \u0932\u093f\u0916\u093f\u090f, \u091c\u0948\u0938\u0947 2 \u092f\u093e 2.50\u0964",
@@ -3830,7 +3843,7 @@ const hi: Record<MessageKey, string> = {
   rateStockFieldHelp:
     "एक पीस बनाने पर मज़दूर को कितना मिलेगा। यह पैसा सिर्फ़ यहीं रखा जाता है, इसलिए जो यहाँ लिखेंगे वही पगार में जुड़ेगा।",
   rateStockNeedAmount:
-    "कृपया एक पीस का पैसा लिखें। यह चीज़ स्टॉक सूची से आई है, इसलिए खाली नहीं सहेजी जा सकती।",
+    "कृपया एक पीस का पैसा लिखें। यह चीज़ स्टॉक सूची से आई है, इसलिए खाली नहीं छोड़ी जा सकती।",
 
   itmEmptyTitle: "\u0905\u092d\u0940 \u0915\u094b\u0908 \u0906\u0907\u091f\u092e \u0928\u0939\u0940\u0902 \u0939\u0948",
   itmEmptyBody:

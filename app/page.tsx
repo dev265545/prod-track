@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { AppShell } from "@/components/app-shell";
+import { LoadError } from "@/components/load-error";
 import { Spinner } from "@/components/ui/spinner";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useLanguage } from "@/components/language-provider";
@@ -88,6 +89,9 @@ export default function Home() {
 
   const [data, setData] = useState<DashboardData | null>(null);
   const [attention, setAttention] = useState<HomeAttentionItem[] | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
+  /** Bumped by the error card's "Try again" to re-run the load effect. */
+  const [retryKey, setRetryKey] = useState(0);
 
   /**
    * Wave one: everything the three cards draw. Pure — it returns what it read
@@ -249,16 +253,17 @@ export default function Home() {
         });
       })
       .catch((error) => {
-        // A failed read must not leave the cards spinning for ever: the
-        // attention list falls back to its all-clear line and the operator
-        // still has every call-to-action above it.
+        // The old handler set `attention` to `[]`, which renders the green
+        // "all clear" line — the screen cheerfully reported nothing wrong
+        // while `data` stayed null and the three cards span for ever. A read
+        // that failed says so, and offers a way to try again.
         console.error("dashboard load failed", error);
-        if (!cancelled) setAttention([]);
+        if (!cancelled) setLoadFailed(true);
       });
     return () => {
       cancelled = true;
     };
-  }, [ready, loadCore, loadAttention]);
+  }, [ready, loadCore, loadAttention, retryKey]);
 
   if (!ready) {
     return (
@@ -326,7 +331,16 @@ export default function Home() {
         {admin && <BackupReminderBanner />}
 
         {/* 2 — what is wrong, each row a door to the fix. */}
-        <HomeAttentionList items={attention} />
+        {/* Failed replaces the attention list and the three cards outright:
+            an "all clear" line over a failed read is worse than no line. */}
+        {loadFailed ? (
+          <LoadError onRetry={() => {
+              setLoadFailed(false);
+              setRetryKey((n) => n + 1);
+            }} />
+        ) : (
+          <HomeAttentionList items={attention} />
+        )}
 
         {/* 3 — three questions, three answers. Each card carries its own
             loading and empty state, so a brand-new factory sees a sentence

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { AppShell } from "@/components/app-shell";
+import { LoadError } from "@/components/load-error";
 import { SettingsSection } from "@/components/settings/shared";
 import { Input } from "@/components/ui/input";
 import { NumberInput } from "@/components/ui/number-input";
@@ -82,6 +83,7 @@ export default function ShiftsPage() {
   const { ready: guardReady } = useAuthGuard();
   const { t } = useLanguage();
   const [data, setData] = useState<PayRules | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
   const ready = guardReady && data !== null;
   const shifts = data?.shifts ?? [];
   const sundayCategories = data?.sundayCategories ?? [];
@@ -114,15 +116,38 @@ export default function ShiftsPage() {
     setData(await fetchPayRules());
   }, []);
 
-  useEffect(() => {
-    if (!guardReady) return;
+  /**
+   * The old `.catch(() => {})` left `data` null, and `ready` is derived from
+   * it — so a failed read parked the screen on the loading splash for good.
+   */
+  const retry = useCallback(() => {
+    setLoadFailed(false);
+    setData(null);
     fetchPayRules()
       .then((next) => {
         setData(next);
         setDayPayCapDraft({ value: next.maxDayPayFraction });
       })
-      .catch(() => {});
-  }, [guardReady]);
+      .catch((err) => {
+        console.error("pay rules: load failed", err);
+        setLoadFailed(true);
+      });
+  }, []);
+
+  useEffect(() => {
+    if (!guardReady) return;
+    retry();
+  }, [guardReady, retry]);
+
+  if (loadFailed) {
+    return (
+      <AppShell>
+        <main className="flex w-full min-w-0 flex-col gap-6">
+          <LoadError onRetry={retry} />
+        </main>
+      </AppShell>
+    );
+  }
 
   if (!ready) {
     return (
@@ -206,6 +231,7 @@ export default function ShiftsPage() {
                               type="button"
                               variant="destructive"
                               size="icon"
+                              className="size-11"
                               title={t("shiftsDeleteTitle")}
                               aria-label={t("shiftsDeleteShiftAria")}
                             >
@@ -356,6 +382,7 @@ export default function ShiftsPage() {
                               type="button"
                               variant="destructive"
                               size="icon"
+                              className="size-11"
                               title={t("shiftsSundayDeleteTitle")}
                               aria-label={t("shiftsSundayDeleteCatAria")}
                             >

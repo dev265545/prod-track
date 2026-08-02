@@ -203,7 +203,7 @@ export function RosterRowCard({
             onClick={() => setHoursOpen((open) => !open)}
             aria-expanded={hoursOpen}
             aria-controls={`hours-${row.employeeId}`}
-            className="inline-flex min-h-[36px] items-center justify-center gap-1.5 self-start rounded-lg px-2 text-xs font-medium text-muted-foreground hover:bg-surface-3 hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+            className="inline-flex min-h-[44px] items-center justify-center gap-1.5 self-start rounded-lg px-2 text-xs font-medium text-muted-foreground hover:bg-surface-3 hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
           >
             <MinusCircle className="size-3.5 shrink-0" aria-hidden />
             {t("rostHoursToggle")}

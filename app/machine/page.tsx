@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/app-shell";
+import { LoadError } from "@/components/load-error";
 import { AppLoadingScreen } from "@/components/app-loading-screen";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Boxes, Calculator, Cog } from "lucide-react";
@@ -30,8 +31,6 @@ async function fetchPageData(): Promise<PageData> {
   return { machines, combos, items };
 }
 
-const EMPTY: PageData = { machines: [], combos: [], items: [] };
-
 /**
  * Thin shell over `components/machine/**`. The screen does three unrelated
  * jobs — keep the machine list, keep the item sets, and work out how long to
@@ -44,17 +43,32 @@ export default function MachinePage() {
   const { t } = useLanguage();
   const { ready: guardReady } = useAuthGuard();
   const [data, setData] = useState<PageData | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
 
   const reload = useCallback(async () => {
     setData(await fetchPageData());
   }, []);
 
-  useEffect(() => {
-    if (!guardReady) return;
+  /**
+   * A failed read used to be turned into `EMPTY`, which the cards below render
+   * as "no machines yet" — the owner was told his machine list was empty when
+   * the database had thrown. Failed is now its own state, with a way back.
+   */
+  const retry = useCallback(() => {
+    setLoadFailed(false);
+    setData(null);
     fetchPageData()
       .then(setData)
-      .catch(() => setData(EMPTY));
-  }, [guardReady]);
+      .catch((err) => {
+        console.error("machines: load failed", err);
+        setLoadFailed(true);
+      });
+  }, []);
+
+  useEffect(() => {
+    if (!guardReady) return;
+    retry();
+  }, [guardReady, retry]);
 
   // Stable identities so the calculator's memoised maths only re-runs when the
   // item rows actually change.
@@ -62,6 +76,16 @@ export default function MachinePage() {
     () => buildItemLookups(data?.items ?? []),
     [data?.items],
   );
+
+  if (loadFailed) {
+    return (
+      <AppShell>
+        <main className="flex w-full min-w-0 flex-col gap-8">
+          <LoadError onRetry={retry} />
+        </main>
+      </AppShell>
+    );
+  }
 
   if (!guardReady || data === null) {
     return (

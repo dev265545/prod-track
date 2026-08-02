@@ -42,6 +42,7 @@ import {
 import { toast } from "sonner";
 import { AppShell } from "@/components/app-shell";
 import { AppLoadingScreen } from "@/components/app-loading-screen";
+import { LoadError } from "@/components/load-error";
 import { useLanguage } from "@/components/language-provider";
 import { useAuthGuard } from "@/lib/hooks/useAuthGuard";
 import { Button } from "@/components/ui/button";
@@ -143,6 +144,7 @@ export default function ItemsPage() {
   const { ready: guardReady } = useAuthGuard();
   const { t } = useLanguage();
   const [data, setData] = useState<PageData | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [query, setQuery] = useState("");
   const [editorOpen, setEditorOpen] = useState(false);
   const [editing, setEditing] = useState<ItemRow | null>(null);
@@ -151,12 +153,36 @@ export default function ItemsPage() {
     setData(await fetchPageData());
   }, []);
 
-  useEffect(() => {
-    if (!guardReady) return;
+  /**
+   * A failed read must NOT become `{ items: [] }` — that renders the empty
+   * state, which tells the owner his item list is empty when in fact the
+   * database threw. Loading, empty and failed stay three separate things.
+   */
+  const reload = useCallback(() => {
+    setLoadFailed(false);
+    setData(null);
     fetchPageData()
       .then(setData)
-      .catch(() => setData({ items: [], stockLinked: false, fromStock: 0 }));
-  }, [guardReady]);
+      .catch((err) => {
+        console.error("items: load failed", err);
+        setLoadFailed(true);
+      });
+  }, []);
+
+  useEffect(() => {
+    if (!guardReady) return;
+    reload();
+  }, [guardReady, reload]);
+
+  if (loadFailed) {
+    return (
+      <AppShell>
+        <main className="flex min-w-0 flex-col gap-6">
+          <LoadError onRetry={reload} />
+        </main>
+      </AppShell>
+    );
+  }
 
   if (!guardReady || data === null) {
     return (
@@ -472,6 +498,7 @@ export default function ItemsPage() {
                                 type="button"
                                 variant="destructive"
                                 size="icon"
+                                className="size-11"
                                 title={t("itmDelete")}
                                 aria-label={t("itmDeleteTitle")}
                               >

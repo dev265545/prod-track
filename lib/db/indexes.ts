@@ -47,6 +47,16 @@ export const INDEXES: Record<string, StoreIndexes> = {
   [STORES.INVENTORY_MOVEMENTS]: {
     by_item: { keyPath: "itemId" },
   },
+  /**
+   * The audit log is append-only and never queried by anything but time: the
+   * viewer wants "the newest page" or "this month", and the retention sweep
+   * wants "everything before this instant". One index on the ISO timestamp
+   * answers all three, and because ISO-8601 UTC sorts lexicographically it is
+   * also chronological order for free.
+   */
+  [STORES.AUDIT_LOG]: {
+    by_timestamp: { keyPath: "timestamp" },
+  },
 };
 
 /** An inclusive bound key, mirroring what `IDBKeyRange.bound` accepts here. */
@@ -103,6 +113,50 @@ export function matchesIndexRange(
   const key = extractKey(row, keyPath);
   if (key === undefined) return false;
   return compareIndexKeys(key, lower) >= 0 && compareIndexKeys(key, upper) <= 0;
+}
+
+/**
+ * How much of a range to read, and from which end.
+ *
+ * `getByIndex` without options reads the whole range ascending, which is what
+ * every date-keyed query wants. The audit log is the exception: it is read
+ * newest-first, one screenful at a time, out of a store that grows without
+ * bound. Expressing that here rather than slicing in the caller is the whole
+ * point — a slice still deserialises every row first.
+ */
+export interface IndexReadOptions {
+  /** "next" = ascending index order (default); "prev" = descending. */
+  direction?: "next" | "prev";
+  /** Stop after this many rows. Omitted = no limit. */
+  limit?: number;
+  /** Skip this many matching rows first, in `direction` order. */
+  offset?: number;
+}
+
+/**
+ * Apply {@link IndexReadOptions} to a fully-materialised ascending result.
+ *
+ * Only for the SQLite backends, which hold rows as JSON blobs and have no
+ * index to seek with: they must scan regardless, so windowing afterwards costs
+ * them nothing extra and keeps every backend returning the same rows in the
+ * same order. IndexedDB must NOT go through here — it uses a real cursor, and
+ * reading the range first is exactly the cost this exists to avoid.
+ */
+export function applyIndexReadOptions(
+  ascending: Record<string, unknown>[],
+  options?: IndexReadOptions
+): Record<string, unknown>[] {
+  if (!options) return ascending;
+  const ordered =
+    options.direction === "prev" ? [...ascending].reverse() : ascending;
+  const start = Math.max(0, Math.floor(options.offset ?? 0));
+  const end =
+    options.limit === undefined
+      ? ordered.length
+      : start + Math.max(0, Math.floor(options.limit));
+  return start === 0 && end >= ordered.length
+    ? ordered
+    : ordered.slice(start, end);
 }
 
 export function getIndexKeyPath(

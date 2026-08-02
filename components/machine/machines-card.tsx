@@ -170,6 +170,7 @@ export function MachinesCard({ machines, onChanged }: MachinesCardProps) {
                             type="button"
                             variant="destructive"
                             size="icon"
+                            className="size-11"
                             title={t("machineDeleteTitle")}
                             aria-label={t("machineDeleteAria", { name: m.name })}
                           >

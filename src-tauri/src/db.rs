@@ -8,7 +8,7 @@ use tauri::{AppHandle, State};
 use tauri_plugin_dialog::DialogExt;
 
 /// Must match lib/db/schema.ts DB_VERSION. Bump when adding migrations.
-const CURRENT_SCHEMA_VERSION: u32 = 11;
+const CURRENT_SCHEMA_VERSION: u32 = 12;
 
 const TABLES: &[&str] = &[
     "_metadata",
@@ -82,6 +82,12 @@ fn run_migration(_conn: &Connection, to_version: u32) -> Result<(), String> {
             // Reserved: adds IndexedDB indexes on attendance/advances (see
             // lib/db/indexes.ts). Nothing to do here — rows are JSON blobs in
             // an (id, data) table, so SQLite has no column to index.
+        }
+        12 => {
+            // Reserved: adds the IndexedDB `audit_log.by_timestamp` index (see
+            // lib/db/indexes.ts). Nothing to do here — audit_log is the same
+            // (id, data) JSON blob table, so the SQLite backends answer the
+            // ranged read by scanning and filtering with `matchesIndexRange`.
         }
         _ => {}
     }

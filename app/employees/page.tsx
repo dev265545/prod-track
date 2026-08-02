@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { AppShell } from "@/components/app-shell";
+import { LoadError } from "@/components/load-error";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Card,
@@ -69,6 +70,7 @@ export default function EmployeesPage() {
   const { t } = useLanguage();
   const { ready: guardReady } = useAuthGuard();
   const [dataLoaded, setDataLoaded] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
   const ready = guardReady && dataLoaded;
   const [employees, setEmployees] = useState<Record<string, unknown>[]>([]);
   const [shifts, setShifts] = useState<Record<string, unknown>[]>([]);
@@ -93,10 +95,34 @@ export default function EmployeesPage() {
     setSundayCategories(sundayCategoryList);
   };
 
+  /**
+   * `load()` had no catch, and `ready` waits on `dataLoaded` — so a failed read
+   * showed the skeleton for ever. Failed is now its own state with a retry.
+   */
+  const retry = useCallback(() => {
+    setLoadFailed(false);
+    load()
+      .then(() => setDataLoaded(true))
+      .catch((err) => {
+        console.error("people: load failed", err);
+        setLoadFailed(true);
+      });
+  }, []);
+
   useEffect(() => {
     if (!guardReady) return;
-    load().then(() => setDataLoaded(true));
-  }, [guardReady]);
+    retry();
+  }, [guardReady, retry]);
+
+  if (loadFailed) {
+    return (
+      <AppShell>
+        <main id="main" className="flex flex-col gap-8">
+          <LoadError onRetry={retry} />
+        </main>
+      </AppShell>
+    );
+  }
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -220,13 +246,23 @@ export default function EmployeesPage() {
                       <TableCell className="text-muted-foreground">
                         <Select
                           value={(e.employeeType as string) ?? "salaried"}
+                          // Changing this changes how the person is paid, so
+                          // it confirms like every other write on this screen.
+                          // It used to be silent on both paths: a failed save
+                          // just snapped the box back with no explanation.
                           onValueChange={async (v) => {
-                            await saveEmployee({
-                              ...e,
-                              employeeType: v,
-                              employeeTypeConfirmed: true,
-                            });
-                            await load();
+                            try {
+                              await saveEmployee({
+                                ...e,
+                                employeeType: v,
+                                employeeTypeConfirmed: true,
+                              });
+                              await load();
+                              toast.success(t("ux2PayTypeSaved"));
+                            } catch (err) {
+                              console.error("people: pay type save failed", err);
+                              toast.error(t("ux2PayTypeSaveFailed"));
+                            }
                           }}
                         >
                           <SelectTrigger className="w-36 min-h-[44px]">

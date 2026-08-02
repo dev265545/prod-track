@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppShell } from "@/components/app-shell";
+import { LoadError } from "@/components/load-error";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -111,6 +112,9 @@ export function Dashboard() {
     Record<string, unknown>[]
   >([]);
   const [calendarHolidays, setCalendarHolidays] = useState<string[]>([]);
+  const [loadFailed, setLoadFailed] = useState(false);
+  /** Bumped by the error card's "Try again" to re-run the load effects. */
+  const [retryKey, setRetryKey] = useState(0);
   const [aggregated, setAggregated] = useState<{
     totals: Record<string, number>;
     day: Record<string, number>;
@@ -247,13 +251,22 @@ export function Dashboard() {
     setCalendarHolidays(hols.map((h) => h.date as string));
   }, [calYear, calMonth]);
 
+  // Both loads used to be fire-and-forget. A rejection left `aggregated` null
+  // forever, which the guard below renders as a skeleton — a failed read looked
+  // exactly like a slow one, with no way out.
   useEffect(() => {
-    load();
-  }, [load]);
+    load().catch((err) => {
+      console.error("daily entry: load failed", err);
+      setLoadFailed(true);
+    });
+  }, [load, retryKey]);
 
   useEffect(() => {
-    loadCalendar();
-  }, [loadCalendar]);
+    loadCalendar().catch((err) => {
+      console.error("daily entry: calendar load failed", err);
+      setLoadFailed(true);
+    });
+  }, [loadCalendar, retryKey]);
 
 
   /**
@@ -283,15 +296,24 @@ export function Dashboard() {
 
   const handleToggleHoliday = useCallback(
     async (dateStr: string) => {
-      const existing = await getHolidayByDate(dateStr);
-      if (existing?.id) {
-        await deleteHoliday(existing.id as string);
-        toast.success(t("toastHolidayRemoved"));
-      } else {
-        await saveHoliday({ date: dateStr });
-        toast.success(t("toastHolidayAdded"));
+      // This writes a record that changes what a day pays, so a failure has to
+      // say so. It used to have no catch at all: the write rejected, the
+      // calendar silently kept the old state, and the operator believed the
+      // holiday had been set.
+      try {
+        const existing = await getHolidayByDate(dateStr);
+        if (existing?.id) {
+          await deleteHoliday(existing.id as string);
+          toast.success(t("toastHolidayRemoved"));
+        } else {
+          await saveHoliday({ date: dateStr });
+          toast.success(t("toastHolidayAdded"));
+        }
+        await loadCalendar();
+      } catch (err) {
+        console.error("dashboard: holiday toggle failed", err);
+        toast.error(t("ux2HolidaySaveFailed"));
       }
-      await loadCalendar();
     },
     [loadCalendar, t],
   );
@@ -407,6 +429,23 @@ export function Dashboard() {
   // refused outright, which left an operator with genuine holiday work stuck.
   const entryBlocked = dateIsHoliday && !holidayUnlocked;
 
+  // Checked before the skeleton: a read that threw is not a read in progress.
+  if (loadFailed) {
+    return (
+      <AppShell>
+        <main className="flex min-w-0 flex-col gap-8">
+          <LoadError
+            onRetry={() => {
+              setLoadFailed(false);
+              setAggregated(null);
+              setRetryKey((n) => n + 1);
+            }}
+          />
+        </main>
+      </AppShell>
+    );
+  }
+
   if (!aggregated || !period) {
     return (
       <AppShell>
@@ -491,7 +530,7 @@ export function Dashboard() {
                   <DialogTrigger asChild>
                     <button
                       type="button"
-                      className="relative flex items-center justify-center rounded-lg p-2 text-destructive hover:bg-destructive/10 focus:outline-none focus:ring-2 focus:ring-destructive/30 transition-colors"
+                      className="relative flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg p-2 text-destructive hover:bg-destructive/10 focus:outline-none focus:ring-2 focus:ring-destructive/30 transition-colors"
                       aria-label={t("dashboardMissingDataAria", {
                         count: totalMissing,
                       })}

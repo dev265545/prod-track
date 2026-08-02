@@ -148,6 +148,7 @@ export function ItemSetsCard({
                             type="button"
                             variant="destructive"
                             size="icon"
+                            className="size-11"
                             title={t("comboDeleteTitle")}
                             aria-label={t("comboDeleteAria", { name: c.name })}
                           >

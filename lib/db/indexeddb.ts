@@ -5,10 +5,12 @@
 import { DB_NAME, DB_VERSION, METADATA_STORE, STORES } from "./schema";
 import {
   INDEXES,
+  applyIndexReadOptions,
   getIndexKeyPath,
   matchesIndexRange,
   sortByIndexOrder,
   type IndexKey,
+  type IndexReadOptions,
 } from "./indexes";
 
 let dbInstance: IDBDatabase | null = null;

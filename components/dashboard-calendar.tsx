@@ -96,6 +96,7 @@ export function DashboardCalendar({
           type="button"
           variant="outline"
           size="icon"
+          className="size-11"
           onClick={() => {
             const prev = month === 0 ? 11 : month - 1;
             const py = month === 0 ? year - 1 : year;
@@ -112,6 +113,7 @@ export function DashboardCalendar({
           type="button"
           variant="outline"
           size="icon"
+          className="size-11"
           onClick={() => {
             const next = month === 11 ? 0 : month + 1;
             const ny = month === 11 ? year + 1 : year;

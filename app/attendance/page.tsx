@@ -5,6 +5,7 @@ import Link from "next/link";
 import { toast } from "sonner";
 import { CalendarDays, CheckCheck, Info, UsersRound } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
+import { LoadError } from "@/components/load-error";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { DatePicker } from "@/components/ui/date-picker";
@@ -67,6 +68,9 @@ export default function AttendancePage() {
   const [rows, setRows] = React.useState<RosterRow[]>([]);
   const [holidayDates, setHolidayDates] = React.useState<string[]>([]);
   const [loaded, setLoaded] = React.useState(false);
+  const [loadFailed, setLoadFailed] = React.useState(false);
+  /** Bumped by the error card's "Try again" to re-run the load effect. */
+  const [retryKey, setRetryKey] = React.useState(0);
   const [pendingIds, setPendingIds] = React.useState<string[]>([]);
   const [bulkSaving, setBulkSaving] = React.useState(false);
   const [holidayUnlocked, setHolidayUnlocked] = React.useState(false);
@@ -123,17 +127,26 @@ export default function AttendancePage() {
   React.useEffect(() => {
     if (!guardReady) return;
     let cancelled = false;
-    void load(date).then((result) => {
-      // `cancelled` guards a slower read for a date the operator has left.
-      if (cancelled) return;
-      setHolidayDates(result.holidayDates);
-      setRows(result.rows);
-      setLoaded(true);
-    });
+    void load(date)
+      .then((result) => {
+        // `cancelled` guards a slower read for a date the operator has left.
+        if (cancelled) return;
+        setHolidayDates(result.holidayDates);
+        setRows(result.rows);
+        setLoaded(true);
+      })
+      // Without this the read simply never resolved `loaded`, so a failure was
+      // an eternal skeleton — indistinguishable from a slow disk. Loading,
+      // empty and failed are three different things and now look like it.
+      .catch((err) => {
+        if (cancelled) return;
+        console.error("attendance: load failed", err);
+        setLoadFailed(true);
+      });
     return () => {
       cancelled = true;
     };
-  }, [guardReady, date, load]);
+  }, [guardReady, date, load, retryKey]);
 
   /**
    * Changing the day resets the screen *before* the load starts, so a slow read
@@ -145,6 +158,7 @@ export default function AttendancePage() {
     if (!next) return;
     writeSeq.current.clear();
     setLoaded(false);
+    setLoadFailed(false);
     setHolidayUnlocked(false);
     setRows([]);
     setDate(next);
@@ -358,7 +372,16 @@ export default function AttendancePage() {
           </div>
         ) : null}
 
-        {!loaded ? (
+        {/* Failed is checked BEFORE empty: a read that threw must never be
+            reported as "no people on the roster". */}
+        {loadFailed ? (
+          <LoadError
+            onRetry={() => {
+              setLoaded(false);
+              setRetryKey((n) => n + 1);
+            }}
+          />
+        ) : !loaded ? (
           <>
             <Skeleton className="h-36 rounded-2xl" />
             <Skeleton className="h-96 rounded-2xl" />
