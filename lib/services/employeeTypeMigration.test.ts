@@ -110,4 +110,72 @@ describe("backfillEmployeeTypes", () => {
     expect(result.updated).toEqual([]);
     expect(saveEmployee).not.toHaveBeenCalled();
   });
+
+  it("does not overwrite an explicit type even when the guess would differ", async () => {
+    // Explicitly "salaried" but has production records: the guess is irrelevant.
+    vi.mocked(getEmployees).mockResolvedValue([
+      { id: "emp_5", employeeType: "salaried", employeeTypeConfirmed: false },
+    ]);
+    vi.mocked(getProductionsByEmployee).mockResolvedValue([
+      { id: "prod_9", employeeId: "emp_5", date: "2026-01-01" },
+    ]);
+
+    const result = await backfillEmployeeTypes();
+
+    expect(result.updated).toEqual([]);
+    expect(saveEmployee).not.toHaveBeenCalled();
+  });
+
+  it("leaves a human-confirmed employee alone even without a type", async () => {
+    vi.mocked(getEmployees).mockResolvedValue([
+      { id: "emp_6", employeeTypeConfirmed: true },
+    ]);
+    vi.mocked(getProductionsByEmployee).mockResolvedValue([]);
+
+    const result = await backfillEmployeeTypes();
+
+    expect(result.updated).toEqual([]);
+    expect(saveEmployee).not.toHaveBeenCalled();
+  });
+
+  it("never marks a guess as confirmed", async () => {
+    vi.mocked(getEmployees).mockResolvedValue([
+      { id: "emp_7", monthlySalary: 12000 },
+      { id: "emp_8" },
+    ]);
+    vi.mocked(getProductionsByEmployee).mockResolvedValue([
+      { id: "prod_2", employeeId: "emp_8", date: "2026-01-01" },
+    ]);
+
+    await backfillEmployeeTypes();
+
+    expect(saveEmployee).toHaveBeenCalledTimes(2);
+    for (const call of vi.mocked(saveEmployee).mock.calls) {
+      expect(call[0].employeeTypeConfirmed).toBe(false);
+      expect(call[0].employeeTypeConfirmed).not.toBe(true);
+    }
+  });
+
+  it("is idempotent: a second run writes nothing", async () => {
+    const stored: Record<string, unknown>[] = [{ id: "emp_9" }];
+    vi.mocked(getEmployees).mockImplementation(async () => stored);
+    vi.mocked(getProductionsByEmployee).mockResolvedValue([]);
+    vi.mocked(saveEmployee).mockImplementation(async (e) => {
+      const idx = stored.findIndex((s) => s.id === e.id);
+      if (idx >= 0) stored[idx] = { ...stored[idx], ...e };
+      return e;
+    });
+
+    const first = await backfillEmployeeTypes();
+    expect(first.updated).toEqual(["emp_9"]);
+    expect(saveEmployee).toHaveBeenCalledTimes(1);
+
+    const second = await backfillEmployeeTypes();
+    expect(second.updated).toEqual([]);
+    expect(saveEmployee).toHaveBeenCalledTimes(1);
+    expect(stored[0]).toMatchObject({
+      employeeType: "salaried",
+      employeeTypeConfirmed: false,
+    });
+  });
 });

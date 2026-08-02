@@ -21,12 +21,27 @@ export function inferEmployeeType(input: {
   return "salaried";
 }
 
+/**
+ * Gives every untyped employee a *guessed* type so the salary sheet stops
+ * silently treating them as salaried.
+ *
+ * The guess is never a confirmation: `employeeTypeConfirmed` is always written
+ * as `false`, so the dashboard keeps asking a human to review it. Only an
+ * explicit human action (employees page, or the dashboard review dialog) sets
+ * `employeeTypeConfirmed: true`.
+ *
+ * Safe to call repeatedly — employees that already have a type, or that a human
+ * already confirmed, are skipped.
+ */
 export async function backfillEmployeeTypes(): Promise<{ updated: string[] }> {
   const employees = await getEmployees();
   const updated: string[] = [];
 
   for (const emp of employees) {
+    // Idempotent: anything already typed, or already signed off by a human,
+    // is left exactly as-is so this is safe to run on every dashboard load.
     if (emp.employeeType) continue;
+    if (emp.employeeTypeConfirmed === true) continue;
 
     const hasMonthlySalary =
       typeof emp.monthlySalary === "number" && emp.monthlySalary > 0;

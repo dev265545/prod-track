@@ -1,20 +1,9 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
-import { useRouter } from "next/navigation";
-import Link from "next/link";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppShell } from "@/components/app-shell";
-import { Spinner } from "@/components/ui/spinner";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Card,
@@ -39,13 +28,30 @@ import {
 } from "@/components/ui/table";
 import {
   getDailyAggregated,
-  saveProduction,
+  getProductionsByDate,
   getProductionsInRange,
 } from "@/lib/services/productionService";
+import {
+  ProductionEntryForm,
+  type ProductionEntryFormHandle,
+} from "@/components/production/production-entry-form";
+import {
+  ProductionRosterList,
+  ProductionSummaryBar,
+} from "@/components/production/production-roster";
+import {
+  buildProductionRoster,
+  isProductionEmployee,
+  summarizeProductionRoster,
+} from "@/lib/utils/productionRoster";
 import { getItems } from "@/lib/services/itemService";
+import {
+  loadProductionCatalog,
+  type ProductionCatalog,
+} from "@/lib/services/productionCatalog";
 import { getEmployees } from "@/lib/services/employeeService";
-import { calculateSalaryForPeriod } from "@/lib/services/salaryService";
-import { getDeductionForPeriod } from "@/lib/services/advanceDeductionService";
+import { backfillEmployeeTypes } from "@/lib/services/employeeTypeMigration";
+import { EmployeeTypeConfirmDialog } from "@/components/employee-type-confirm-dialog";
 import {
   getHolidaysInRange,
   getHolidayByDate,
@@ -56,7 +62,6 @@ import {
   getMissingDataForAllEmployees,
   type MissingDay,
 } from "@/lib/utils/missingDataWarnings";
-import { isRestrictedForEntry } from "@/lib/utils/date";
 import { toast } from "sonner";
 import {
   today,
@@ -67,15 +72,15 @@ import {
 } from "@/lib/utils/date";
 import { currency, number } from "@/lib/utils/formatter";
 import { DashboardCalendar } from "@/components/dashboard-calendar";
+import Link from "next/link";
 import {
+  Info,
   Package,
   IndianRupee,
   Users,
   CalendarDays,
   LayoutGrid,
-  Receipt,
   AlertTriangle,
-  UserCog,
 } from "lucide-react";
 import {
   Dialog,
@@ -84,6 +89,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { isAdmin } from "@/lib/auth";
 import { useLanguage } from "@/components/language-provider";
 
 function getYearMonth(dateStr: string): { year: number; month: number } {
@@ -92,7 +98,6 @@ function getYearMonth(dateStr: string): { year: number; month: number } {
 }
 
 export function Dashboard() {
-  const router = useRouter();
   const { t, locale } = useLanguage();
   const [date, setDate] = useState(today());
   const [calYear, setCalYear] = useState(() => getYearMonth(today()).year);
@@ -107,21 +112,17 @@ export function Dashboard() {
     night: Record<string, number>;
   } | null>(null);
   const [items, setItems] = useState<Record<string, unknown>[]>([]);
+  /**
+   * What the picker offers. `items` above stays the *pay* list and is what
+   * prices rows already written down, whichever list they were entered from.
+   */
+  const [catalog, setCatalog] = useState<ProductionCatalog | null>(null);
   const [employees, setEmployees] = useState<Record<string, unknown>[]>([]);
   const [period, setPeriod] = useState<{
     from: string;
     to: string;
     label: string;
   } | null>(null);
-  const [salaryRows, setSalaryRows] = useState<
-    {
-      id: string;
-      name: string;
-      gross: number;
-      advanceToCut: number;
-      final: number;
-    }[]
-  >([]);
   const [periodProduction, setPeriodProduction] = useState<{
     totalQty: number;
     totalValue: number;
@@ -130,46 +131,60 @@ export function Dashboard() {
     totalQty: number;
     totalValue: number;
   }>({ totalQty: 0, totalValue: 0 });
-  const [quickEmp, setQuickEmp] = useState("");
-  const [quickItem, setQuickItem] = useState("");
-  const [quickShift, setQuickShift] = useState<"day" | "night">("day");
-  const [quickQty, setQuickQty] = useState(1);
-  const [quickDate, setQuickDate] = useState(today());
-  const [saving, setSaving] = useState(false);
+  /** Everything written down for the selected date, for the roster below. */
+  const [dayProductions, setDayProductions] = useState<
+    Record<string, unknown>[]
+  >([]);
+  const [dateIsHoliday, setDateIsHoliday] = useState(false);
+  const [holidayUnlocked, setHolidayUnlocked] = useState(false);
+  const entryFormRef = useRef<ProductionEntryFormHandle>(null);
   const [missingData, setMissingData] = useState<Map<string, MissingDay[]>>(new Map());
 
+  // Role is read after mount, never during render: `isAdmin()` touches
+  // localStorage, so calling it while rendering makes the first-paint markup
+  // disagree with the client and hydrate the wrong controls. Mirrors
+  // components/app-sidebar.tsx.
+  const [admin, setAdmin] = useState(false);
+  useEffect(() => {
+    setAdmin(isAdmin());
+  }, []);
+
   const load = useCallback(async () => {
-    const [dailyAgg, itemsList, employeesList, periodData] = await Promise.all([
-      getDailyAggregated(date),
-      getItems(),
-      getEmployees(true),
-      getPeriodForDate(date, locale),
-    ]);
+    // Give people who were added before pay types existed a starting guess, so
+    // the salary sheet stops quietly treating them all as salaried. The guess is
+    // never treated as confirmed — the review dialog below still asks a human.
+    // Safe to run on every load; a failure here must not blank the dashboard.
+    try {
+      await backfillEmployeeTypes();
+    } catch (error) {
+      console.error("employee type guess failed", error);
+    }
+
+    const [
+      dailyAgg,
+      itemsList,
+      employeesList,
+      periodData,
+      dayProds,
+      dayHoliday,
+      productionCatalog,
+    ] =
+      await Promise.all([
+        getDailyAggregated(date),
+        getItems(),
+        getEmployees(true),
+        getPeriodForDate(date, locale),
+        getProductionsByDate(date),
+        getHolidayByDate(date),
+        loadProductionCatalog(),
+      ]);
     setAggregated(dailyAgg);
     setItems(itemsList);
+    setCatalog(productionCatalog);
     setEmployees(employeesList);
     setPeriod(periodData);
-
-    const salaryData = await Promise.all(
-      employeesList.map(async (e) => {
-        const s = await calculateSalaryForPeriod(e.id as string, date);
-        const ded = await getDeductionForPeriod(
-          e.id as string,
-          periodData.from,
-          periodData.to,
-        );
-        const advanceToCut = (ded?.amount as number) ?? 0;
-        const net = Math.max(0, s.gross - advanceToCut);
-        return {
-          id: e.id as string,
-          name: e.name as string,
-          gross: s.gross,
-          advanceToCut,
-          final: net,
-        };
-      }),
-    );
-    setSalaryRows(salaryData);
+    setDayProductions(dayProds);
+    setDateIsHoliday(Boolean(dayHoliday));
 
     const { from: periodFrom, to: periodTo } = periodData;
     const { from: monthFrom, to: monthTo } = getMonthRange(
@@ -236,17 +251,23 @@ export function Dashboard() {
     setCalMonth(month);
   }, [date]);
 
-  // Keep quick-add date in sync with selected dashboard date (calendar or date picker)
-  useEffect(() => {
-    setQuickDate(date);
-  }, [date]);
+  /**
+   * The single entry point for changing the day. A new day is a fresh decision
+   * about whether to write on a factory holiday, so the unlock never carries
+   * over from the day the operator just left.
+   */
+  const changeDate = useCallback((next: string) => {
+    if (!next) return;
+    setHolidayUnlocked(false);
+    setDate(next);
+  }, []);
 
   const handleCalendarDateClick = useCallback((dateStr: string) => {
-    setDate(dateStr);
+    changeDate(dateStr);
     const { year, month } = getYearMonth(dateStr);
     setCalYear(year);
     setCalMonth(month);
-  }, []);
+  }, [changeDate]);
 
   const handleCalendarMonthChange = useCallback((year: number, month: number) => {
     setCalYear(year);
@@ -268,33 +289,75 @@ export function Dashboard() {
     [loadCalendar, t],
   );
 
-  const handleQuickAdd = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!quickEmp || !quickItem) return;
-    const holiday = await getHolidayByDate(quickDate);
-    const holidayDates = holiday ? [quickDate] : [];
-    if (isRestrictedForEntry(quickDate, holidayDates)) {
-      toast.error(t("toastCannotProductionOnHoliday"));
-      return;
-    }
-    setSaving(true);
-    try {
-      await saveProduction({
-        employeeId: quickEmp,
-        itemId: quickItem,
-        date: quickDate,
-        quantity: quickQty,
-        shift: quickShift,
-      });
-      setQuickQty(1);
-      await Promise.all([load(), loadCalendar()]);
-      toast.success(t("toastProductionAdded"));
-    } catch {
-      toast.error(t("toastProductionFailed"));
-    } finally {
-      setSaving(false);
-    }
-  };
+  /**
+   * The production roster: who is paid for what they make, and what is written
+   * down for them on the selected date. These people have no attendance to
+   * mark — recording their output *is* the record of their working day — so
+   * this list is the equivalent of the attendance roster's "still to write".
+   */
+  const rosterRows = useMemo(
+    () =>
+      buildProductionRoster({
+        date,
+        employees: employees.map((e) => ({
+          id: e.id as string,
+          name: String(e.name ?? ""),
+          employeeType: e.employeeType as string | undefined,
+          isActive: e.isActive as boolean | undefined,
+        })),
+        productions: dayProductions.map((p) => ({
+          employeeId: p.employeeId as string,
+          itemId: p.itemId as string,
+          date: p.date as string,
+          quantity: (p.quantity as number) ?? 0,
+          shift: p.shift as string | undefined,
+        })),
+      }),
+    [date, employees, dayProductions],
+  );
+  const rosterSummary = useMemo(
+    () => summarizeProductionRoster(rosterRows),
+    [rosterRows],
+  );
+  const entryEmployees = useMemo(
+    () =>
+      employees
+        .filter(
+          (e) =>
+            e.isActive !== false &&
+            isProductionEmployee({
+              employeeType: e.employeeType as string | undefined,
+            }),
+        )
+        .map((e) => ({ id: e.id as string, name: String(e.name ?? "") })),
+    [employees],
+  );
+  const entryItems = useMemo(() => catalog?.entries ?? [], [catalog]);
+  /**
+   * Stock items the production list has never heard of. Shown rather than
+   * silently dropped: an owner who added an item under Stock and cannot find
+   * it here has no other way to discover why.
+   */
+  const unlinkedStock = catalog?.unlinkedInventoryNames ?? [];
+  const itemNames = useMemo(
+    () =>
+      Object.fromEntries(
+        items.map((i) => [i.id as string, String(i.name ?? "")]),
+      ) as Record<string, string>,
+    [items],
+  );
+
+  const handleEntrySaved = useCallback(async () => {
+    await Promise.all([load(), loadCalendar()]);
+  }, [load, loadCalendar]);
+
+  const handleAddFor = useCallback((employeeId: string) => {
+    entryFormRef.current?.focusFor(employeeId);
+  }, []);
+
+  // Factory holidays stay writable, but only on purpose: the old quick-add
+  // refused outright, which left an operator with genuine holiday work stuck.
+  const entryBlocked = dateIsHoliday && !holidayUnlocked;
 
   if (!aggregated || !period) {
     return (
@@ -364,7 +427,7 @@ export function Dashboard() {
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <h1 className="text-3xl font-bold text-foreground font-heading">
-              {t("dashboardTitle")}
+              {t("navLinkDailyEntry")}
             </h1>
             {(() => {
               const entries = Array.from(missingData.entries()).filter(
@@ -427,54 +490,20 @@ export function Dashboard() {
                 </Dialog>
               );
             })()}
-            {(() => {
-              const unconfirmed = employees.filter(
-                (e) => e.employeeTypeConfirmed !== true,
-              );
-              if (unconfirmed.length === 0) return null;
-              return (
-                <Dialog>
-                  <DialogTrigger asChild>
-                    <button
-                      type="button"
-                      className="relative flex items-center justify-center rounded-lg p-2 text-primary hover:bg-primary/10 focus:outline-none focus:ring-2 focus:ring-primary/30 transition-colors"
-                      aria-label={t("dashboardUnconfirmedTypesAria", {
-                        count: unconfirmed.length,
-                      })}
-                    >
-                      <UserCog className="size-5" />
-                      <span className="absolute -top-0.5 -right-0.5 flex size-4 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground animate-pulse">
-                        {unconfirmed.length > 9 ? "9+" : unconfirmed.length}
-                      </span>
-                    </button>
-                  </DialogTrigger>
-                  <DialogContent className="sm:max-w-md">
-                    <DialogHeader>
-                      <DialogTitle>
-                        {t("dashboardUnconfirmedTypesTitle")}
-                      </DialogTitle>
-                      <p className="text-sm text-muted-foreground">
-                        {t("dashboardUnconfirmedTypesIntro", {
-                          count: unconfirmed.length,
-                        })}
-                      </p>
-                    </DialogHeader>
-                    <ul className="flex flex-col gap-2 text-sm max-h-60 overflow-y-auto">
-                      {unconfirmed.map((e) => (
-                        <li key={e.id as string}>
-                          <Link
-                            href={`/employee?id=${encodeURIComponent(String(e.id))}`}
-                            className="text-primary underline underline-offset-2 hover:no-underline"
-                          >
-                            {e.name as string}
-                          </Link>
-                        </li>
-                      ))}
-                    </ul>
-                  </DialogContent>
-                </Dialog>
-              );
-            })()}
+            {/* Admin-only: employeeType selects the salary formula
+                (salarySheetService branches on operator/production), and
+                app/employees/page.tsx already restricts the operator option to
+                admins. This dialog renders on the worker-reachable dashboard,
+                so without this gate a worker session could change how people
+                are paid. */}
+            {admin && (
+              <EmployeeTypeConfirmDialog
+                employees={employees.filter(
+                  (e) => e.employeeTypeConfirmed !== true,
+                )}
+                onSaved={load}
+              />
+            )}
           </div>
           <div className="flex flex-col gap-2">
             <Label
@@ -486,7 +515,7 @@ export function Dashboard() {
             <DatePicker
               id="dashboardDate"
               value={date}
-              onChange={setDate}
+              onChange={changeDate}
               className="min-h-[44px] w-[180px]"
             />
           </div>
@@ -514,6 +543,124 @@ export function Dashboard() {
             </span>
           )}
         </div>
+
+
+        {/* Writing work down comes before looking at it: this is the job the
+            operator opens the screen to do. One date above, then person /
+            item / shift / how many, over and over. */}
+        <section className="flex min-w-0 flex-col gap-4">
+          <div className="flex min-w-0 flex-col gap-1">
+            <h2 className="text-xl font-semibold text-foreground font-heading">
+              {t("prodEntryTitle")}
+            </h2>
+            <p className="max-w-prose text-sm text-muted-foreground">
+              {t("prodPageIntro")}
+            </p>
+          </div>
+
+          {dateIsHoliday ? (
+            <div className="flex min-w-0 flex-col gap-3 rounded-2xl border border-border bg-surface-2 p-4">
+              <div className="flex min-w-0 items-start gap-2">
+                <Info className="mt-0.5 size-5 shrink-0 text-warning" aria-hidden />
+                <p className="min-w-0 text-sm text-foreground">
+                  {holidayUnlocked
+                    ? t("rostHolidayUnlocked")
+                    : t("rostHolidayBody")}
+                </p>
+              </div>
+              {!holidayUnlocked ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="min-h-[44px] self-start px-4"
+                  onClick={() => setHolidayUnlocked(true)}
+                >
+                  {t("rostHolidayUnlock")}
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
+
+          {unlinkedStock.length > 0 && (
+            <div className="flex min-w-0 flex-col gap-2 rounded-xl border-2 border-border bg-surface-2 p-4">
+              <p className="flex min-w-0 items-start gap-2 text-base font-medium text-foreground">
+                <Info className="mt-0.5 size-5 shrink-0" aria-hidden />
+                <span className="min-w-0">
+                  {t("cfgUnlinkedTitle", { count: unlinkedStock.length })}
+                </span>
+              </p>
+              <p className="min-w-0 text-sm leading-relaxed text-muted-foreground">
+                {t("cfgUnlinkedNames", { names: unlinkedStock.join(", ") })}
+              </p>
+              <p className="min-w-0 text-sm leading-relaxed text-muted-foreground">
+                {t("cfgUnlinkedHelpOff")}
+              </p>
+              {admin && (
+                <Button asChild variant="outline" className="mt-1 min-h-[44px] self-start px-4">
+                  <Link href="/settings">
+                    <LayoutGrid data-icon="inline-start" aria-hidden />
+                    {t("cfgOpenSettings")}
+                  </Link>
+                </Button>
+              )}
+            </div>
+          )}
+
+          {entryEmployees.length === 0 ? (
+            <Empty className="py-10">
+              <EmptyHeader>
+                <EmptyTitle>{t("prodNoPeople")}</EmptyTitle>
+                <EmptyDescription>{t("prodNoPeopleDesc")}</EmptyDescription>
+              </EmptyHeader>
+              <Button asChild className="mt-4 min-h-[44px] px-4">
+                <Link href="/employees">
+                  <Users data-icon="inline-start" aria-hidden />
+                  {t("prodGoToPeople")}
+                </Link>
+              </Button>
+            </Empty>
+          ) : entryItems.length === 0 ? (
+            <Empty className="py-10">
+              <EmptyHeader>
+                <EmptyTitle>{t("prodNoItems")}</EmptyTitle>
+                <EmptyDescription>{t("prodNoItemsDesc")}</EmptyDescription>
+              </EmptyHeader>
+              <Button asChild className="mt-4 min-h-[44px] px-4">
+                <Link href="/items">
+                  <Package data-icon="inline-start" aria-hidden />
+                  {t("prodGoToItems")}
+                </Link>
+              </Button>
+            </Empty>
+          ) : (
+            <>
+              <ProductionEntryForm
+                ref={entryFormRef}
+                date={date}
+                employees={entryEmployees}
+                items={entryItems}
+                onSaved={handleEntrySaved}
+                disabled={entryBlocked}
+              />
+
+              <div className="flex min-w-0 flex-col gap-1">
+                <h3 className="text-base font-semibold text-foreground font-heading">
+                  {t("prodRosterTitle")}
+                </h3>
+                <p className="max-w-prose text-sm text-muted-foreground">
+                  {t("prodRosterIntro")}
+                </p>
+              </div>
+              <ProductionSummaryBar summary={rosterSummary} />
+              <ProductionRosterList
+                rows={rosterRows}
+                itemNames={itemNames}
+                onAddFor={handleAddFor}
+                disabled={entryBlocked}
+              />
+            </>
+          )}
+        </section>
 
         <div className="flex flex-col lg:flex-row gap-4 lg:items-stretch lg:min-h-[340px] w-full">
           <div className="shrink-0 w-full lg:w-auto lg:self-stretch">
@@ -682,163 +829,6 @@ export function Dashboard() {
           </CardContent>
         </Card>
 
-        <Card className="p-6 sm:p-8">
-          <CardHeader className="p-0 mb-5">
-            <CardTitle className="text-xl font-semibold flex items-center gap-2">
-              <LayoutGrid className="size-5 text-primary" />
-              {t("dashboardQuickAdd")}
-            </CardTitle>
-            <p className="text-sm text-muted-foreground mt-1">
-              {t("dashboardQuickAddHint", {
-                date: formatDisplayDate(date, locale),
-              })}
-            </p>
-          </CardHeader>
-          <CardContent className="p-0">
-          <form
-            onSubmit={handleQuickAdd}
-            className="flex flex-wrap gap-4 items-end"
-          >
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="quickEmp">{t("labelEmployee")}</Label>
-              <Select
-                value={quickEmp}
-                onValueChange={setQuickEmp}
-              >
-                <SelectTrigger id="quickEmp" className="w-48 min-h-[44px]">
-                  <SelectValue placeholder={t("selectPlaceholder")} />
-                </SelectTrigger>
-                <SelectContent>
-                  {employees
-                    .filter((e) => e.employeeType === "production")
-                    .map((e) => (
-                      <SelectItem key={e.id as string} value={e.id as string}>
-                        {e.name as string}
-                      </SelectItem>
-                    ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="quickItem">{t("labelItem")}</Label>
-              <Select value={quickItem} onValueChange={setQuickItem}>
-                <SelectTrigger id="quickItem" className="w-56 min-h-[44px]">
-                  <SelectValue placeholder={t("selectPlaceholder")} />
-                </SelectTrigger>
-                <SelectContent>
-                  {items.map((i) => (
-                    <SelectItem key={i.id as string} value={i.id as string}>
-                      {i.name as string}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="quickShift">{t("labelShift")}</Label>
-              <Select
-                value={quickShift}
-                onValueChange={(v) => setQuickShift(v as "day" | "night")}
-              >
-                <SelectTrigger id="quickShift" className="min-h-[44px]">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="day">{t("shiftDay")}</SelectItem>
-                  <SelectItem value="night">{t("shiftNight")}</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="quickQty">{t("labelQty")}</Label>
-              <Input
-                type="number"
-                id="quickQty"
-                min={1}
-                value={quickQty}
-                onChange={(e) =>
-                  setQuickQty(parseInt(e.target.value, 10) || 1)
-                }
-                className="w-24 min-h-[44px]"
-              />
-            </div>
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="quickDate">{t("labelDate")}</Label>
-              <DatePicker
-                id="quickDate"
-                value={quickDate}
-                onChange={setQuickDate}
-                className="min-h-[44px] w-[180px]"
-              />
-            </div>
-            <Button
-              type="submit"
-              disabled={saving}
-              className="min-h-[44px] px-6 py-3 text-base rounded-xl"
-            >
-              {saving ? (
-                <>
-                  <Spinner data-icon="inline-start" />
-                  {t("adding")}
-                </>
-              ) : (
-                t("add")
-              )}
-            </Button>
-          </form>
-          </CardContent>
-        </Card>
-
-        <Card className="p-6 sm:p-8">
-          <CardHeader className="p-0 mb-5">
-            <CardTitle className="text-xl font-semibold flex items-center gap-2">
-              <Receipt className="size-5 text-primary" />
-              {t("dashboardSalarySummary")}
-            </CardTitle>
-            <p className="text-base text-muted-foreground mt-1">
-              {getPeriodForDate(period.from, locale).label}
-            </p>
-          </CardHeader>
-          <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>{t("colEmployee")}</TableHead>
-                  <TableHead className="text-right tabular-nums">{t("colGross")}</TableHead>
-                  <TableHead className="text-right tabular-nums">{t("colAdvanceToCut")}</TableHead>
-                  <TableHead className="text-right tabular-nums">{t("colNet")}</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {salaryRows.map((r) => (
-                  <TableRow
-                    key={r.id}
-                    className="cursor-pointer hover:bg-muted/50 transition-colors"
-                    onClick={() =>
-                      router.push(`/employee?id=${encodeURIComponent(String(r.id))}`)
-                    }
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        router.push(`/employee?id=${encodeURIComponent(String(r.id))}`);
-                      }
-                    }}
-                    tabIndex={0}
-                    role="button"
-                    aria-label={t("viewEmployeeAria", { name: r.name })}
-                  >
-                    <TableCell>{r.name}</TableCell>
-                    <TableCell className="text-right tabular-nums">{currency(r.gross)}</TableCell>
-                    <TableCell className="text-right tabular-nums">{currency(r.advanceToCut)}</TableCell>
-                    <TableCell className="text-right tabular-nums font-medium">{currency(r.final)}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-          </CardContent>
-        </Card>
       </main>
     </AppShell>
   );

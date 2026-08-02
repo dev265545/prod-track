@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -48,7 +49,7 @@ import {
   type SundayCategory,
 } from "@/lib/services/sundayCategoryService";
 import { toast } from "sonner";
-import { Trash2 } from "lucide-react";
+import { CalendarCheck, Trash2 } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -145,9 +146,22 @@ export default function EmployeesPage() {
   return (
     <AppShell>
       <main id="main" className="flex flex-col gap-10 animate-fade-in">
-        <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground font-heading">
-          {t("employeesPageTitle")}
-        </h1>
+        {/* Setup screen, not a daily one: say so, and point the daily job at
+            the roster so this page stops reading as "attendance". */}
+        <div className="flex flex-col gap-3 min-w-0">
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground font-heading">
+            {t("rostPeopleTitle")}
+          </h1>
+          <p className="max-w-prose text-sm text-muted-foreground">
+            {t("rostPeopleIntro")}
+          </p>
+          <Button asChild variant="outline" className="min-h-[44px] self-start px-4">
+            <Link href="/attendance">
+              <CalendarCheck data-icon="inline-start" aria-hidden />
+              {t("rostPeopleToRoster")}
+            </Link>
+          </Button>
+        </div>
 
         <Card className="border-border">
           <CardHeader className="pb-4">
