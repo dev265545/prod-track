@@ -47,6 +47,26 @@ export interface AppSettings {
   defaultSundayPremiumRequiredDays: number;
   defaultSundayPremiumMultiplier: number;
   /**
+   * What a worker with no Sunday rule of their own earns.
+   *
+   * Until this existed, the answer was hardcoded: 12 present days in a
+   * half-month earned 2 extra paid days, capped at 2 per stretch and 4 per
+   * month. A new joiner nobody assigned a rule to quietly accrued up to 4 extra
+   * paid days a month that the owner had never agreed to and could not see.
+   *
+   * - `"asBefore"` — that same built-in rule. The default, so no existing
+   *   install moves by a rupee.
+   * - `"nothing"` — they earn no extra days. Sundays actually worked are still
+   *   paid; only the earning schedule goes away.
+   * - `"category"` — they follow one of the owner's own Sunday rules, named by
+   *   {@link AppSettings.noCategorySundayCategoryId}.
+   *
+   * Resolved by `resolveUnassignedSundayRule` in `sundayCategoryService`.
+   */
+  noCategorySundayRule: "asBefore" | "nothing" | "category";
+  /** Which Sunday rule to follow when `noCategorySundayRule` is `"category"`. */
+  noCategorySundayCategoryId: string;
+  /**
    * The most one calendar date may pay, in days, or `null` for no limit.
    *
    * Was a hardcoded 2 in `date.ts`: a person who did their shift plus ten hours
@@ -92,6 +112,8 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   lowStockWarningsEnabled: true,
   defaultSundayPremiumRequiredDays: 26,
   defaultSundayPremiumMultiplier: 1.2,
+  noCategorySundayRule: "asBefore",
+  noCategorySundayCategoryId: "",
   maxDayPayFraction: DEFAULT_MAX_DAY_PAY_FRACTION,
   lastBackupAt: "",
   lastBackupVerifiedAt: "",
@@ -172,6 +194,15 @@ export function normalizeAppSettings(raw: unknown): AppSettings {
       10,
       DEFAULT_APP_SETTINGS.defaultSundayPremiumMultiplier,
     ),
+    // Anything that is not one of the two explicit opt-ins stays on the rule
+    // every install already pays, so a garbled row can never stop paying
+    // somebody or start paying somebody else's schedule.
+    noCategorySundayRule:
+      row.noCategorySundayRule === "nothing" ||
+      row.noCategorySundayRule === "category"
+        ? row.noCategorySundayRule
+        : "asBefore",
+    noCategorySundayCategoryId: textOr(row.noCategorySundayCategoryId, "", 100),
     maxDayPayFraction: normalizeDayPayCap(
       "maxDayPayFraction" in row ? row.maxDayPayFraction : undefined,
     ),

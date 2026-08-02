@@ -24,6 +24,7 @@ import {
 import {
   DEFAULT_SUNDAY_RULE,
   evaluateSundayRuleForCycle,
+  getCycleBlocksForRule,
   getSundayRuleCycleBlocks,
   LEGACY_CYCLE_DAYS,
   LEGACY_EARNED_SUNDAYS,
@@ -113,6 +114,10 @@ function forEachCalendarMonthOverlappingRange(
  * Thin wrapper over {@link getSundayRuleCycleBlocks} for callers that still
  * assume the default cycle length; see that function for why the last block
  * absorbs the tail of the month.
+ *
+ * The pay engine no longer goes through here: it calls `getCycleBlocksForRule`
+ * so the rule's own answer about the month's leftover days is honoured. This
+ * remains for callers that have only a cycle length and no rule.
  */
 export function getExtraPayCycleBlocks(
   year: number,
@@ -142,10 +147,15 @@ export function computeEarnedExtraPayDaysForCalendarScope(
   let total = 0;
   forEachCalendarMonthOverlappingRange(fromDate, toDate, (year, monthIndex) => {
     let monthRaw = 0;
-    for (const { start, end } of getExtraPayCycleBlocks(
+    // Read through the rule, not just its cycle length: the rule also says what
+    // to do with the days the cycles do not divide evenly into ("merge" them
+    // into the last cycle, as every install has always done, or pay them
+    // "separate"). Passing only `cycleDays` silently answered "merge" whatever
+    // the owner had chosen.
+    for (const { start, end } of getCycleBlocksForRule(
+      categoryRule,
       year,
       monthIndex,
-      categoryRule.cycleDays,
     )) {
       const windowStart = `${year}-${pad2(monthIndex + 1)}-${pad2(start)}`;
       const windowEnd = `${year}-${pad2(monthIndex + 1)}-${pad2(end)}`;

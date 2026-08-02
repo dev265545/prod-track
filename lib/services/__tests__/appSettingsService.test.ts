@@ -127,3 +127,44 @@ describe("resetAppSettings", () => {
     await expect(resetAppSettings()).resolves.toEqual(DEFAULT_APP_SETTINGS);
   });
 });
+
+describe("what a worker with no Sunday rule earns", () => {
+  it("defaults to the rule every install already pays by", () => {
+    // A wrong default here silently changes wages on every existing install,
+    // which is the exact defect this setting exists to close.
+    expect(DEFAULT_APP_SETTINGS.noCategorySundayRule).toBe("asBefore");
+    expect(DEFAULT_APP_SETTINGS.noCategorySundayCategoryId).toBe("");
+    expect(normalizeAppSettings({}).noCategorySundayRule).toBe("asBefore");
+    expect(normalizeAppSettings(null).noCategorySundayRule).toBe("asBefore");
+  });
+
+  it("keeps the two real choices and rejects anything else", () => {
+    expect(
+      normalizeAppSettings({ noCategorySundayRule: "nothing" })
+        .noCategorySundayRule,
+    ).toBe("nothing");
+    expect(
+      normalizeAppSettings({ noCategorySundayRule: "category" })
+        .noCategorySundayRule,
+    ).toBe("category");
+    // A garbled row must land on "pay as before", never on "pay nothing".
+    for (const bad of ["", "none", 7, null, {}]) {
+      expect(
+        normalizeAppSettings({ noCategorySundayRule: bad }).noCategorySundayRule,
+      ).toBe("asBefore");
+    }
+  });
+
+  it("carries the named rule's id as plain text", () => {
+    expect(
+      normalizeAppSettings({
+        noCategorySundayRule: "category",
+        noCategorySundayCategoryId: "sun_cat_1",
+      }).noCategorySundayCategoryId,
+    ).toBe("sun_cat_1");
+    expect(
+      normalizeAppSettings({ noCategorySundayCategoryId: 42 })
+        .noCategorySundayCategoryId,
+    ).toBe("");
+  });
+});

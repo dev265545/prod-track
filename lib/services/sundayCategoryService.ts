@@ -1,6 +1,12 @@
 import { getAll, get, put, remove, STORES } from "@/lib/db/adapter";
 import { type SundayCategoryRule } from "@/lib/utils/attendanceStats";
-import { normalizeSundayRule, type SundayRule } from "@/lib/utils/sundayRule";
+import {
+  DEFAULT_SUNDAY_RULE,
+  EARNS_NO_EXTRA_DAYS_RULE,
+  normalizeSundayRule,
+  type SundayRule,
+} from "@/lib/utils/sundayRule";
+import type { AppSettings } from "./appSettingsService";
 import { AUDIT_ACTIONS, diffEntity, record as auditRecord } from "./auditService";
 import { nameOnRow } from "./auditNames";
 
@@ -118,8 +124,54 @@ export async function deleteSundayCategory(id: string): Promise<void> {
  */
 export function resolveSundayCategoryRule(
   category?: Partial<SundayCategory> | null,
+  unassignedRule: SundayCategoryRule = DEFAULT_SUNDAY_RULE,
 ): SundayCategoryRule {
-  if (!category) return normalizeSundayRule(null);
+  // No category at all is the case this whole `unassignedRule` parameter
+  // exists for. It defaults to the built-in rule, so a caller that has not
+  // been taught about the setting yet behaves exactly as it always did.
+  if (!category) return normalizeSundayRule(unassignedRule);
   if (category.rule) return normalizeSundayRule(category.rule);
   return normalizeSundayRule(category);
+}
+
+/**
+ * What a worker with no Sunday rule of their own is paid by, and which answer
+ * that is, so a screen can say it out loud instead of leaving it silent.
+ *
+ * `source` is deliberately returned alongside the rule: the People screen has
+ * to name the rule these workers fall on, and re-deriving it from settings at
+ * the call site is how the screen and the wage drift apart.
+ *
+ * A rule that names a category which has since been deleted falls back to the
+ * built-in rule — the same money everyone was already being paid — and reports
+ * itself as `"asBefore"` so the screen says what is really happening rather
+ * than naming a rule that no longer exists.
+ */
+export function resolveUnassignedSundayRule(
+  settings: Pick<
+    AppSettings,
+    "noCategorySundayRule" | "noCategorySundayCategoryId"
+  >,
+  categories: readonly SundayCategory[] = [],
+): {
+  rule: SundayCategoryRule;
+  source: "asBefore" | "nothing" | "category";
+  categoryName: string;
+} {
+  if (settings.noCategorySundayRule === "nothing") {
+    return { rule: EARNS_NO_EXTRA_DAYS_RULE, source: "nothing", categoryName: "" };
+  }
+  if (settings.noCategorySundayRule === "category") {
+    const named = categories.find(
+      (c) => c.id === settings.noCategorySundayCategoryId,
+    );
+    if (named) {
+      return {
+        rule: resolveSundayCategoryRule(named),
+        source: "category",
+        categoryName: named.name,
+      };
+    }
+  }
+  return { rule: DEFAULT_SUNDAY_RULE, source: "asBefore", categoryName: "" };
 }

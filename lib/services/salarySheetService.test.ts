@@ -108,6 +108,16 @@ let mockSundayRule: SundayCategoryRule = DEFAULT_SUNDAY_CATEGORY_RULE;
 vi.mock("./sundayCategoryService", () => ({
   getSundayCategories: mockGetSundayCategories,
   resolveSundayCategoryRule: () => mockSundayRule,
+  // Nobody in this file's fixtures has a Sunday category, so the sheet reaches
+  // for the unassigned rule; it is the same injected rule, which is what
+  // `resolveSundayCategoryRule` above already stands for. What the *setting*
+  // does to the money is proved against the real resolver in
+  // `unassignedSundayRuleWiring.test.ts`.
+  resolveUnassignedSundayRule: () => ({
+    rule: mockSundayRule,
+    source: "asBefore" as const,
+    categoryName: "",
+  }),
 }));
 vi.mock("./advanceDeductionService", () => ({
   getDeductionsByEmployee: mockGetDeductionsByEmployee,

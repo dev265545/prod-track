@@ -47,8 +47,15 @@ import {
 import { getShifts } from "@/lib/services/shiftService";
 import {
   getSundayCategories,
+  resolveUnassignedSundayRule,
   type SundayCategory,
 } from "@/lib/services/sundayCategoryService";
+import {
+  DEFAULT_APP_SETTINGS,
+  getAppSettings,
+  type AppSettings,
+} from "@/lib/services/appSettingsService";
+import { describeSundayRule } from "@/components/rules/sunday-rule-editor";
 import { toast } from "sonner";
 import { CalendarCheck, Trash2 } from "lucide-react";
 import {
@@ -85,15 +92,19 @@ export default function EmployeesPage() {
   const [submitting, setSubmitting] = useState(false);
   const admin = isAdmin();
 
+  const [settings, setSettings] = useState<AppSettings>(DEFAULT_APP_SETTINGS);
+
   const load = async () => {
-    const [list, shiftList, sundayCategoryList] = await Promise.all([
+    const [list, shiftList, sundayCategoryList, appSettings] = await Promise.all([
       getEmployees(false),
       getShifts(),
       getSundayCategories(),
+      getAppSettings(),
     ]);
     setEmployees(list);
     setShifts(shiftList);
     setSundayCategories(sundayCategoryList);
+    setSettings(appSettings);
   };
 
   /**
@@ -168,6 +179,19 @@ export default function EmployeesPage() {
     sundayCategories.map((c) => [c.id as string, c]),
   ) as Record<string, SundayCategory>;
 
+  // Nobody was ever told that a person with no Sunday rule is still earning
+  // extra paid days by a rule chosen somewhere else. Count them and say it.
+  // Production people are left out: they are paid for output, not for days,
+  // so no Sunday rule touches their pay and including them would inflate a
+  // number the owner is meant to act on.
+  const unassigned = employees.filter(
+    (e) =>
+      !e.sundayCategoryId &&
+      (e.isActive as boolean) !== false &&
+      e.employeeType !== "production",
+  );
+  const unassignedRule = resolveUnassignedSundayRule(settings, sundayCategories);
+
   return (
     <AppShell>
       <main id="main" className="flex flex-col gap-10 animate-fade-in">
@@ -189,6 +213,26 @@ export default function EmployeesPage() {
         <Card className="border-border">
           <CardHeader className="pb-4">
             <CardTitle className={HEADING_CLASS}>{t("employeesListTitle")}</CardTitle>
+            {/* A quiet line, not a banner: it is not an error that somebody has
+                no Sunday rule, but it must never be invisible that they are
+                being paid by one anyway. The rule is spelled out in full and
+                the link goes to the screen that changes it. */}
+            {unassigned.length > 0 ? (
+              <p className="text-base leading-relaxed text-muted-foreground">
+                {t("employeesNoRuleCount", { n: unassigned.length })}{" "}
+                {unassignedRule.source === "nothing"
+                  ? t("employeesNoRuleNothing")
+                  : t("employeesNoRulePaidBy", {
+                      rule: describeSundayRule(unassignedRule.rule, t),
+                    })}{" "}
+                <Link
+                  href="/shifts"
+                  className="min-h-[44px] rounded-md underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  {t("employeesNoRuleChange")}
+                </Link>
+              </p>
+            ) : null}
           </CardHeader>
           <CardContent>
           {employees.length === 0 ? (
@@ -288,10 +332,14 @@ export default function EmployeesPage() {
                           : "—"}
                       </TableCell>
                       <TableCell className="text-muted-foreground">
+                        {/* Was "Default (12 → 2)" — a hardcoded promise that
+                            stops being true the moment the owner changes what
+                            an unassigned worker earns. Say only what is
+                            certain; the line above says what they get. */}
                         {(e.sundayCategoryId as string)
                           ? (sundayCategoryMap[e.sundayCategoryId as string]
-                              ?.name as string) ?? t("employeesSundayDefault")
-                          : t("employeesSundayDefault")}
+                              ?.name as string) ?? t("employeesSundayNone")
+                          : t("employeesSundayNone")}
                       </TableCell>
                       <TableCell className="text-muted-foreground">
                         {(e.isActive as boolean) !== false

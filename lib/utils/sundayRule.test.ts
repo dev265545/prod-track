@@ -452,6 +452,28 @@ function priorEvaluateForCycle(
   return { earned, uncapped, cappedByCycle: earned < uncapped };
 }
 
+/** The month splitter exactly as it stood before the leftover was a choice. */
+function priorCycleBlocks(
+  year: number,
+  monthIndex: number,
+  cycleDays: number,
+): { start: number; end: number }[] {
+  const lastDay = getCalendarDaysInMonth(year, monthIndex);
+  const len = Number.isFinite(cycleDays) && cycleDays >= 1 ? Math.floor(cycleDays) : 15;
+  const blockCount = Math.max(1, Math.round(lastDay / len));
+  const blocks: { start: number; end: number }[] = [];
+  for (let i = 0; i < blockCount; i += 1) {
+    const start = 1 + i * len;
+    if (start > lastDay) break;
+    const isLast = i === blockCount - 1;
+    blocks.push({
+      start,
+      end: isLast ? lastDay : Math.min(start + len - 1, lastDay),
+    });
+  }
+  return blocks;
+}
+
 function priorEarnedForCalendarScope(
   fromDate: string,
   toDate: string,
@@ -534,6 +556,25 @@ describe("new knobs at their defaults change nothing", () => {
       expect(rule.bracketMode).toBe("highest");
       expect(rule.sundayWorkedPayDays).toBe(1);
       expect(rule.earnedDayPayDays).toBe(1);
+      expect(rule.cycleRemainder).toBe("merge");
+    }
+  });
+
+  it("splits every month exactly as the previous splitter did", () => {
+    // The splitter grew a second answer for the month's leftover days. Sweep
+    // the old one against the new one at its default across every stretch
+    // length and four years of months: one differing window would move wages.
+    for (let len = 1; len <= 40; len += 1) {
+      for (let year = 2024; year <= 2027; year += 1) {
+        for (let monthIndex = 0; monthIndex < 12; monthIndex += 1) {
+          expect(getSundayRuleCycleBlocks(year, monthIndex, len)).toEqual(
+            priorCycleBlocks(year, monthIndex, len),
+          );
+          expect(
+            getSundayRuleCycleBlocks(year, monthIndex, len, "merge"),
+          ).toEqual(priorCycleBlocks(year, monthIndex, len));
+        }
+      }
     }
   });
 
@@ -669,6 +710,102 @@ describe("what one earned day is worth", () => {
         rule,
       ),
     ).toBe(0);
+  });
+});
+
+describe("the days left at the end of the month", () => {
+  it("merges the leftover into the last stretch unless told otherwise", () => {
+    // 25-day stretches in March: merged, the 6-day tail disappears into one
+    // 31-day window; split, it stands on its own.
+    expect(getSundayRuleCycleBlocks(2026, 2, 25, "merge")).toEqual([
+      { start: 1, end: 31 },
+    ]);
+    expect(getSundayRuleCycleBlocks(2026, 2, 25, "separate")).toEqual([
+      { start: 1, end: 25 },
+      { start: 26, end: 31 },
+    ]);
+    // Even the ordinary 15 leaves one day over in a 31-day month.
+    expect(getSundayRuleCycleBlocks(2026, 2, 15, "merge")).toEqual([
+      { start: 1, end: 15 },
+      { start: 16, end: 31 },
+    ]);
+    expect(getSundayRuleCycleBlocks(2026, 2, 15, "separate")).toEqual([
+      { start: 1, end: 15 },
+      { start: 16, end: 30 },
+      { start: 31, end: 31 },
+    ]);
+  });
+
+  it("agrees with the old split whenever nothing is left over", () => {
+    // February at 14 days divides exactly, so there is no leftover to decide
+    // about and both answers must be the same windows.
+    expect(getSundayRuleCycleBlocks(2026, 1, 14, "separate")).toEqual(
+      getSundayRuleCycleBlocks(2026, 1, 14, "merge"),
+    );
+    expect(getSundayRuleCycleBlocks(2026, 1, 14, "separate")).toEqual([
+      { start: 1, end: 14 },
+      { start: 15, end: 28 },
+    ]);
+  });
+
+  it("never loses or repeats a day of the month", () => {
+    for (const remainder of ["merge", "separate"] as const) {
+      for (let len = 1; len <= 40; len += 1) {
+        for (let monthIndex = 0; monthIndex < 12; monthIndex += 1) {
+          const lastDay = getCalendarDaysInMonth(2026, monthIndex);
+          const blocks = getSundayRuleCycleBlocks(2026, monthIndex, len, remainder);
+          expect(blocks[0].start).toBe(1);
+          expect(blocks[blocks.length - 1].end).toBe(lastDay);
+          for (let i = 1; i < blocks.length; i += 1) {
+            expect(blocks[i].start).toBe(blocks[i - 1].end + 1);
+          }
+        }
+      }
+    }
+  });
+
+  it("carries the choice through the whole-month evaluator", () => {
+    const stored = {
+      kind: "table",
+      brackets: [{ whenPresentDaysAtLeast: 20, give: 1 }],
+      maxPerCycle: null,
+      maxPerMonth: null,
+      cycleDays: 25,
+    };
+    // Merged, March is one 31-day window that reaches 20 once. Split, the
+    // 6-day tail is its own window and can never reach 20, so the month still
+    // earns 1 — from the first window alone.
+    expect(evaluateSundayRuleForMonth(normalizeSundayRule(stored), 2026, 2)).toEqual({
+      uncapped: 1,
+      earned: 1,
+      cappedByMonth: false,
+    });
+    expect(
+      evaluateSundayRuleForMonth(
+        normalizeSundayRule({ ...stored, cycleRemainder: "separate" }),
+        2026,
+        2,
+      ),
+    ).toEqual({ uncapped: 1, earned: 1, cappedByMonth: false });
+    // Where it really bites: a rule reachable in a short window pays twice
+    // when the tail stands on its own and once when it is absorbed.
+    const easy = { ...stored, brackets: [{ whenPresentDaysAtLeast: 5, give: 1 }] };
+    expect(evaluateSundayRuleForMonth(normalizeSundayRule(easy), 2026, 2).earned).toBe(1);
+    expect(
+      evaluateSundayRuleForMonth(
+        normalizeSundayRule({ ...easy, cycleRemainder: "separate" }),
+        2026,
+        2,
+      ).earned,
+    ).toBe(2);
+  });
+
+  it("keeps an unreadable value on the split every install already has", () => {
+    expect(normalizeSundayRule({ kind: "table", cycleRemainder: "sideways" }).cycleRemainder).toBe("merge");
+    expect(normalizeSundayRule({ kind: "table" }).cycleRemainder).toBe("merge");
+    expect(
+      normalizeSundayRule({ kind: "table", cycleRemainder: "separate" }).cycleRemainder,
+    ).toBe("separate");
   });
 });
 

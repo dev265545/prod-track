@@ -2014,6 +2014,36 @@ const en = {
   ux3DailyEntryIntro: "Write down today's work, one person at a time.",
   ux3ReportsIntro: "How much of each item was made in a period.",
   ux3EmployeeIntro: "Attendance, work done and pay for this person.",
+
+  // The days left over at the end of a month, when the stretch length does
+  // not divide it evenly. Only asked when the two answers really differ.
+  ruleLeftoverLabel: "The days left at the end of the month",
+  ruleLeftoverMerge: "Add them to the last stretch",
+  ruleLeftoverSeparate: "Count them on their own",
+  ruleLeftoverMergeHint:
+    "The last stretch of the month is longer than the others.",
+  ruleLeftoverSeparateHint:
+    "The last few days are a short stretch of their own. Fewer days means fewer chances to earn in them.",
+  ruleSummaryLeftoverSeparate: "leftover days counted on their own",
+
+  // What a person with no Sunday rule of their own earns.
+  noRuleTitle: "People with no Sunday rule",
+  noRuleIntro:
+    "Some people have not been given a Sunday rule. Choose what they earn.",
+  noRuleAsBefore: "Keep paying as before",
+  noRuleNothing: "They earn no extra days",
+  noRuleUseOne: "Use one of my rules",
+  noRulePickLabel: "Which rule",
+  noRuleEffect: "They will be paid by: {rule}",
+  noRuleSave: "Save this",
+  noRuleSaveSuccess: "Saved.",
+  noRuleSaveFail: "Could not save. Please try again.",
+
+  employeesSundayNone: "No rule of their own",
+  employeesNoRuleCount: "{n} people have no Sunday rule of their own.",
+  employeesNoRulePaidBy: "They are paid by: {rule}.",
+  employeesNoRuleNothing: "They earn no extra days.",
+  employeesNoRuleChange: "Change this",
 } as const;
 
 export type MessageKey = keyof typeof en;
@@ -4009,6 +4039,32 @@ const hi: Record<MessageKey, string> = {
   ux3DailyEntryIntro: "आज का काम एक-एक करके लिखिए।",
   ux3ReportsIntro: "एक पीरियड में हर आइटम कितना बना।",
   ux3EmployeeIntro: "इस व्यक्ति की हाजिरी, काम और पगार।",
+
+  ruleLeftoverLabel: "महीने के आखिर में बचे दिन",
+  ruleLeftoverMerge: "उन्हें आखिरी दौर में जोड़ें",
+  ruleLeftoverSeparate: "उन्हें अलग से गिनें",
+  ruleLeftoverMergeHint: "महीने का आखिरी दौर बाकी दौरों से लंबा रहेगा।",
+  ruleLeftoverSeparateHint:
+    "आखिरी कुछ दिन अपना छोटा दौर बनेंगे। कम दिन यानी उनमें कमाने के कम मौके।",
+  ruleSummaryLeftoverSeparate: "बचे दिन अलग से गिने जाते हैं",
+
+  noRuleTitle: "जिनका कोई रविवार नियम नहीं है",
+  noRuleIntro:
+    "कुछ लोगों को कोई रविवार नियम नहीं दिया गया है। चुनिए कि उन्हें क्या मिलेगा।",
+  noRuleAsBefore: "पहले की तरह ही देते रहें",
+  noRuleNothing: "उन्हें कोई अतिरिक्त दिन नहीं मिलेगा",
+  noRuleUseOne: "मेरे किसी नियम का इस्तेमाल करें",
+  noRulePickLabel: "कौन सा नियम",
+  noRuleEffect: "उन्हें इस नियम से पैसा मिलेगा: {rule}",
+  noRuleSave: "इसे सेव करें",
+  noRuleSaveSuccess: "सेव हो गया।",
+  noRuleSaveFail: "सेव नहीं हो पाया। फिर कोशिश कीजिए।",
+
+  employeesSundayNone: "अपना कोई नियम नहीं",
+  employeesNoRuleCount: "{n} लोगों का अपना कोई रविवार नियम नहीं है।",
+  employeesNoRulePaidBy: "उन्हें इस नियम से पैसा मिलता है: {rule}।",
+  employeesNoRuleNothing: "उन्हें कोई अतिरिक्त दिन नहीं मिलता।",
+  employeesNoRuleChange: "इसे बदलें",
 };
 
 export const messages: Record<AppLocale, Record<MessageKey, string>> = {

@@ -59,6 +59,7 @@ import { getShifts } from "@/lib/services/shiftService";
 import {
   getSundayCategories,
   resolveSundayCategoryRule,
+  resolveUnassignedSundayRule,
   type SundayCategory,
 } from "@/lib/services/sundayCategoryService";
 import { getSalaryRecordsByEmployee } from "@/lib/services/salaryRecordService";
@@ -70,7 +71,10 @@ import {
   salarySheetRowHasAdjustment,
   type SalarySheetRow,
 } from "@/lib/services/salarySheetService";
-import { getAppSettings } from "@/lib/services/appSettingsService";
+import {
+  getAppSettings,
+  type AppSettings,
+} from "@/lib/services/appSettingsService";
 import {
   calculateSalary,
   getPrintableAttendanceSalaryRangeHtml,
@@ -188,6 +192,16 @@ export function EmployeePageClient() {
     defaultSundayPremiumRequiredDays: DEFAULT_REQUIRED_PRESENT_DAYS,
     defaultSundayPremiumMultiplier: DEFAULT_SUNDAY_MULTIPLIER,
   });
+  /**
+   * The owner's answer to "what does a worker with no Sunday rule of their own
+   * earn?". Kept as the raw setting rather than a resolved rule so it can be
+   * re-resolved against the category list this page already loads — resolving
+   * it at load time would freeze a rule that a category edit has since moved.
+   */
+  const [unassignedSundaySettings, setUnassignedSundaySettings] = useState({
+    noCategorySundayRule: "asBefore" as AppSettings["noCategorySundayRule"],
+    noCategorySundayCategoryId: "",
+  });
   const [storedSalaryRecords, setStoredSalaryRecords] = useState<Row[]>([]);
   const [missingDataDays, setMissingDataDays] = useState<{ date: string }[]>(
     [],
@@ -287,6 +301,10 @@ export function EmployeePageClient() {
           appSettings.defaultSundayPremiumRequiredDays,
         defaultSundayPremiumMultiplier:
           appSettings.defaultSundayPremiumMultiplier,
+      });
+      setUnassignedSundaySettings({
+        noCategorySundayRule: appSettings.noCategorySundayRule,
+        noCategorySundayCategoryId: appSettings.noCategorySundayCategoryId,
       });
       setAllAdvances(allAdvs);
       setDeductions(deductionsList);
@@ -411,7 +429,18 @@ export function EmployeePageClient() {
     ? ((sundayCategoryMap[sundayCategoryId] as unknown as SundayCategory) ??
       null)
     : null;
-  const sundayCategoryRule = resolveSundayCategoryRule(selectedSundayCategory);
+  // A worker with no Sunday rule of their own follows whatever the owner chose
+  // in Settings; the built-in rule is only the default answer, not the only one.
+  const unassignedSundayRule = useMemo(
+    () =>
+      resolveUnassignedSundayRule(unassignedSundaySettings, sundayCategories)
+        .rule,
+    [unassignedSundaySettings, sundayCategories],
+  );
+  const sundayCategoryRule = resolveSundayCategoryRule(
+    selectedSundayCategory,
+    unassignedSundayRule,
+  );
   /** The extra Sunday pay in force for this worker; `undefined` when none is. */
   const sundayPremium = resolveSundayPremiumForEmployee(
     employee ?? {},

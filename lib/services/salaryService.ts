@@ -10,6 +10,7 @@ import { plural } from "./auditNames";
 import {
   getSundayCategories,
   resolveSundayCategoryRule,
+  resolveUnassignedSundayRule,
 } from "./sundayCategoryService";
 import { getPeriodForDate, getMonthRange, formatMonthYear } from "@/lib/utils/date";
 import { currency, dateDisplay, number } from "@/lib/utils/formatter";
@@ -454,7 +455,13 @@ export async function getPrintableMonthlyAttendanceSheetHtml(
   const sundayCategory = sundayCategoryId
     ? sundayCategoryMap[sundayCategoryId]
     : undefined;
-  const sundayCategoryRule = resolveSundayCategoryRule(sundayCategory);
+  // A worker with no Sunday rule of their own falls on whatever the owner chose
+  // in Settings. Resolving it here is what makes that choice reach the money
+  // instead of only the screen that describes it.
+  const sundayCategoryRule = resolveSundayCategoryRule(
+    sundayCategory,
+    resolveUnassignedSundayRule(appSettings, sundayCategories).rule,
+  );
   const ratePerDay = getRatePerDay(monthlySalary, calendarDaysInMonth);
   const ratePerHour = getRatePerHour(
     monthlySalary,
@@ -572,7 +579,12 @@ export async function getPrintableAttendanceSalaryRangeHtml(
   const sundayCategory = sundayCategoryId
     ? sundayCategoryMap[sundayCategoryId]
     : undefined;
-  const sundayCategoryRule = resolveSundayCategoryRule(sundayCategory);
+  // Same fallback chain as the monthly sheet above: no category means the
+  // owner's Settings choice, not a hardcoded rule.
+  const sundayCategoryRule = resolveSundayCategoryRule(
+    sundayCategory,
+    resolveUnassignedSundayRule(appSettings, sundayCategories).rule,
+  );
   const ratePerDay = getRatePerDay(monthlySalary, calendarDaysInMonth);
   const ratePerHour = getRatePerHour(
     monthlySalary,

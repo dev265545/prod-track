@@ -126,10 +126,23 @@ vi.mock("./shiftService", () => ({
   getShifts: mockGetShifts,
 }));
 
-vi.mock("./sundayCategoryService", () => ({
-  getSundayCategories: mockGetSundayCategories,
-  resolveSundayCategoryRule: () => undefined,
-}));
+vi.mock("./sundayCategoryService", async () => {
+  const { DEFAULT_SUNDAY_CATEGORY_RULE } = await import(
+    "@/lib/utils/attendanceStats"
+  );
+  return {
+    getSundayCategories: mockGetSundayCategories,
+    resolveSundayCategoryRule: () => undefined,
+    // The sheet also resolves what a worker with no Sunday category falls on.
+    // This export has no categories and default settings, so the answer is the
+    // built-in rule — the same money this fixture has always asserted.
+    resolveUnassignedSundayRule: () => ({
+      rule: DEFAULT_SUNDAY_CATEGORY_RULE,
+      source: "asBefore" as const,
+      categoryName: "",
+    }),
+  };
+});
 
 import { getSalarySheetForRange, getSalarySheetRowForEmployee, salarySheetRowHasAdjustment } from "./salarySheetService";
 

@@ -22,6 +22,7 @@ import { readNumericInput } from "@/lib/utils/numericInput";
 import {
   evaluateSundayRuleForCycle,
   evaluateSundayRuleForMonth,
+  getCycleBlocksForRule,
   getSundayRuleCycleBlocks,
   normalizeSundayRule,
   LEGACY_CYCLE_DAYS,
@@ -42,6 +43,7 @@ import {
   Layers,
   Repeat,
   Ruler,
+  Scissors,
   Star,
   Sun,
   Undo2,
@@ -76,7 +78,7 @@ const PREMIUM_DEFAULT_TIMES = DEFAULT_APP_SETTINGS.defaultSundayPremiumMultiplie
  * the wage can never disagree.
  */
 function longestWindowDays(rule: SundayRule, year: number, monthIndex: number): number {
-  return getSundayRuleCycleBlocks(year, monthIndex, rule.cycleDays).reduce(
+  return getCycleBlocksForRule(rule, year, monthIndex).reduce(
     (longest, block) => Math.max(longest, block.end - block.start + 1),
     1,
   );
@@ -121,9 +123,17 @@ export function SundayRuleEditor({
   const year = now.getFullYear();
   const monthIndex = now.getMonth();
   const blocks = useMemo(
-    () => getSundayRuleCycleBlocks(year, monthIndex, rule.cycleDays),
-    [year, monthIndex, rule.cycleDays],
+    () => getCycleBlocksForRule(rule, year, monthIndex),
+    [rule, year, monthIndex],
   );
+  // The leftover question only exists when the two answers differ. At the
+  // ordinary 15-day stretch they are identical for every month length, so
+  // asking would be two more buttons that change nothing.
+  const leftoverMatters = useMemo(() => {
+    const merged = getSundayRuleCycleBlocks(year, monthIndex, rule.cycleDays, "merge");
+    const split = getSundayRuleCycleBlocks(year, monthIndex, rule.cycleDays, "separate");
+    return JSON.stringify(merged) !== JSON.stringify(split);
+  }, [year, monthIndex, rule.cycleDays]);
   const windowDays = useMemo(
     () => longestWindowDays(rule, year, monthIndex),
     [rule, year, monthIndex],
@@ -426,6 +436,50 @@ export function SundayRuleEditor({
               .join(t("ruleCycleWindowJoin")),
           })}
         </p>
+        {/* Asked only when the month really has days left over — at the
+            ordinary 15-day stretch both answers give the same windows, so the
+            question never appears and the screen stays as short as it was. */}
+        {leftoverMatters ? (
+          <div className="flex flex-col gap-2">
+            <p
+              id="ruleLeftoverLabel"
+              className="text-sm font-medium text-foreground"
+            >
+              {t("ruleLeftoverLabel")}
+            </p>
+            <div
+              role="group"
+              aria-labelledby="ruleLeftoverLabel"
+              className="flex flex-wrap gap-3"
+            >
+              <Button
+                type="button"
+                variant={rule.cycleRemainder === "merge" ? "default" : "outline"}
+                className="min-h-[44px] px-5 py-3 text-base"
+                aria-pressed={rule.cycleRemainder === "merge"}
+                onClick={() => patch({ cycleRemainder: "merge" })}
+              >
+                <Layers data-icon="inline-start" aria-hidden />
+                {t("ruleLeftoverMerge")}
+              </Button>
+              <Button
+                type="button"
+                variant={rule.cycleRemainder === "separate" ? "default" : "outline"}
+                className="min-h-[44px] px-5 py-3 text-base"
+                aria-pressed={rule.cycleRemainder === "separate"}
+                onClick={() => patch({ cycleRemainder: "separate" })}
+              >
+                <Scissors data-icon="inline-start" aria-hidden />
+                {t("ruleLeftoverSeparate")}
+              </Button>
+            </div>
+            <p className="text-base leading-relaxed text-muted-foreground">
+              {rule.cycleRemainder === "separate"
+                ? t("ruleLeftoverSeparateHint")
+                : t("ruleLeftoverMergeHint")}
+            </p>
+          </div>
+        ) : null}
       </div>
 
       <div className="flex flex-col gap-3 rounded-xl border border-border bg-surface-2 p-4">
@@ -829,6 +883,11 @@ export function describeSundayRule(rule: SundayRule, t: Translate): string {
   }
 
   parts.push(t("ruleSummaryCycle", { n: num(rule.cycleDays) }));
+  // Only the non-default answer earns a clause; saying "the last stretch is
+  // longer" on every rule would bury the lines that matter.
+  if (rule.cycleRemainder === "separate") {
+    parts.push(t("ruleSummaryLeftoverSeparate"));
+  }
   // Only when it is not the ordinary one-day-per-day, so the common rule's
   // one-liner does not grow a clause that says nothing.
   if (

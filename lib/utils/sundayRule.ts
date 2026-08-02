@@ -56,6 +56,9 @@ export interface SundayRulePremium {
   multiplier: number;
 }
 
+/** How the days left over at the end of a month are treated. */
+export type SundayRuleRemainder = "merge" | "separate";
+
 export interface SundayRule {
   kind: "table" | "repeat";
   /** Used when `kind === "table"`. Sorted ascending by threshold. */
@@ -101,6 +104,22 @@ export interface SundayRule {
   maxPerMonth: number | null;
   /** Length of one earning window in calendar days. */
   cycleDays: number;
+  /**
+   * What happens to the days left at the end of the month when `cycleDays` does
+   * not divide it evenly.
+   *
+   * - `"merge"` — the leftover days join the window before them, so the last
+   *   window is longer than the rest. This is what the splitter has always
+   *   done and is the default for every rule that does not say otherwise, so
+   *   no stored rule moves.
+   * - `"separate"` — the leftover days are their own short window. It earns on
+   *   the same rule as its siblings but has fewer days to do it in, which is
+   *   what an owner who says "the month is exactly two tens and a bit" means.
+   *
+   * Kept on the rule rather than in settings because `cycleDays` is per rule:
+   * the leftover only exists relative to a particular stretch length.
+   */
+  cycleRemainder: SundayRuleRemainder;
   /** Sunday rate premium, or `null` to leave present Sundays at the flat rate. */
   sundayPremium: SundayRulePremium | null;
 }
@@ -139,6 +158,8 @@ export const MAX_PAY_DAY_VALUE = 100;
 export const LEGACY_SUNDAY_WORKED_PAY_DAYS = 1;
 /** What one earned extra day was worth before it was configurable. */
 export const LEGACY_EARNED_DAY_PAY_DAYS = 1;
+/** How the month's leftover days were treated before it was configurable. */
+export const LEGACY_CYCLE_REMAINDER: SundayRuleRemainder = "merge";
 
 /**
  * The rule applied to an employee with no Sunday category.
@@ -163,7 +184,27 @@ export const DEFAULT_SUNDAY_RULE: SundayRule = {
   maxPerCycle: LEGACY_MAX_PER_CYCLE,
   maxPerMonth: LEGACY_MAX_PER_MONTH,
   cycleDays: LEGACY_CYCLE_DAYS,
+  cycleRemainder: LEGACY_CYCLE_REMAINDER,
   sundayPremium: null,
+};
+
+/**
+ * A rule that earns no extra pay days at all.
+ *
+ * A table with no lines can never match, so nothing is earned and neither cap
+ * ever bites. Everything else stays at the ordinary values: a Sunday actually
+ * worked is still paid one day's pay, because "earns no extra days" is a
+ * statement about the earning schedule, not a reason to stop paying for work
+ * that was done.
+ *
+ * This is what an owner picks when a worker with no Sunday rule of their own
+ * should accrue nothing — see `resolveUnassignedSundayRule`.
+ */
+export const EARNS_NO_EXTRA_DAYS_RULE: SundayRule = {
+  ...DEFAULT_SUNDAY_RULE,
+  brackets: [],
+  repeatEveryPresentDays: 0,
+  repeatGive: 0,
 };
 
 /**
@@ -243,6 +284,7 @@ const NEW_RULE_FIELDS = [
   "maxPerCycle",
   "maxPerMonth",
   "cycleDays",
+  "cycleRemainder",
   "sundayPremium",
 ] as const;
 
@@ -339,6 +381,9 @@ export function normalizeSundayRule(raw: unknown): SundayRule {
     maxPerCycle: normalizeCap(row.maxPerCycle, LEGACY_MAX_PER_CYCLE),
     maxPerMonth: normalizeCap(row.maxPerMonth, LEGACY_MAX_PER_MONTH),
     cycleDays,
+    // As with `bracketMode`: anything that is not the explicit opt-in stays on
+    // the split every install already has.
+    cycleRemainder: row.cycleRemainder === "separate" ? "separate" : "merge",
     sundayPremium: normalizePremium(row.sundayPremium),
   };
 }
@@ -397,7 +442,7 @@ export function evaluateSundayRuleForMonth(
   monthIndex: number,
 ): { earned: number; uncapped: number; cappedByMonth: boolean } {
   let uncapped = 0;
-  for (const block of getSundayRuleCycleBlocks(year, monthIndex, rule.cycleDays)) {
+  for (const block of getCycleBlocksForRule(rule, year, monthIndex)) {
     uncapped += evaluateSundayRuleForCycle(rule, block.end - block.start + 1).earned;
   }
   const earned =
@@ -408,35 +453,60 @@ export function evaluateSundayRuleForMonth(
 /**
  * Split a calendar month into its earning windows.
  *
- * Windows run from day 1 in `cycleDays`-long steps, and the final window
- * absorbs whatever is left of the month — a month never ends in a stub window
- * that can only earn a fraction of what its siblings earn. Concretely, a short
- * tail (less than half a cycle) is merged into the window before it, which is
- * what `Math.round` expresses here.
+ * Windows always run from day 1 in `cycleDays`-long steps. What differs is the
+ * tail, and that is now the owner's choice:
  *
- * At the legacy `cycleDays = 15` this yields exactly `1–15` and `16–end` for
- * every month length from 28 to 31, matching the previous hardcoded split, and
- * lining the windows up with the first-half / second-half correction periods
- * the salary sheet already uses.
+ * - `"merge"` (the default, and what every install has always done) — the final
+ *   window absorbs whatever is left of the month, so a month never ends in a
+ *   stub window that can only earn a fraction of what its siblings earn. A
+ *   short tail is merged into the window before it, which is what `Math.round`
+ *   expresses here.
+ * - `"separate"` — the tail stands on its own as a shorter window.
+ *
+ * At the legacy `cycleDays = 15` **both** answers yield exactly `1–15` and
+ * `16–end` for every month length from 28 to 31, matching the previous
+ * hardcoded split and the first-half / second-half correction periods the
+ * salary sheet already uses. The two only diverge once the owner has changed
+ * the stretch length.
  */
 export function getSundayRuleCycleBlocks(
   year: number,
   monthIndex: number,
   cycleDays: number = LEGACY_CYCLE_DAYS,
+  remainder: SundayRuleRemainder = LEGACY_CYCLE_REMAINDER,
 ): { start: number; end: number }[] {
   const lastDay = getCalendarDaysInMonth(year, monthIndex);
   const len =
     Number.isFinite(cycleDays) && cycleDays >= 1 ? Math.floor(cycleDays) : LEGACY_CYCLE_DAYS;
-  const blockCount = Math.max(1, Math.round(lastDay / len));
+  const blockCount =
+    remainder === "separate"
+      ? Math.max(1, Math.ceil(lastDay / len))
+      : Math.max(1, Math.round(lastDay / len));
   const blocks: { start: number; end: number }[] = [];
   for (let i = 0; i < blockCount; i += 1) {
     const start = 1 + i * len;
     if (start > lastDay) break;
-    const isLast = i === blockCount - 1;
+    // Only the merging split stretches its last window to the end of the month.
+    const absorbsTail = remainder === "merge" && i === blockCount - 1;
     blocks.push({
       start,
-      end: isLast ? lastDay : Math.min(start + len - 1, lastDay),
+      end: absorbsTail ? lastDay : Math.min(start + len - 1, lastDay),
     });
   }
   return blocks;
+}
+
+/**
+ * The windows a *rule* produces in a month.
+ *
+ * The one call every reader of a rule should make: it is the only place that
+ * knows a rule carries both a stretch length and a leftover choice, so the
+ * screen and the pay engine cannot drift apart by one of them forgetting.
+ */
+export function getCycleBlocksForRule(
+  rule: SundayRule,
+  year: number,
+  monthIndex: number,
+): { start: number; end: number }[] {
+  return getSundayRuleCycleBlocks(year, monthIndex, rule.cycleDays, rule.cycleRemainder);
 }

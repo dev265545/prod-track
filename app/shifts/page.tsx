@@ -18,7 +18,26 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { CalendarDays, Clock, Info, Pencil, Plus, Save, Timer, Trash2, X } from "lucide-react";
+import {
+  CalendarDays,
+  Clock,
+  Info,
+  ListChecks,
+  Pencil,
+  Plus,
+  Save,
+  Timer,
+  Trash2,
+  Users,
+  X,
+} from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useAuthGuard } from "@/lib/hooks/useAuthGuard";
 import { getShifts, saveShift, deleteShift } from "@/lib/services/shiftService";
 import {
@@ -50,19 +69,30 @@ import {
   normalizeSundayRule,
   type SundayRule,
 } from "@/lib/utils/sundayRule";
-import { resolveSundayCategoryRule } from "@/lib/services/sundayCategoryService";
+import {
+  resolveSundayCategoryRule,
+  resolveUnassignedSundayRule,
+} from "@/lib/services/sundayCategoryService";
 import { DayPayCapEditor } from "@/components/rules/day-pay-cap-editor";
 import {
   getAppSettings,
   saveAppSettings,
+  type AppSettings,
 } from "@/lib/services/appSettingsService";
 import { normalizeDayPayCap, type DayPayCap } from "@/lib/utils/date";
+
+type NoRuleChoice = {
+  mode: AppSettings["noCategorySundayRule"];
+  categoryId: string;
+};
 
 type PayRules = {
   shifts: Record<string, unknown>[];
   sundayCategories: SundayCategory[];
   /** Most one date may pay, in days. `null` = no limit. */
   maxDayPayFraction: DayPayCap;
+  /** What a worker with no Sunday rule of their own earns. */
+  noRule: NoRuleChoice;
 };
 
 /** Module scope so the effect can hand the setter straight to the promise
@@ -77,6 +107,10 @@ async function fetchPayRules(): Promise<PayRules> {
     shifts,
     sundayCategories,
     maxDayPayFraction: normalizeDayPayCap(settings.maxDayPayFraction),
+    noRule: {
+      mode: settings.noCategorySundayRule,
+      categoryId: settings.noCategorySundayCategoryId,
+    },
   };
 }
 
@@ -106,6 +140,25 @@ export default function ShiftsPage() {
     { value: DayPayCap } | null
   >(null);
   const [savingDayPayCap, setSavingDayPayCap] = useState(false);
+  // Same reason as the cap draft: edited locally, saved on its own button.
+  const [noRuleDraft, setNoRuleDraft] = useState<NoRuleChoice | null>(null);
+  const [savingNoRule, setSavingNoRule] = useState(false);
+
+  // Read from the same resolver the pay engine is given, so the sentence on
+  // screen and the wage can never disagree about which rule these people fall
+  // on. Computed here rather than inline so the JSX stays one short line.
+  const noRuleDescription = noRuleDraft
+    ? describeSundayRule(
+        resolveUnassignedSundayRule(
+          {
+            noCategorySundayRule: noRuleDraft.mode,
+            noCategorySundayCategoryId: noRuleDraft.categoryId,
+          },
+          data?.sundayCategories ?? [],
+        ).rule,
+        t,
+      )
+    : "";
 
   const resetCategoryForm = () => {
     setCategoryName("");
@@ -128,6 +181,7 @@ export default function ShiftsPage() {
       .then((next) => {
         setData(next);
         setDayPayCapDraft({ value: next.maxDayPayFraction });
+        setNoRuleDraft(next.noRule);
       })
       .catch((err) => {
         console.error("pay rules: load failed", err);
@@ -493,6 +547,137 @@ export default function ShiftsPage() {
                   {t("ruleCancelEdit")}
                 </Button>
               ) : null}
+            </div>
+          </form>
+
+          {/* Until this existed, a person nobody gave a rule to was quietly
+              paid by a rule written into the code — up to 4 extra paid days a
+              month the owner never chose and could not see anywhere. */}
+          <form
+            className="flex w-full min-w-0 flex-col gap-4 rounded-xl border border-border bg-surface-2 p-4"
+            onSubmit={async (e) => {
+              e.preventDefault();
+              if (!noRuleDraft) return;
+              setSavingNoRule(true);
+              try {
+                await saveAppSettings({
+                  noCategorySundayRule: noRuleDraft.mode,
+                  noCategorySundayCategoryId:
+                    noRuleDraft.mode === "category" ? noRuleDraft.categoryId : "",
+                });
+                await load();
+                toast.success(t("noRuleSaveSuccess"));
+              } catch {
+                toast.error(t("noRuleSaveFail"));
+              } finally {
+                setSavingNoRule(false);
+              }
+            }}
+          >
+            <p className="flex items-center gap-2 text-base font-semibold text-foreground">
+              <Users className="size-5 shrink-0" aria-hidden />
+              {t("noRuleTitle")}
+            </p>
+            <p className="text-base leading-relaxed text-muted-foreground">
+              {t("noRuleIntro")}
+            </p>
+            <div
+              role="group"
+              aria-label={t("noRuleTitle")}
+              className="flex flex-wrap gap-3"
+            >
+              <Button
+                type="button"
+                variant={noRuleDraft?.mode === "asBefore" ? "default" : "outline"}
+                className="min-h-[44px] px-5 py-3 text-base"
+                aria-pressed={noRuleDraft?.mode === "asBefore"}
+                onClick={() =>
+                  setNoRuleDraft((prev) => ({
+                    mode: "asBefore",
+                    categoryId: prev?.categoryId ?? "",
+                  }))
+                }
+              >
+                <CalendarDays data-icon="inline-start" aria-hidden />
+                {t("noRuleAsBefore")}
+              </Button>
+              <Button
+                type="button"
+                variant={noRuleDraft?.mode === "nothing" ? "default" : "outline"}
+                className="min-h-[44px] px-5 py-3 text-base"
+                aria-pressed={noRuleDraft?.mode === "nothing"}
+                onClick={() =>
+                  setNoRuleDraft((prev) => ({
+                    mode: "nothing",
+                    categoryId: prev?.categoryId ?? "",
+                  }))
+                }
+              >
+                <X data-icon="inline-start" aria-hidden />
+                {t("noRuleNothing")}
+              </Button>
+              {/* Offered only when there is something to point at: a picker
+                  with no choices in it is a dead end. */}
+              {sundayCategories.length > 0 ? (
+                <Button
+                  type="button"
+                  variant={noRuleDraft?.mode === "category" ? "default" : "outline"}
+                  className="min-h-[44px] px-5 py-3 text-base"
+                  aria-pressed={noRuleDraft?.mode === "category"}
+                  onClick={() =>
+                    setNoRuleDraft((prev) => ({
+                      mode: "category",
+                      categoryId: prev?.categoryId || sundayCategories[0].id,
+                    }))
+                  }
+                >
+                  <ListChecks data-icon="inline-start" aria-hidden />
+                  {t("noRuleUseOne")}
+                </Button>
+              ) : null}
+            </div>
+            {noRuleDraft?.mode === "category" ? (
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="noRuleCategory">{t("noRulePickLabel")}</Label>
+                <Select
+                  value={noRuleDraft.categoryId}
+                  onValueChange={(v) =>
+                    setNoRuleDraft({ mode: "category", categoryId: v })
+                  }
+                >
+                  <SelectTrigger
+                    id="noRuleCategory"
+                    className="w-full max-w-sm min-h-[44px]"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {sundayCategories.map((c) => (
+                      <SelectItem key={c.id} value={c.id}>
+                        {c.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : null}
+            {/* The one line that stops this being a silent rule: it names, in
+                full, what these people will actually be paid by — read from
+                the same resolver the pay engine is given. */}
+            {noRuleDescription ? (
+              <p className="text-base leading-relaxed text-foreground">
+                {t("noRuleEffect", { rule: noRuleDescription })}
+              </p>
+            ) : null}
+            <div>
+              <Button
+                type="submit"
+                className={btnPrimaryClass}
+                disabled={savingNoRule}
+              >
+                <Save data-icon="inline-start" aria-hidden />
+                {t("noRuleSave")}
+              </Button>
             </div>
           </form>
         </SettingsSection>

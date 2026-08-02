@@ -7,13 +7,14 @@ import {
   computeDayPayFraction,
   computeEarnedExtraPayDaysForCalendarScope,
   computeHoursInRange,
+  getExtraPayCycleBlocks,
   MAX_EXTRA_PAY_DAYS_PER_MONTH,
   MAX_EXTRA_PAY_DAYS_PER_CYCLE,
   type SundayCategoryRule,
   sumHoursAdjustmentsInRange,
 } from "./attendanceStats";
 import { getSundayDatesInMonth } from "./date";
-import { normalizeSundayRule } from "./sundayRule";
+import { getCycleBlocksForRule, normalizeSundayRule } from "./sundayRule";
 
 describe("computeEarnedExtraPayDaysForCalendarScope", () => {
   it("grants 2 per qualifying 15-day block (≥12 working presents), max 4 per month", () => {
@@ -1083,5 +1084,97 @@ describe("what one worked Sunday is worth", () => {
     // it pays the plain half-day worth; the other four pay the doubled one.
     expect(sundayPay).toBe(200 + 4 * 400);
     expect(sundayPay).toBe(breakdown.sundayMarkBonusPay);
+  });
+});
+
+/**
+ * The pay engine used to split a month into cycle windows with
+ * `getExtraPayCycleBlocks(year, monthIndex, rule.cycleDays)`, which always
+ * merged the month's leftover days into the last window. It now asks the rule
+ * itself (`getCycleBlocksForRule`), so a rule that says "pay the leftover days
+ * as their own window" is finally obeyed.
+ *
+ * Per the repo convention for payroll changes, the previous algorithm is kept
+ * verbatim below and swept: while `cycleRemainder` sits at its default
+ * ("merge", which is what every stored rule normalizes to), the two must agree
+ * on every block of every month — the same rupees, for every existing install.
+ */
+describe("cycle blocks: previous algorithm vs the rule-aware one", () => {
+  /** Verbatim copy of what the engine called before this change. */
+  function previousBlocks(
+    rule: SundayCategoryRule,
+    year: number,
+    monthIndex: number,
+  ): { start: number; end: number }[] {
+    return getExtraPayCycleBlocks(year, monthIndex, rule.cycleDays);
+  }
+
+  it("agrees for every month and cycle length at the default remainder", () => {
+    for (let year = 2024; year <= 2027; year += 1) {
+      for (let monthIndex = 0; monthIndex < 12; monthIndex += 1) {
+        for (let cycleDays = 1; cycleDays <= 31; cycleDays += 1) {
+          const rule = normalizeSundayRule({ kind: "table", cycleDays });
+          expect(rule.cycleRemainder).toBe("merge");
+          expect(getCycleBlocksForRule(rule, year, monthIndex)).toEqual(
+            previousBlocks(rule, year, monthIndex),
+          );
+        }
+      }
+    }
+  });
+
+  it("earned days are unchanged for a default rule, and change when the owner asks", () => {
+    // Present every non-Sunday of March 2026 (31 days).
+    const att = new Map<string, { status: string }>();
+    for (let d = 1; d <= 31; d += 1) {
+      const date = `2026-03-${String(d).padStart(2, "0")}`;
+      if (new Date(2026, 2, d).getDay() === 0) continue;
+      att.set(date, { status: "present" });
+    }
+    const base = {
+      kind: "repeat" as const,
+      repeatEveryPresentDays: 3,
+      repeatGive: 1,
+      cycleDays: 10,
+      maxPerCycle: null,
+      maxPerMonth: null,
+    };
+    const merged = normalizeSundayRule({ ...base, cycleRemainder: "merge" });
+    const separate = normalizeSundayRule({
+      ...base,
+      cycleRemainder: "separate",
+    });
+
+    const earn = (rule: SundayCategoryRule) =>
+      computeEarnedExtraPayDaysForCalendarScope(
+        "2026-03-01",
+        "2026-03-31",
+        [],
+        att,
+        8,
+        rule,
+      );
+
+    // 10-day cycles over a 31-day month: merged gives 1–10, 11–20, 21–31;
+    // separate breaks the last one into 21–30 and a 31-only window.
+    expect(getCycleBlocksForRule(merged, 2026, 2)).toEqual([
+      { start: 1, end: 10 },
+      { start: 11, end: 20 },
+      { start: 21, end: 31 },
+    ]);
+    expect(getCycleBlocksForRule(separate, 2026, 2)).toEqual([
+      { start: 1, end: 10 },
+      { start: 11, end: 20 },
+      { start: 21, end: 30 },
+      { start: 31, end: 31 },
+    ]);
+    // The default answer is the old answer...
+    expect(earn(merged)).toBe(earn(normalizeSundayRule(base)));
+    // ...and the owner's other choice actually reaches the money.
+    // Merged: 8, 9 and 9 present days → 2 + 3 + 3 = 8 earned days. Separate
+    // strips the 31st into a window of its own, and the 8 remaining present
+    // days in 21–30 only reach 2 — a day of pay the owner's choice moved.
+    expect(earn(merged)).toBe(8);
+    expect(earn(separate)).toBe(7);
   });
 });

@@ -8,6 +8,7 @@ import { getShifts } from "./shiftService";
 import {
   getSundayCategories,
   resolveSundayCategoryRule,
+  resolveUnassignedSundayRule,
   type SundayCategory,
 } from "./sundayCategoryService";
 import {
@@ -17,7 +18,7 @@ import {
 } from "./salarySheetOverrideService";
 import { resolveEffectiveSalarySheetRow } from "./salarySheetComposite";
 import { getDeductionsByEmployee } from "./advanceDeductionService";
-import { getAppSettings } from "./appSettingsService";
+import { getAppSettings, type AppSettings } from "./appSettingsService";
 import { getOperatorHolidaysInRange } from "./operatorHolidayService";
 import {
   getCalendarDaysInMonth,
@@ -172,6 +173,34 @@ export function resolveSundayPremiumForEmployee(
   return {
     requiredPresentDays: premium.requiredPresentDays,
     sundayMultiplier: premium.multiplier,
+  };
+}
+
+/**
+ * Everything a row needs to answer "which Sunday rule does this worker follow?".
+ *
+ * Two readings of one list: the category a worker is assigned to, and the rule
+ * a worker assigned to *nothing* falls on — which the owner may itself have
+ * pointed at one of these categories. Derived apart, at two call sites, they
+ * can disagree about which categories exist, and the disagreement is somebody's
+ * wage. So they are derived together, once, from one array.
+ */
+export interface SundayRuleLookup {
+  byCategoryId: Record<string, SundayCategory | undefined>;
+  /** What a worker with no Sunday category of their own is paid by. */
+  unassignedRule: SundayCategoryRule;
+}
+
+export function buildSundayRuleLookup(
+  categories: readonly SundayCategory[],
+  settings: Pick<
+    AppSettings,
+    "noCategorySundayRule" | "noCategorySundayCategoryId"
+  >,
+): SundayRuleLookup {
+  return {
+    byCategoryId: Object.fromEntries(categories.map((c) => [c.id, c])),
+    unassignedRule: resolveUnassignedSundayRule(settings, categories).rule,
   };
 }
 
@@ -503,7 +532,7 @@ interface SalarySheetContext {
   operatorHolidayDates: string[];
   /** shiftId → hoursPerDay */
   shiftMap: Record<string, number>;
-  sundayCategoryMap: Record<string, SundayCategory | undefined>;
+  sundayRules: SundayRuleLookup;
   appSettings: {
     defaultSundayPremiumRequiredDays: number;
     defaultSundayPremiumMultiplier: number;
@@ -553,7 +582,7 @@ function buildBaseSalarySheetRow(
     holidayDates,
     operatorHolidayDates,
     shiftMap,
-    sundayCategoryMap,
+    sundayRules,
     appSettings,
   } = ctx;
   const empId = emp.id as string;
@@ -563,9 +592,15 @@ function buildBaseSalarySheetRow(
   const hoursPerDay = shiftId ? (shiftMap[shiftId] ?? 8) : 8;
   const sundayCategoryId = emp.sundayCategoryId as string | undefined;
   const sundayCategory = sundayCategoryId
-    ? sundayCategoryMap[sundayCategoryId]
+    ? sundayRules.byCategoryId[sundayCategoryId]
     : undefined;
-  const sundayCategoryRule = resolveSundayCategoryRule(sundayCategory);
+  // No category — or a category id pointing at a row that has since been
+  // deleted — falls on the rule the owner chose in Settings, which defaults to
+  // the built-in rule, so no existing install moves by a rupee.
+  const sundayCategoryRule = resolveSundayCategoryRule(
+    sundayCategory,
+    sundayRules.unassignedRule,
+  );
   const maxDayPayFraction = normalizeDayPayCap(appSettings.maxDayPayFraction);
   const ratePerHour = getRatePerHour(
     monthlySalary,
@@ -777,9 +812,7 @@ export async function getSalarySheetForRange(
     shiftMap: Object.fromEntries(
       shifts.map((s) => [s.id as string, (s.hoursPerDay as number) ?? 8]),
     ),
-    sundayCategoryMap: Object.fromEntries(
-      sundayCategories.map((c) => [c.id, c]),
-    ),
+    sundayRules: buildSundayRuleLookup(sundayCategories, appSettings),
     appSettings,
   };
 
@@ -881,9 +914,7 @@ export async function getSalarySheetRowForEmployee(
     shiftMap: Object.fromEntries(
       shifts.map((s) => [s.id as string, (s.hoursPerDay as number) ?? 8]),
     ),
-    sundayCategoryMap: Object.fromEntries(
-      sundayCategories.map((c) => [c.id, c]),
-    ),
+    sundayRules: buildSundayRuleLookup(sundayCategories, appSettings),
     appSettings,
   };
 
