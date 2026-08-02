@@ -1,7 +1,7 @@
-import { getAll, get, put, STORES } from "@/lib/db/adapter";
+import { get, put } from "@/lib/db/adapter";
 import { METADATA_STORE } from "@/lib/db/schema";
 import { getItems } from "./itemService";
-import { getInventoryItems, saveInventoryItem, type InventoryItem } from "./inventoryService";
+import { getInventoryItems, saveInventoryItem } from "./inventoryService";
 import { matchLegacyItem, mergeLegacyRate } from "./inventoryCatalog";
 
 const MAP_ID = "legacy_inventory_item_map";
@@ -56,13 +56,4 @@ export async function migrateLegacyItems(): Promise<InventoryMigrationReport> {
 
   await put(METADATA_STORE, { id: MAP_ID, map });
   return report;
-}
-
-export async function resolveCanonicalItemId(itemId: string): Promise<string> {
-  const map = await readMap();
-  return map[itemId] ?? itemId;
-}
-
-export async function getCanonicalInventoryItems(): Promise<InventoryItem[]> {
-  return getInventoryItems();
 }

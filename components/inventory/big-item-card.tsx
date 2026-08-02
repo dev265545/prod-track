@@ -1,18 +1,14 @@
 "use client";
 
-import {
-  ArrowDownToLine,
-  ArrowUpFromLine,
-  MoreVertical,
-  Star,
-  Archive,
-} from "lucide-react";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { ArrowDownToLine, ArrowUpFromLine, Star } from "lucide-react";
+import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/components/language-provider";
-import { stockStatus } from "@/components/inventory/shared";
+import { stockStatus, stockStatusMeta } from "@/components/inventory/shared";
+import { ItemActionsMenu } from "@/components/inventory/category/item-actions-menu";
+import { formatInventoryQuantity } from "@/lib/services/inventoryCatalog";
 import type { InventoryItem } from "@/lib/services/inventoryService";
 
 export type BigItemCardRow = InventoryItem & {
@@ -31,8 +27,11 @@ export interface BigItemCardProps {
 }
 
 /**
- * Large, calm item card for the factory floor: big tabular-nums stock
- * number, one clear status Badge, and big labeled action buttons.
+ * A compact stock row-card. One item, one screenful of information: the
+ * quantity is the hero figure, the threshold is quiet reference text folded
+ * under the status badge, and everything that is not "add stock" or "take
+ * out" lives in a single overflow menu. Deliberately short so an operator can
+ * scan a whole shelf without scrolling.
  */
 export function BigItemCard({
   item,
@@ -42,120 +41,87 @@ export function BigItemCard({
   onFavorite,
   onArchive,
   className,
-  }: BigItemCardProps) {
+}: BigItemCardProps) {
   const { t } = useLanguage();
   const status = stockStatus(item.currentStock, item.lowStockThreshold);
-  const statusConfig = status === "out"
-    ? { label: t("inventoryStatusOut"), variant: "destructive" as const }
-    : status === "low"
-      ? { label: t("inventoryStatusLow"), variant: "warning" as const }
-      : { label: t("inventoryStatusOk"), variant: "success" as const };
+  const { labelKey, variant } = stockStatusMeta(status);
+  const unitLabel = t(
+    item.unit === "kg" ? "inventoryUnitKg" : "inventoryUnitPcs",
+  );
 
   return (
     <Card
       className={cn(
-        "flex min-h-[248px] flex-col overflow-hidden border-border/80 bg-card shadow-sm transition-[box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:shadow-lg",
+        "flex min-w-0 flex-col gap-3 rounded-lg border-border p-3.5 shadow-sm transition-shadow duration-150 hover:shadow-md",
         className,
       )}
     >
-      <CardHeader className="gap-3 p-5 pb-3">
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <span className="rounded-md border border-border bg-muted/60 px-2 py-1 font-mono text-[11px] font-medium text-muted-foreground">
-              {item.code}
-            </span>
-            <Badge variant={statusConfig.variant} className="px-2 py-1 text-[11px]">
-              {statusConfig.label}
-            </Badge>
+      <div className="flex min-w-0 items-start gap-2">
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <div className="flex min-w-0 items-center gap-1.5">
+            {item.isFavorite && (
+              <Star
+                className="size-3.5 shrink-0 fill-current text-warning"
+                aria-label={t("invCatScopeFavourites")}
+              />
+            )}
+            <h3 className="min-w-0 truncate text-sm font-semibold leading-tight text-foreground">
+              {item.name}
+            </h3>
           </div>
+          <p className="min-w-0 truncate font-mono text-[11px] text-muted-foreground">
+            {item.code} · {unitLabel}
+          </p>
+        </div>
+        <Badge variant={variant} className="mt-0.5 shrink-0">
+          {t(labelKey)}
+        </Badge>
+        <ItemActionsMenu
+          item={item}
+          onDetails={onDetails}
+          onFavorite={onFavorite}
+          onArchive={onArchive}
+          className="-mr-1.5 -mt-1.5"
+        />
+      </div>
+
+      <div className="flex min-w-0 flex-wrap items-end justify-between gap-x-3 gap-y-2">
+        <div className="min-w-0">
+          <p className="font-heading text-[1.75rem] font-bold leading-none tabular-nums text-foreground">
+            {formatInventoryQuantity(item.currentStock)}
+            <span className="ml-1 text-xs font-medium text-muted-foreground">
+              {item.unit}
+            </span>
+          </p>
+          <p className="mt-1 truncate text-[11px] text-muted-foreground">
+            {t("invCatLowBelow", {
+              qty: formatInventoryQuantity(item.lowStockThreshold),
+              unit: item.unit,
+            })}
+          </p>
+        </div>
+
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+          <Button
+            type="button"
+            size="lg"
+            className="min-h-[44px]"
+            onClick={() => onInward(item)}
+          >
+            <ArrowDownToLine data-icon="inline-start" aria-hidden />
+            {t("invCatStockIn")}
+          </Button>
           <Button
             type="button"
             variant="outline"
-            size="icon"
-            className="size-9 shrink-0 rounded-xl"
-            onClick={() => onDetails(item)}
-            aria-label={t("inventoryViewDetails")}
+            size="lg"
+            className="min-h-[44px]"
+            onClick={() => onOutward(item)}
           >
-            <MoreVertical aria-hidden />
-          </Button>
-          {onFavorite && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className={cn("size-9 shrink-0", item.isFavorite && "text-warning")}
-              onClick={() => onFavorite(item)}
-              aria-label={item.isFavorite ? "Remove favourite" : "Add favourite"}
-            >
-              <Star className={cn(item.isFavorite && "fill-current")} aria-hidden />
-            </Button>
-          )}
-          {onArchive && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="size-9 shrink-0"
-              onClick={() => onArchive(item)}
-              aria-label={item.isActive === false ? "Restore item" : "Archive item"}
-            >
-              <Archive aria-hidden />
-            </Button>
-          )}
-        </div>
-        <div className="flex min-w-0 flex-col gap-1">
-          <h3 className="text-base font-semibold leading-snug text-foreground sm:text-lg">
-            {item.name}
-          </h3>
-          <p className="text-xs text-muted-foreground">
-            {t(item.unit === "kg" ? "inventoryUnitKg" : "inventoryUnitPcs")}
-          </p>
-        </div>
-      </CardHeader>
-
-      <CardContent className="flex flex-1 flex-col gap-4 px-5 pb-4 pt-2">
-        <div className="grid grid-cols-2 gap-3">
-          <div className="rounded-2xl bg-muted/65 p-3">
-            <span className="block text-xs text-muted-foreground">
-              {t("inventoryCurrentStock")}
-            </span>
-            <span className="mt-1 block font-heading text-2xl font-bold leading-none tabular-nums text-foreground">
-              {item.currentStock.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-              <span className="ml-1 text-xs font-medium text-muted-foreground">{item.unit}</span>
-            </span>
-          </div>
-          <div className="rounded-2xl bg-muted/65 p-3">
-            <span className="block text-xs text-muted-foreground">
-              {t("inventoryColThreshold")}
-            </span>
-            <span className="mt-1 block font-heading text-2xl font-bold leading-none tabular-nums text-foreground">
-              {item.lowStockThreshold.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-              <span className="ml-1 text-xs font-medium text-muted-foreground">{item.unit}</span>
-            </span>
-          </div>
-        </div>
-
-        <div className="mt-auto grid grid-cols-2 gap-2">
-          <Button className="h-10" onClick={() => onInward(item)}>
-            <ArrowDownToLine data-icon="inline-start" aria-hidden />
-            {t("inventoryMoveInward")}
-          </Button>
-          <Button variant="outline" className="h-10" onClick={() => onOutward(item)}>
             <ArrowUpFromLine data-icon="inline-start" aria-hidden />
-            {t("inventoryMoveOutward")}
+            {t("invCatStockOut")}
           </Button>
         </div>
-      </CardContent>
-
-      <div className="px-5 pb-5 pt-0">
-        <Button
-          type="button"
-          variant="ghost"
-          className="h-8 w-full text-sm font-medium text-muted-foreground hover:text-foreground"
-          onClick={() => onDetails(item)}
-        >
-          {t("inventoryViewDetails")} <span aria-hidden>→</span>
-        </Button>
       </div>
     </Card>
   );

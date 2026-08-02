@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { AppLoadingScreen } from "@/components/app-loading-screen";
@@ -9,14 +9,15 @@ import { useLanguage } from "@/components/language-provider";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -28,12 +29,20 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
-  ArrowLeft,
+  Archive,
+  CircleAlert,
+  CircleCheck,
+  CircleSlash,
+  LayoutGrid,
+  Package,
   PackageSearch,
   Plus,
   Printer,
-  LayoutGrid,
+  RotateCw,
   Rows3,
+  Search,
+  Star,
+  TriangleAlert,
 } from "lucide-react";
 import {
   getStockLevels,
@@ -50,22 +59,71 @@ import { printInventory } from "@/lib/utils/inventoryPrint";
 import { CATEGORY_THEME } from "@/components/inventory/category-theme";
 import { stockStatus } from "@/components/inventory/shared";
 import { BigItemCard } from "@/components/inventory/big-item-card";
+import { CategorySubnav } from "@/components/inventory/category/category-subnav";
+import { ItemTable } from "@/components/inventory/category/item-table";
+import {
+  SegmentedControl,
+  type SegmentedOption,
+} from "@/components/inventory/category/segmented-control";
 import { ItemDetailsDialog } from "@/components/inventory/item-details-dialog";
 import { ItemFormDialog } from "@/components/inventory/item-form-dialog";
 import { MovementDialog } from "@/components/inventory/movement-dialog";
 import { ProduceDialog } from "@/components/inventory/produce-dialog";
 import { HistorySheet } from "@/components/inventory/history-sheet";
+import { GlobalSearchDialog } from "@/components/inventory/global-search-dialog";
 import { cn } from "@/lib/utils";
-import type { MessageKey } from "@/lib/i18n/messages";
 
 function isInventoryCategory(value: string): value is InventoryCategory {
   return INVENTORY_CATEGORIES.some((c) => c.value === value);
 }
 
 type StatusFilter = "all" | "ok" | "low" | "out";
+type ScopeFilter = "active" | "favourites" | "archived";
 type ViewMode = "cards" | "table";
 
+/** The operator's last choice of cards-vs-table, so it is not re-picked daily. */
+const VIEW_MODE_STORAGE_KEY = "prodtrack-inventory-view";
+
+function isViewMode(value: string | null): value is ViewMode {
+  return value === "cards" || value === "table";
+}
+
+/**
+ * Table is the default view — it fits more items on one screen and matches the
+ * printed sheet. Cards stay one tap away, and the last choice is remembered.
+ */
+function readSavedViewMode(): ViewMode {
+  if (typeof window === "undefined") return "table";
+  try {
+    const raw = window.localStorage.getItem(VIEW_MODE_STORAGE_KEY);
+    return isViewMode(raw) ? raw : "table";
+  } catch {
+    return "table";
+  }
+}
+
+/** The item id a global-search result asked us to open, if any. */
+function readRequestedItemId(): string | null {
+  if (typeof window === "undefined") return null;
+  return new URLSearchParams(window.location.search).get("item");
+}
+
 type StockRow = Awaited<ReturnType<typeof getStockLevels>>[number];
+
+/**
+ * One dialog can be open at a time, so one nullable union replaces the eight
+ * open/target state pairs this page used to carry. `null` means "nothing open".
+ */
+type ActiveDialog =
+  | { kind: "form"; item: InventoryItem | null }
+  | { kind: "movement"; item: InventoryItem; type: MovementType }
+  | { kind: "produce"; item: InventoryItem }
+  | { kind: "history"; item: InventoryItem }
+  | { kind: "details"; item: StockRow }
+  | { kind: "delete"; item: InventoryItem }
+  | { kind: "archive"; item: InventoryItem }
+  | { kind: "find" }
+  | null;
 
 interface CategoryPageClientProps {
   category: string;
@@ -79,50 +137,80 @@ export function CategoryPageClient({ category }: CategoryPageClientProps) {
   const valid = isInventoryCategory(category);
 
   const [dataLoaded, setDataLoaded] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [rows, setRows] = useState<StockRow[]>([]);
   const [movements, setMovements] = useState<InventoryMovement[]>([]);
 
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
-  const [favoritesOnly, setFavoritesOnly] = useState(false);
-  const [showArchived, setShowArchived] = useState(false);
+  const [scope, setScope] = useState<ScopeFilter>("active");
   const [search, setSearch] = useState("");
-  const [viewMode, setViewMode] = useState<ViewMode>("cards");
+  const [viewMode, setViewModeState] = useState<ViewMode>(readSavedViewMode);
 
-  const [itemDialogOpen, setItemDialogOpen] = useState(false);
-  const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
+  const setViewMode = useCallback((next: ViewMode) => {
+    setViewModeState(next);
+    try {
+      localStorage.setItem(VIEW_MODE_STORAGE_KEY, next);
+    } catch {
+      /* ignore */
+    }
+  }, []);
 
-  const [movementDialogOpen, setMovementDialogOpen] = useState(false);
-  const [movementItem, setMovementItem] = useState<InventoryItem | null>(null);
-  const [movementType, setMovementType] = useState<MovementType>("inward");
+  const [dialog, setDialog] = useState<ActiveDialog>(null);
+  const closeDialog = useCallback(() => setDialog(null), []);
 
-  const [produceDialogOpen, setProduceDialogOpen] = useState(false);
-  const [produceItem, setProduceItem] = useState<InventoryItem | null>(null);
+  /** Always resolves. A failed load sets the error flag; it never looks like "no data". */
+  const load = useCallback(async () => {
+    try {
+      const [stockLevels, movs] = await Promise.all([
+        getStockLevels(),
+        getMovements(),
+      ]);
+      setRows(stockLevels);
+      setMovements(movs);
+      setLoadFailed(false);
+      return stockLevels;
+    } catch {
+      setLoadFailed(true);
+      return [];
+    }
+  }, []);
 
-  const [historyOpen, setHistoryOpen] = useState(false);
-  const [historyItem, setHistoryItem] = useState<InventoryItem | null>(null);
-  const [detailsItem, setDetailsItem] = useState<Awaited<ReturnType<typeof getStockLevels>>[number] | null>(null);
-
-  const [deleteTarget, setDeleteTarget] = useState<InventoryItem | null>(null);
-
-  const load = async () => {
-    const [stockLevels, movs] = await Promise.all([
-      getStockLevels(),
-      getMovements(),
-    ]);
-    setRows(stockLevels);
-    setMovements(movs);
-  };
+  const reload = useCallback(() => {
+    void load();
+  }, [load]);
 
   useEffect(() => {
     if (!guardReady || !valid) return;
-    load().then(() => setDataLoaded(true));
-  }, [guardReady, valid]);
+    let cancelled = false;
+    const run = async () => {
+      const loaded = await load();
+      if (cancelled) return;
+      setDataLoaded(true);
+      /**
+       * Arriving from the global search: `?item=<id>` opens that item straight
+       * away, so the operator lands on what he searched for instead of a list
+       * he has to re-scan. The query is then dropped from the URL so a refresh
+       * does not re-open the dialog.
+       */
+      const wanted = readRequestedItemId();
+      if (!wanted) return;
+      window.history.replaceState(null, "", window.location.pathname);
+      const match = loaded.find((r) => r.id === wanted);
+      if (match) setDialog({ kind: "details", item: match });
+    };
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [guardReady, valid, load]);
 
   useEffect(() => {
     if (guardReady && !valid) {
       router.replace("/inventory");
     }
   }, [guardReady, valid, router]);
+
+
 
   const ready = guardReady && valid && dataLoaded;
 
@@ -160,8 +248,12 @@ export function CategoryPageClient({ category }: CategoryPageClientProps) {
     return categoryRows.filter((r) => {
       const status = stockStatus(r.currentStock, r.lowStockThreshold);
       if (statusFilter !== "all" && status !== statusFilter) return false;
-      if (showArchived ? r.isActive !== false : r.isActive === false) return false;
-      if (favoritesOnly && !r.isFavorite) return false;
+      if (scope === "archived") {
+        if (r.isActive !== false) return false;
+      } else {
+        if (r.isActive === false) return false;
+        if (scope === "favourites" && !r.isFavorite) return false;
+      }
       if (
         q &&
         !r.code.toLowerCase().includes(q) &&
@@ -170,7 +262,7 @@ export function CategoryPageClient({ category }: CategoryPageClientProps) {
         return false;
       return true;
     });
-  }, [categoryRows, statusFilter, search, favoritesOnly, showArchived]);
+  }, [categoryRows, statusFilter, search, scope]);
 
   const handlePrint = async () => {
     if (!valid) return;
@@ -185,38 +277,13 @@ export function CategoryPageClient({ category }: CategoryPageClientProps) {
     }
   };
 
-  const openAdd = () => {
-    setEditingItem(null);
-    setItemDialogOpen(true);
-  };
-
-  const openEdit = (item: InventoryItem) => {
-    setEditingItem(item);
-    setItemDialogOpen(true);
-  };
-
-  const openMovement = (item: InventoryItem, type: MovementType) => {
-    setMovementItem(item);
-    setMovementType(type);
-    setMovementDialogOpen(true);
-  };
-
-  const openProduce = (item: InventoryItem) => {
-    setProduceItem(item);
-    setProduceDialogOpen(true);
-  };
-
-  const openHistory = (item: InventoryItem) => {
-    setHistoryItem(item);
-    setHistoryOpen(true);
-  };
-
   const handleDelete = async () => {
-    if (!deleteTarget) return;
+    if (dialog?.kind !== "delete") return;
+    const target = dialog.item;
     try {
-      await deleteInventoryItem(deleteTarget.id);
+      await deleteInventoryItem(target.id);
       toast.success(t("inventoryItemDeleted"));
-      setDeleteTarget(null);
+      closeDialog();
       await load();
     } catch {
       toast.error(t("commonErrorWithMessage", { msg: "delete" }));
@@ -224,18 +291,28 @@ export function CategoryPageClient({ category }: CategoryPageClientProps) {
   };
 
   const toggleFavorite = async (item: InventoryItem) => {
+    const next = !item.isFavorite;
     try {
-      await saveInventoryItem({ ...item, isFavorite: !item.isFavorite });
+      await saveInventoryItem({ ...item, isFavorite: next });
+      toast.success(
+        next ? t("invCatFavouriteAdded") : t("invCatFavouriteRemoved"),
+      );
       await load();
     } catch {
       toast.error(t("commonErrorWithMessage", { msg: "favourite" }));
     }
   };
 
-  const toggleArchived = async (item: InventoryItem) => {
+  const handleArchive = async () => {
+    if (dialog?.kind !== "archive") return;
+    const target = dialog.item;
+    const restoring = target.isActive === false;
     try {
-      await saveInventoryItem({ ...item, isActive: item.isActive === false });
-      toast.success(item.isActive === false ? "Item restored" : "Item archived");
+      await saveInventoryItem({ ...target, isActive: restoring });
+      toast.success(
+        restoring ? t("invCatItemRestored") : t("invCatItemArchived"),
+      );
+      closeDialog();
       await load();
     } catch {
       toast.error(t("commonErrorWithMessage", { msg: "archive" }));
@@ -253,29 +330,38 @@ export function CategoryPageClient({ category }: CategoryPageClientProps) {
 
   const Icon = theme!.icon;
 
-  const statusFilters: { key: StatusFilter; labelKey: MessageKey }[] = [
-    { key: "all", labelKey: "inventoryFilterAll" },
-    { key: "ok", labelKey: "inventoryFilterOk" },
-    { key: "low", labelKey: "inventoryFilterLow" },
-    { key: "out", labelKey: "inventoryFilterOut" },
+  const statusOptions: SegmentedOption<StatusFilter>[] = [
+    { value: "all", label: t("inventoryFilterAll"), icon: Package },
+    { value: "ok", label: t("inventoryFilterOk"), icon: CircleCheck },
+    { value: "low", label: t("inventoryFilterLow"), icon: CircleAlert },
+    { value: "out", label: t("inventoryFilterOut"), icon: CircleSlash },
   ];
+
+  const scopeOptions: SegmentedOption<ScopeFilter>[] = [
+    { value: "active", label: t("invCatScopeActive"), icon: Package },
+    { value: "favourites", label: t("invCatScopeFavourites"), icon: Star },
+    { value: "archived", label: t("invCatScopeArchived"), icon: Archive },
+  ];
+
+  const viewOptions: SegmentedOption<ViewMode>[] = [
+    { value: "table", label: t("inventoryViewTable"), icon: Rows3 },
+    { value: "cards", label: t("inventoryViewCards"), icon: LayoutGrid },
+  ];
+
+  const archiveTarget = dialog?.kind === "archive" ? dialog.item : null;
+  const archiveRestoring = archiveTarget?.isActive === false;
 
   return (
     <AppShell>
-      <main className="flex flex-col gap-6 animate-fade-in">
-        <div className="flex flex-col gap-4">
-          <Button
-            variant="ghost"
-            className="w-fit gap-2 px-2 text-muted-foreground hover:text-foreground"
-            onClick={() => router.push("/inventory")}
-          >
-            <ArrowLeft className="size-4" aria-hidden />
-            {t("inventoryBackToHub")}
-          </Button>
-
-          <div className="relative flex flex-col gap-4 overflow-hidden rounded-2xl border border-border bg-card p-5 shadow-sm sm:p-6">
-            <span className={cn("absolute inset-y-0 left-0 w-1", theme!.stripe)} aria-hidden />
-            <div className="flex items-center gap-4">
+      <main className="flex w-full min-w-0 flex-col gap-5 animate-fade-in">
+        {/* Hero: what this page is, plus the two page-level actions. */}
+        <section className="relative flex min-w-0 flex-col gap-4 overflow-hidden rounded-2xl border border-border bg-card p-5 shadow-sm sm:p-6">
+          <span
+            className={cn("absolute inset-y-0 left-0 w-1", theme!.stripe)}
+            aria-hidden
+          />
+          <div className="flex min-w-0 flex-wrap items-center justify-between gap-4">
+            <div className="flex min-w-0 items-center gap-4">
               <div
                 className={cn(
                   "flex size-14 shrink-0 items-center justify-center rounded-2xl",
@@ -284,7 +370,7 @@ export function CategoryPageClient({ category }: CategoryPageClientProps) {
               >
                 <Icon className="size-8" aria-hidden />
               </div>
-              <div className="flex flex-col">
+              <div className="flex min-w-0 flex-col">
                 <h1 className="font-heading text-2xl font-extrabold tracking-tight text-foreground sm:text-3xl">
                   {categoryLabel}
                 </h1>
@@ -298,17 +384,22 @@ export function CategoryPageClient({ category }: CategoryPageClientProps) {
               </div>
             </div>
 
-            <div className="flex flex-wrap gap-3">
-              <Button
-                className="min-h-[56px] px-5 text-base"
-                onClick={openAdd}
-              >
+            <div className="flex min-w-0 flex-wrap gap-3">
+              <Button className="min-h-[52px] px-5 text-base" onClick={() => setDialog({ kind: "form", item: null })}>
                 <Plus className="size-5" data-icon="inline-start" aria-hidden />
                 {t("inventoryAddInCategory", { category: categoryLabel })}
               </Button>
               <Button
                 variant="outline"
-                className="min-h-[56px] px-5 text-base"
+                className="min-h-[52px] px-5 text-base"
+                onClick={() => setDialog({ kind: "find" })}
+              >
+                <Search className="size-5" data-icon="inline-start" aria-hidden />
+                {t("invFindOpen")}
+              </Button>
+              <Button
+                variant="outline"
+                className="min-h-[52px] px-5 text-base"
                 onClick={handlePrint}
               >
                 <Printer className="size-5" data-icon="inline-start" aria-hidden />
@@ -316,263 +407,215 @@ export function CategoryPageClient({ category }: CategoryPageClientProps) {
               </Button>
             </div>
           </div>
-        </div>
+        </section>
 
-        {/* Filter chips + view toggle */}
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex flex-wrap gap-2">
-            {statusFilters.map((f) => (
-              <button
-                key={f.key}
-                type="button"
-                onClick={() => setStatusFilter(f.key)}
-                className={cn(
-                  "min-h-[48px] rounded-xl border px-5 text-base font-bold transition-colors",
-                  statusFilter === f.key
-                    ? "border-primary bg-primary text-primary-foreground"
-                    : "border-border bg-card text-muted-foreground hover:text-foreground",
-                )}
+        <CategorySubnav current={category as InventoryCategory} />
+
+        {/* One toolbar: search + the three choosers, all wrapping together. */}
+        <section className="flex w-full min-w-0 flex-wrap items-end gap-3 rounded-2xl border border-border bg-card p-3 shadow-sm sm:p-4">
+          <div className="flex min-w-[min(100%,15rem)] flex-1 flex-col gap-1.5">
+            <Label htmlFor="inv-cat-search" className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              {t("invCatSearchLabel")}
+            </Label>
+            <div className="relative min-w-0">
+              <Search
+                className="pointer-events-none absolute left-3 top-1/2 size-5 -translate-y-1/2 text-muted-foreground"
+                aria-hidden
+              />
+              <Input
+                id="inv-cat-search"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder={t("inventorySearchPlaceholder")}
+                className="min-h-[48px] w-full min-w-0 pl-10 text-base"
+              />
+            </div>
+          </div>
+
+          <div className="flex min-w-0 flex-col gap-1.5">
+            <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              {t("invCatFilterStatusLabel")}
+            </span>
+            <SegmentedControl
+              label={t("invCatFilterStatusLabel")}
+              value={statusFilter}
+              options={statusOptions}
+              onChange={setStatusFilter}
+            />
+          </div>
+
+          <div className="flex min-w-0 flex-col gap-1.5">
+            <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              {t("invCatFilterScopeLabel")}
+            </span>
+            <SegmentedControl
+              label={t("invCatFilterScopeLabel")}
+              value={scope}
+              options={scopeOptions}
+              onChange={setScope}
+            />
+          </div>
+
+          <div className="flex min-w-0 flex-col gap-1.5">
+            <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              {t("invCatViewLabel")}
+            </span>
+            <SegmentedControl
+              label={t("invCatViewLabel")}
+              value={viewMode}
+              options={viewOptions}
+              onChange={setViewMode}
+            />
+          </div>
+        </section>
+
+        {loadFailed ? (
+          <Empty className="border border-border bg-card">
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <TriangleAlert aria-hidden />
+              </EmptyMedia>
+              <EmptyTitle>{t("invCatLoadErrorTitle")}</EmptyTitle>
+              <EmptyDescription>{t("invCatLoadErrorDesc")}</EmptyDescription>
+            </EmptyHeader>
+            <EmptyContent>
+              <Button className="min-h-[48px] px-5 text-base" onClick={reload}>
+                <RotateCw className="size-5" data-icon="inline-start" aria-hidden />
+                {t("invCatRetry")}
+              </Button>
+            </EmptyContent>
+          </Empty>
+        ) : categoryRows.length === 0 ? (
+          <Empty className="border border-dashed border-border">
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <PackageSearch aria-hidden />
+              </EmptyMedia>
+              <EmptyTitle>{t("invCatEmptyTitle")}</EmptyTitle>
+              <EmptyDescription>
+                {t("invCatEmptyDesc", { category: categoryLabel })}
+              </EmptyDescription>
+            </EmptyHeader>
+            <EmptyContent>
+              <Button
+                className="min-h-[48px] px-5 text-base"
+                onClick={() => setDialog({ kind: "form", item: null })}
               >
-                {t(f.labelKey)}
-              </button>
-            ))}
-            <Button
-              type="button"
-              variant={favoritesOnly ? "default" : "outline"}
-              onClick={() => { setFavoritesOnly((value) => !value); setShowArchived(false); }}
-            >
-              ★ Favourites
-            </Button>
-            <Button
-              type="button"
-              variant={showArchived ? "default" : "outline"}
-              onClick={() => { setShowArchived((value) => !value); setFavoritesOnly(false); }}
-            >
-              {showArchived ? "Archived" : "Active"}
-            </Button>
-          </div>
-
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={() => setViewMode("cards")}
-              className={cn(
-                "flex min-h-[48px] items-center gap-2 rounded-xl border px-4 text-base font-bold transition-colors",
-                viewMode === "cards"
-                  ? "border-primary bg-primary text-primary-foreground"
-                  : "border-border bg-card text-muted-foreground hover:text-foreground",
-              )}
-            >
-              <LayoutGrid className="size-5" aria-hidden />
-              {t("inventoryViewCards")}
-            </button>
-            <button
-              type="button"
-              onClick={() => setViewMode("table")}
-              className={cn(
-                "flex min-h-[48px] items-center gap-2 rounded-xl border px-4 text-base font-bold transition-colors",
-                viewMode === "table"
-                  ? "border-primary bg-primary text-primary-foreground"
-                  : "border-border bg-card text-muted-foreground hover:text-foreground",
-              )}
-            >
-              <Rows3 className="size-5" aria-hidden />
-              {t("inventoryViewTable")}
-            </button>
-          </div>
-        </div>
-
-        <Input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder={t("inventorySearchPlaceholder")}
-          className="min-h-[52px] text-base"
-        />
-
-        {categoryRows.length === 0 ? (
-          <div className="flex min-h-[240px] flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-border p-10 text-center text-muted-foreground">
-            <PackageSearch className="size-10" aria-hidden />
-            <span className="text-lg font-medium">
-              {t("inventoryAddInCategory", { category: categoryLabel })}
-            </span>
-          </div>
+                <Plus className="size-5" data-icon="inline-start" aria-hidden />
+                {t("inventoryAddInCategory", { category: categoryLabel })}
+              </Button>
+            </EmptyContent>
+          </Empty>
         ) : filteredRows.length === 0 ? (
-          <div className="flex min-h-[160px] flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-border p-8 text-center text-muted-foreground">
-            <span className="text-base font-medium">
-              {t("inventoryNoResults")}
-            </span>
-          </div>
+          <Empty className="border border-dashed border-border">
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <Search aria-hidden />
+              </EmptyMedia>
+              <EmptyTitle>{t("invCatNoResultsTitle")}</EmptyTitle>
+              <EmptyDescription>{t("invCatNoResultsDesc")}</EmptyDescription>
+            </EmptyHeader>
+          </Empty>
         ) : viewMode === "cards" ? (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="grid w-full min-w-0 grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {filteredRows.map((item) => (
               <BigItemCard
                 key={item.id}
                 item={item}
-                onInward={(i) => openMovement(i, "inward")}
-                onOutward={(i) => openMovement(i, "outward")}
-                onDetails={setDetailsItem}
+                onInward={(i) => setDialog({ kind: "movement", item: i, type: "inward" })}
+                onOutward={(i) => setDialog({ kind: "movement", item: i, type: "outward" })}
+                onDetails={(i) => setDialog({ kind: "details", item: i })}
                 onFavorite={toggleFavorite}
-                onArchive={toggleArchived}
+                onArchive={(i) => setDialog({ kind: "archive", item: i })}
               />
             ))}
           </div>
         ) : (
-          <div className="overflow-x-auto rounded-xl border border-border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>{t("inventoryColCode")}</TableHead>
-                  <TableHead>{t("inventoryColName")}</TableHead>
-                  <TableHead>{t("inventoryColUnit")}</TableHead>
-                  <TableHead className="text-right">
-                    {t("inventoryColOpening")}
-                  </TableHead>
-                  <TableHead className="text-right">
-                    {t("inventoryColInward")}
-                  </TableHead>
-                  <TableHead className="text-right">
-                    {t("inventoryColOutward")}
-                  </TableHead>
-                  <TableHead className="text-right">
-                    {t("inventoryColClosing")}
-                  </TableHead>
-                  <TableHead>{t("inventoryColStatus")}</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredRows.map((item) => {
-                  const sums = movementSummaries.get(item.id) ?? {
-                    inward: 0,
-                    outward: 0,
-                  };
-                  const status = stockStatus(
-                    item.currentStock,
-                    item.lowStockThreshold,
-                  );
-                  return (
-                    <TableRow
-                      key={item.id}
-                      className={cn(
-                        status === "out" && "bg-destructive/5",
-                        status === "low" && "bg-warning/5",
-                      )}
-                    >
-                      <TableCell className="font-mono text-xs">
-                        {item.code}
-                      </TableCell>
-                      <TableCell className="font-medium">
-                        {item.name}
-                      </TableCell>
-                      <TableCell>
-                        {t(
-                          item.unit === "kg"
-                            ? "inventoryUnitKg"
-                            : "inventoryUnitPcs",
-                        )}
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums">
-                        {item.openingStock}
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums text-success">
-                        {sums.inward}
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums text-destructive">
-                        {sums.outward}
-                      </TableCell>
-                      <TableCell className="text-right font-bold tabular-nums">
-                        {item.currentStock}
-                      </TableCell>
-                      <TableCell>
-                        <span
-                          className={cn(
-                            "rounded-full px-2 py-0.5 text-xs font-bold",
-                            status === "out"
-                              ? "bg-destructive/10 text-destructive"
-                              : status === "low"
-                                ? "bg-warning/15 text-warning"
-                                : "bg-success/15 text-success",
-                          )}
-                        >
-                          {status === "out"
-                            ? t("inventoryStatusOut")
-                            : status === "low"
-                              ? t("inventoryStatusLow")
-                              : t("inventoryStatusOk")}
-                        </span>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          </div>
+          <ItemTable
+            rows={filteredRows}
+            movementSummaries={movementSummaries}
+            onInward={(i) => setDialog({ kind: "movement", item: i, type: "inward" })}
+            onOutward={(i) => setDialog({ kind: "movement", item: i, type: "outward" })}
+            onDetails={(i) => setDialog({ kind: "details", item: i })}
+            onFavorite={toggleFavorite}
+            onArchive={(i) => setDialog({ kind: "archive", item: i })}
+          />
         )}
       </main>
 
+      <GlobalSearchDialog
+        open={dialog?.kind === "find"}
+        onOpenChange={(open) => !open && closeDialog()}
+        rows={rows}
+        loadFailed={loadFailed}
+        onRetry={reload}
+        onSelect={(row) => {
+          if (row.category === category) {
+            setDialog({ kind: "details", item: row });
+            return;
+          }
+          closeDialog();
+          router.push(`/inventory/${row.category}?item=${encodeURIComponent(row.id)}`);
+        }}
+      />
+
       <ItemFormDialog
-        open={itemDialogOpen}
-        onOpenChange={setItemDialogOpen}
-        item={editingItem}
-        onSaved={load}
+        open={dialog?.kind === "form"}
+        onOpenChange={(open) => !open && closeDialog()}
+        item={dialog?.kind === "form" ? dialog.item : null}
+        onSaved={reload}
         lockCategory={category as InventoryCategory}
       />
 
       <MovementDialog
-        open={movementDialogOpen}
-        onOpenChange={setMovementDialogOpen}
-        item={movementItem}
-        type={movementType}
-        onSaved={load}
+        open={dialog?.kind === "movement"}
+        onOpenChange={(open) => !open && closeDialog()}
+        item={dialog?.kind === "movement" ? dialog.item : null}
+        type={dialog?.kind === "movement" ? dialog.type : "inward"}
+        onSaved={reload}
       />
 
       <ProduceDialog
-        open={produceDialogOpen}
-        onOpenChange={setProduceDialogOpen}
-        item={produceItem}
-        onSaved={load}
+        open={dialog?.kind === "produce"}
+        onOpenChange={(open) => !open && closeDialog()}
+        item={dialog?.kind === "produce" ? dialog.item : null}
+        onSaved={reload}
       />
 
       <HistorySheet
-        open={historyOpen}
-        onOpenChange={setHistoryOpen}
-        item={historyItem}
-        onChanged={load}
+        open={dialog?.kind === "history"}
+        onOpenChange={(open) => !open && closeDialog()}
+        item={dialog?.kind === "history" ? dialog.item : null}
+        onChanged={reload}
       />
 
       <ItemDetailsDialog
-        open={!!detailsItem}
-        onOpenChange={(open) => !open && setDetailsItem(null)}
-        item={detailsItem}
-        movementSummary={detailsItem ? movementSummaries.get(detailsItem.id) : undefined}
+        open={dialog?.kind === "details"}
+        onOpenChange={(open) => !open && closeDialog()}
+        item={dialog?.kind === "details" ? dialog.item : null}
+        movementSummary={
+          dialog?.kind === "details"
+            ? movementSummaries.get(dialog.item.id)
+            : undefined
+        }
         canProduce={canProduce}
-        onProduce={(item) => {
-          setDetailsItem(null);
-          openProduce(item);
-        }}
-        onHistory={(item) => {
-          setDetailsItem(null);
-          openHistory(item);
-        }}
-        onEdit={(item) => {
-          setDetailsItem(null);
-          openEdit(item);
-        }}
-        onDelete={(item) => {
-          setDetailsItem(null);
-          setDeleteTarget(item);
-        }}
+        onSaved={reload}
+        onProduce={(item) => setDialog({ kind: "produce", item })}
+        onHistory={(item) => setDialog({ kind: "history", item })}
+        onEdit={(item) => setDialog({ kind: "form", item })}
+        onDelete={(item) => setDialog({ kind: "delete", item })}
       />
 
       <AlertDialog
-        open={!!deleteTarget}
-        onOpenChange={(open) => !open && setDeleteTarget(null)}
+        open={dialog?.kind === "delete"}
+        onOpenChange={(open) => !open && closeDialog()}
       >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{t("inventoryDeleteAction")}</AlertDialogTitle>
             <AlertDialogDescription>
-              {deleteTarget
-                ? t("inventoryDeleteDesc", { name: deleteTarget.name })
+              {dialog?.kind === "delete"
+                ? t("inventoryDeleteDesc", { name: dialog.item.name })
                 : t("inventoryDeleteConfirm")}
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -583,6 +626,37 @@ export function CategoryPageClient({ category }: CategoryPageClientProps) {
               onClick={handleDelete}
             >
               {t("inventoryDeleteAction")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={dialog?.kind === "archive"}
+        onOpenChange={(open) => !open && closeDialog()}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {archiveRestoring
+                ? t("invCatRestoreTitle")
+                : t("invCatArchiveTitle")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {archiveTarget
+                ? t(
+                    archiveRestoring ? "invCatRestoreDesc" : "invCatArchiveDesc",
+                    { name: archiveTarget.name },
+                  )
+                : ""}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("commonCancel")}</AlertDialogCancel>
+            <AlertDialogAction onClick={handleArchive}>
+              {archiveRestoring
+                ? t("invCatRestoreAction")
+                : t("invCatArchiveAction")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

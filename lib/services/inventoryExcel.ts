@@ -1,0 +1,322 @@
+/**
+ * ProdTrack Lite - Inventory Excel import/export
+ */
+import type * as XLSX from "xlsx";
+
+/** SheetJS is ~1MB; load it on demand so it stays out of the initial bundle. */
+async function loadXlsx() {
+  return import("xlsx");
+}
+import {
+  getInventoryItems,
+  getMovements,
+  saveInventoryItem,
+  addMovement,
+  getStockLevels,
+  clearInventory,
+  getInventoryImportHash,
+  setInventoryImportHash,
+  INVENTORY_CATEGORIES,
+  type InventoryCategory,
+  type InventoryItem,
+  type InventoryMovement,
+} from "./inventoryService";
+import { isLegacyWorkbook, importLegacyWorkbook } from "./legacyInventoryImport";
+import { hashArrayBuffer } from "@/lib/utils/hash";
+
+function categoryLabel(cat: InventoryCategory): string {
+  return cat.charAt(0).toUpperCase() + cat.slice(1);
+}
+
+function isFinished(cat: InventoryCategory): boolean {
+  return INVENTORY_CATEGORIES.find((c) => c.value === cat)?.layer === "finished";
+}
+
+function sumByType(
+  movements: InventoryMovement[],
+  itemId: string,
+  type: "inward" | "outward"
+): number {
+  return movements
+    .filter((m) => m.itemId === itemId && m.type === type)
+    .reduce((sum, m) => sum + m.qty, 0);
+}
+
+function triggerBrowserDownload(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+type StockLevelRow = Awaited<ReturnType<typeof getStockLevels>>[number];
+
+/**
+ * Build a multi-sheet Excel workbook, one sheet per category, from already
+ * loaded stock levels + movements. Pure (no I/O), so it's separated out from
+ * exportInventoryToWorkbook to be independently testable.
+ */
+export async function buildInventoryWorkbook(
+  stockLevels: StockLevelRow[],
+  movements: InventoryMovement[]
+): Promise<XLSX.WorkBook> {
+  const XLSX = await loadXlsx();
+  const wb = XLSX.utils.book_new();
+
+  for (const { value: category } of INVENTORY_CATEGORIES) {
+    const items = stockLevels.filter((i) => i.category === category);
+    const finished = isFinished(category);
+
+    const baseHeader = [
+      "Code",
+      "Name",
+      "Unit",
+      "Opening",
+      "Inward",
+      "Outward",
+      "Closing",
+      "Threshold",
+      "Status",
+    ];
+    const header = finished
+      ? [...baseHeader, "Box Code", "Sticker Code", "Poly Code"]
+      : baseHeader;
+
+    const rows: (string | number)[][] = [header];
+
+    for (const item of items) {
+      const inward = sumByType(movements, item.id, "inward");
+      const outward = sumByType(movements, item.id, "outward");
+      const row: (string | number)[] = [
+        item.code,
+        item.name,
+        item.unit,
+        item.openingStock,
+        inward,
+        outward,
+        item.currentStock,
+        item.lowStockThreshold,
+        item.isLow ? "LOW" : "OK",
+      ];
+      if (finished) {
+        row.push(item.boxCode ?? "", item.stickerCode ?? "", item.polyCode ?? "");
+      }
+      rows.push(row);
+    }
+
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    XLSX.utils.book_append_sheet(wb, ws, categoryLabel(category));
+  }
+
+  return wb;
+}
+
+/**
+ * Export all inventory items to a multi-sheet Excel workbook, one sheet per
+ * category, and trigger a browser download.
+ */
+export async function exportInventoryToWorkbook(): Promise<void> {
+  const [stockLevels, movements] = await Promise.all([
+    getStockLevels(),
+    getMovements(),
+  ]);
+
+  const wb = await buildInventoryWorkbook(stockLevels, movements);
+
+  const XLSX = await loadXlsx();
+  const wbout = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+  const blob = new Blob([wbout], {
+    type: "application/octet-stream",
+  });
+  const dateStr = new Date().toISOString().slice(0, 10);
+  triggerBrowserDownload(blob, `inventory-${dateStr}.xlsx`);
+}
+
+function findCategoryForSheet(sheetName: string): InventoryCategory | null {
+  const lower = sheetName.trim().toLowerCase();
+  const match = INVENTORY_CATEGORIES.find((c) => c.value === lower);
+  return match ? match.value : null;
+}
+
+function num(v: unknown): number {
+  return Number(v) || 0;
+}
+
+function str(v: unknown): string {
+  return v === undefined || v === null ? "" : String(v).trim();
+}
+
+interface ParsedRow {
+  [key: string]: unknown;
+}
+
+export type InventoryImportMode = "update" | "replace";
+
+export interface InventoryImportResult {
+  mode: InventoryImportMode;
+  unchanged: boolean;
+  itemsCreated: number;
+  itemsUpdated: number;
+  movementsCreated: number;
+  skipped: string[];
+}
+
+/**
+ * Parse an uploaded .xlsx file and upsert inventory items + movements from
+ * each sheet whose name matches a known category.
+ *
+ * Two modes:
+ * - "update" (default): upsert items by code+category, reconcile movements.
+ *   Before doing anything, the raw file bytes are hashed; if the hash
+ *   matches the last successful import's stored hash, nothing is touched
+ *   and `unchanged: true` is returned.
+ * - "replace": wipes ALL existing inventory items + movements first, then
+ *   imports fresh from the file. Destructive.
+ *
+ * On a successful (non-unchanged) import, the file's hash is stored so a
+ * subsequent identical "update" import can short-circuit.
+ */
+export async function importInventoryFromFile(
+  file: File,
+  opts?: { mode?: InventoryImportMode }
+): Promise<InventoryImportResult> {
+  const mode: InventoryImportMode = opts?.mode ?? "update";
+  const buffer = await file.arrayBuffer();
+  const hash = hashArrayBuffer(buffer);
+
+  if (mode === "update") {
+    const storedHash = await getInventoryImportHash();
+    if (storedHash !== null && storedHash === hash) {
+      return {
+        mode,
+        unchanged: true,
+        itemsCreated: 0,
+        itemsUpdated: 0,
+        movementsCreated: 0,
+        skipped: [],
+      };
+    }
+  }
+
+  if (mode === "replace") {
+    await clearInventory();
+  }
+
+  const XLSX = await loadXlsx();
+  const wb = XLSX.read(buffer, { type: "array" });
+
+  if (isLegacyWorkbook(wb)) {
+    const result = await importLegacyWorkbook(wb);
+    await setInventoryImportHash(hash);
+    return { mode, unchanged: false, ...result };
+  }
+
+  const existingItems = await getInventoryItems();
+  const byKey = new Map<string, InventoryItem>();
+  for (const item of existingItems) {
+    byKey.set(`${item.category}:${item.code.toLowerCase()}`, item);
+  }
+
+  let itemsCreated = 0;
+  let itemsUpdated = 0;
+  let movementsCreated = 0;
+  const today = new Date().toISOString().slice(0, 10);
+
+  for (const sheetName of wb.SheetNames) {
+    const category = findCategoryForSheet(sheetName);
+    if (!category) continue;
+
+    const sheet = wb.Sheets[sheetName];
+    const rows: ParsedRow[] = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+
+    for (const row of rows) {
+      const code = str(row["Code"]);
+      if (!code) continue; // skip empty rows
+
+      const name = str(row["Name"]) || code;
+      const unit = str(row["Unit"]).toLowerCase() === "kg" ? "kg" : "pcs";
+      const opening = num(row["Opening"]);
+      const inward = num(row["Inward"]);
+      const outward = num(row["Outward"]);
+      const threshold = row["Threshold"] !== undefined && row["Threshold"] !== ""
+        ? num(row["Threshold"])
+        : undefined;
+      const boxCode = str(row["Box Code"]) || undefined;
+      const stickerCode = str(row["Sticker Code"]) || undefined;
+      const polyCode = str(row["Poly Code"]) || undefined;
+
+      const key = `${category}:${code.toLowerCase()}`;
+      const existing = byKey.get(key);
+
+      const saved = await saveInventoryItem({
+        id: existing?.id,
+        code,
+        name,
+        category,
+        unit,
+        openingStock: opening,
+        lowStockThreshold: threshold ?? existing?.lowStockThreshold ?? 100,
+        boxCode,
+        stickerCode,
+        polyCode,
+        sortOrder: existing?.sortOrder ?? 0,
+        isActive: existing?.isActive ?? true,
+      });
+
+      if (existing) {
+        itemsUpdated++;
+      } else {
+        itemsCreated++;
+        byKey.set(key, saved);
+      }
+
+      if (inward > 0) {
+        await addMovement({
+          itemId: saved.id,
+          date: today,
+          type: "inward",
+          qty: inward,
+          note: "Imported from Excel",
+        });
+        movementsCreated++;
+      }
+      if (outward > 0) {
+        await addMovement({
+          itemId: saved.id,
+          date: today,
+          type: "outward",
+          qty: outward,
+          note: "Imported from Excel",
+        });
+        movementsCreated++;
+      }
+    }
+  }
+
+  await setInventoryImportHash(hash);
+  return { mode, unchanged: false, itemsCreated, itemsUpdated, movementsCreated, skipped: [] };
+}
+
+/** Pre-import summary: sheet name + row count for known category sheets. */
+export async function parseWorkbookPreview(
+  file: File
+): Promise<{ sheet: string; rowCount: number }[]> {
+  const buffer = await file.arrayBuffer();
+  const XLSX = await loadXlsx();
+  const wb = XLSX.read(buffer, { type: "array" });
+
+  const results: { sheet: string; rowCount: number }[] = [];
+  for (const sheetName of wb.SheetNames) {
+    const category = findCategoryForSheet(sheetName);
+    if (!category) continue;
+    const sheet = wb.Sheets[sheetName];
+    const rows: ParsedRow[] = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+    const rowCount = rows.filter((r) => str(r["Code"])).length;
+    results.push({ sheet: sheetName, rowCount });
+  }
+  return results;
+}

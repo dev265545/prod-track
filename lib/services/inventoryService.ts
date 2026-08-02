@@ -24,8 +24,19 @@ export interface InventoryItem {
   lowStockThreshold: number; // default 100
   openingStock: number; // baseline; live stock = opening + movements
   boxCode?: string; // BOM: referenced raw box code
-  stickerCode?: string; // BOM: referenced sticker code
+  /** BOM: primary sticker code. Mirrors `stickerCodes[0]`; kept as its own
+   * field so databases and code written before multi-sticker support still
+   * read correctly. */
+  stickerCode?: string;
+  /** BOM: every sticker code this item consumes. The source workbook's
+   * Container sheet holds two (columns O and P) for a handful of rows;
+   * Glass holds one. Undefined on rows written before this field existed —
+   * use {@link stickerCodesFor}, never this field directly. */
+  stickerCodes?: string[];
   polyCode?: string; // BOM: referenced poly code
+  /** BOM: stickers consumed per produced unit. Undefined on rows written
+   * before this field existed; those fall back to DEFAULT_STICKERS_PER_UNIT. */
+  stickersPerUnit?: number;
   rate?: number; // legacy production/pay rate carried into the canonical catalog
   isFavorite?: boolean;
   sortOrder: number;
@@ -80,6 +91,7 @@ export async function saveInventoryItem(
   const now = Date.now();
   const isNew = !item.id;
   const existing = item.id ? await getInventoryItem(item.id) : null;
+  const stickerCodes = normalizedStickerCodes(item);
   const record: InventoryItem = {
     id:
       item.id ??
@@ -92,8 +104,12 @@ export async function saveInventoryItem(
     lowStockThreshold: item.lowStockThreshold ?? 100,
     openingStock: item.openingStock ?? 0,
     boxCode: item.boxCode,
-    stickerCode: item.stickerCode,
+    stickerCode: stickerCodes[0],
+    stickerCodes: stickerCodes.length > 0 ? stickerCodes : undefined,
     polyCode: item.polyCode,
+    // Left undefined when not supplied so existing rows keep meaning "use the
+    // default" rather than being silently frozen at today's default value.
+    stickersPerUnit: item.stickersPerUnit ?? existing?.stickersPerUnit,
     rate: item.rate ?? existing?.rate,
     isFavorite: item.isFavorite ?? existing?.isFavorite ?? false,
     sortOrder: item.sortOrder ?? 0,
@@ -184,7 +200,99 @@ export function computeStock(
   return stock;
 }
 
-const STICKERS_PER_UNIT = 2;
+/** Stickers consumed per produced unit when an item does not override it.
+ * Matches the historical hardcoded factory rule. */
+export const DEFAULT_STICKERS_PER_UNIT = 2;
+
+/**
+ * Every sticker code an item consumes, tolerating rows saved before
+ * `stickerCodes` existed (which carry only the single `stickerCode`).
+ * Duplicates and blanks are dropped so a code is never deducted twice.
+ */
+export function stickerCodesFor(
+  item: Pick<InventoryItem, "stickerCode" | "stickerCodes">,
+): string[] {
+  const raw =
+    Array.isArray(item.stickerCodes) && item.stickerCodes.length > 0
+      ? item.stickerCodes
+      : item.stickerCode
+        ? [item.stickerCode]
+        : [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const code of raw) {
+    const trimmed = typeof code === "string" ? code.trim() : "";
+    if (!trimmed) continue;
+    const key = trimmed.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(trimmed);
+  }
+  return out;
+}
+
+/** Save-time normalization: accepts either shape, emits the canonical list. */
+function normalizedStickerCodes(item: Partial<InventoryItem>): string[] {
+  return stickerCodesFor({
+    stickerCode: item.stickerCode,
+    stickerCodes: item.stickerCodes,
+  });
+}
+
+/** Resolves the effective sticker multiplier for an item, tolerating rows
+ * saved before `stickersPerUnit` existed and rows holding junk values. */
+export function stickersPerUnitFor(item: Pick<InventoryItem, "stickersPerUnit">): number {
+  const value = item.stickersPerUnit;
+  if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
+    return value;
+  }
+  return DEFAULT_STICKERS_PER_UNIT;
+}
+
+export type BomRole = "box" | "sticker" | "poly";
+
+export interface DeductedComponent {
+  role: BomRole;
+  code: string;
+  itemId: string;
+  itemName: string;
+  qty: number;
+}
+
+export interface MissingComponent {
+  role: BomRole;
+  code: string;
+}
+
+export interface ProduceResult {
+  finishedItemId: string;
+  qty: number;
+  /** Components that resolved to a real item and were deducted. */
+  deducted: DeductedComponent[];
+  /** BOM codes that matched no inventory item, so nothing was deducted. */
+  missing: MissingComponent[];
+}
+
+/** i18n key per BOM role, so UI layers can name the component the operator
+ * knows ("poly", "sticker") when warning that it was not deducted. */
+export const BOM_ROLE_MESSAGE_KEY = {
+  box: "invSvcRoleBox",
+  sticker: "invSvcRoleSticker",
+  poly: "invSvcRolePoly",
+} as const;
+
+export type ProduceErrorCode = "invalid-qty" | "item-not-found";
+
+/** Thrown instead of returning silently, so callers can never mistake a
+ * no-op for a recorded production. */
+export class ProduceError extends Error {
+  readonly code: ProduceErrorCode;
+  constructor(code: ProduceErrorCode, message: string) {
+    super(message);
+    this.name = "ProduceError";
+    this.code = code;
+  }
+}
 
 function findComponentItem(
   items: InventoryItem[],
@@ -202,71 +310,109 @@ function findComponentItem(
 /**
  * Records production of a finished good and auto-deducts its BOM
  * components (box, sticker, poly), mirroring the original factory
- * reconciliation macros. Unknown/missing component codes are skipped
- * silently.
+ * reconciliation macros.
+ *
+ * Throws {@link ProduceError} rather than returning silently when there is
+ * nothing to record, and reports unresolved BOM codes in `missing` so the UI
+ * can tell the operator which component was *not* taken out of stock.
+ *
+ * The movement writes are all-or-nothing: the underlying adapters offer no
+ * multi-row transaction, so a failure part-way through deletes the movements
+ * already written instead of leaving inventory half-adjusted.
  */
 export async function produceFinishedGood(
   finishedItemId: string,
   qty: number,
   date: string,
   note?: string,
-): Promise<void> {
-  if (qty <= 0) return;
+): Promise<ProduceResult> {
+  if (!Number.isFinite(qty) || qty <= 0) {
+    throw new ProduceError(
+      "invalid-qty",
+      `Quantity must be greater than zero (got ${qty})`,
+    );
+  }
 
   const finishedItem = await getInventoryItem(finishedItemId);
-  if (!finishedItem) return;
-
-  await addMovement({
-    itemId: finishedItem.id,
-    date,
-    type: "inward",
-    qty,
-    note: note || `Auto: produced ${finishedItem.code} x${qty}`,
-  });
+  if (!finishedItem) {
+    throw new ProduceError(
+      "item-not-found",
+      `Inventory item ${finishedItemId} was not found`,
+    );
+  }
 
   const items = await getInventoryItems();
+  const defaultNote = `Auto: produced ${finishedItem.code} x${qty}`;
+  const deducted: DeductedComponent[] = [];
+  const missing: MissingComponent[] = [];
 
-  if (finishedItem.boxCode) {
-    const boxItem = findComponentItem(items, finishedItem.boxCode, "box");
-    if (boxItem) {
-      await addMovement({
-        itemId: boxItem.id,
-        date,
-        type: "outward",
-        qty,
-        note: note || `Auto: produced ${finishedItem.code} x${qty}`,
-      });
+  // Resolve the whole BOM up front so nothing is written until we know what
+  // the full set of writes is.
+  const componentSpecs: Array<{ role: BomRole; code: string }> = [];
+  if (finishedItem.boxCode) componentSpecs.push({ role: "box", code: finishedItem.boxCode });
+  // Every sticker code, not just the first: the original updateSTICKERS()
+  // macro deducted from Container columns O and P independently.
+  for (const stickerCode of stickerCodesFor(finishedItem)) {
+    componentSpecs.push({ role: "sticker", code: stickerCode });
+  }
+  if (finishedItem.polyCode) componentSpecs.push({ role: "poly", code: finishedItem.polyCode });
+
+  const resolved: Array<{ role: BomRole; code: string; item: InventoryItem; qty: number }> = [];
+  for (const spec of componentSpecs) {
+    const componentItem = findComponentItem(items, spec.code, spec.role);
+    if (!componentItem) {
+      missing.push({ role: spec.role, code: spec.code });
+      continue;
     }
+    let deductQty = qty;
+    if (spec.role === "sticker") deductQty = qty * stickersPerUnitFor(finishedItem);
+    else if (spec.role === "poly" && componentItem.weightPerUnit)
+      deductQty = qty * componentItem.weightPerUnit;
+    resolved.push({ role: spec.role, code: spec.code, item: componentItem, qty: deductQty });
   }
 
-  if (finishedItem.stickerCode) {
-    const stickerItem = findComponentItem(items, finishedItem.stickerCode, "sticker");
-    if (stickerItem) {
-      await addMovement({
-        itemId: stickerItem.id,
+  const written: string[] = [];
+  try {
+    const inward = await addMovement({
+      itemId: finishedItem.id,
+      date,
+      type: "inward",
+      qty,
+      note: note || defaultNote,
+    });
+    written.push(inward.id);
+
+    for (const component of resolved) {
+      const movement = await addMovement({
+        itemId: component.item.id,
         date,
         type: "outward",
-        qty: qty * STICKERS_PER_UNIT,
-        note: note || `Auto: produced ${finishedItem.code} x${qty}`,
+        qty: component.qty,
+        note: note || defaultNote,
+      });
+      written.push(movement.id);
+      deducted.push({
+        role: component.role,
+        code: component.code,
+        itemId: component.item.id,
+        itemName: component.item.name,
+        qty: component.qty,
       });
     }
+  } catch (error) {
+    // Compensate: undo every movement this call already wrote, so a partial
+    // failure never leaves orphaned stock adjustments behind.
+    for (const id of written) {
+      try {
+        await remove(MOVEMENTS_STORE, id);
+      } catch (cleanupError) {
+        console.error("[inventory] rollback of movement failed", id, cleanupError);
+      }
+    }
+    throw error;
   }
 
-  if (finishedItem.polyCode) {
-    const polyItem = findComponentItem(items, finishedItem.polyCode, "poly");
-    if (polyItem) {
-      const deductQty = polyItem.weightPerUnit
-        ? qty * polyItem.weightPerUnit
-        : qty;
-      await addMovement({
-        itemId: polyItem.id,
-        date,
-        type: "outward",
-        qty: deductQty,
-        note: note || `Auto: produced ${finishedItem.code} x${qty}`,
-      });
-    }
-  }
+  return { finishedItemId: finishedItem.id, qty, deducted, missing };
 }
 
 export async function getStockLevels(): Promise<
