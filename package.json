@@ -18,6 +18,8 @@
     "start": "next start",
     "lint": "eslint .",
     "test": "vitest run",
+    "test:node": "vitest run --project node",
+    "test:dom": "vitest run --project dom",
     "test:watch": "vitest",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
