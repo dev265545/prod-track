@@ -36,14 +36,20 @@ import { useLanguage } from "@/components/language-provider";
 import type { MessageKey } from "@/lib/i18n/messages";
 import { cn } from "@/lib/utils";
 import {
-  clampPayrollDriverFieldsToPeriod,
   countSundaysInRange,
+  DEFAULT_MAX_DAY_PAY_FRACTION,
   getMaxEarnedSundayPayDaysInRange,
-  getWorkingDaysInRange,
+  getMaxPresentDaysInRange,
+  normalizeDayPayCap,
+  reportPayrollDriverClamp,
+  type DayPayCap,
 } from "@/lib/utils/date";
+import { getAppSettings } from "@/lib/services/appSettingsService";
+import { AlertTriangle } from "lucide-react";
 
+/** The three drivers this dialog edits — also the three the period clamp bounds. */
 const DRIVER_FIELDS: Array<{
-  key: SalarySheetDriverField;
+  key: "presentDays" | "earnedSundayPayDays" | "sundayPresentBonusDays";
   labelKey: MessageKey;
 }> = [
   { key: "presentDays", labelKey: "salaryAdjustDriverPresentDays" },
@@ -89,6 +95,25 @@ export function SalarySheetAdjustDialog({
   const [draftNotes, setDraftNotes] = useState("");
   const [savingOverride, setSavingOverride] = useState(false);
   const [periodHolidayDates, setPeriodHolidayDates] = useState<string[]>([]);
+  // The per-day pay limit in force. Read here rather than assumed, because the
+  // ceiling this dialog draws must be the very one the save applies — showing
+  // one number and enforcing another is how the old hardcoded 2 stayed hidden.
+  const [dayPayCap, setDayPayCap] = useState<DayPayCap>(
+    DEFAULT_MAX_DAY_PAY_FRACTION,
+  );
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    void getAppSettings().then((settings) => {
+      if (!cancelled) {
+        setDayPayCap(normalizeDayPayCap(settings.maxDayPayFraction));
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
 
   useEffect(() => {
     if (!open || !periodFrom || !periodTo) {
@@ -111,25 +136,20 @@ export function SalarySheetAdjustDialog({
       return { maxPresent: 0, maxEarned: 0, maxSunday: 0 };
     }
     return {
-      maxPresent: getWorkingDaysInRange(
-        periodFrom,
-        periodTo,
-        periodHolidayDates,
-      ),
+      maxPresent: getMaxPresentDaysInRange(periodFrom, periodTo, dayPayCap),
       maxEarned: getMaxEarnedSundayPayDaysInRange(periodFrom, periodTo),
       maxSunday: countSundaysInRange(periodFrom, periodTo),
     };
-  }, [periodFrom, periodTo, periodHolidayDates]);
+  }, [periodFrom, periodTo, dayPayCap]);
 
   const periodRangeValid = useMemo(
     () => Boolean(periodFrom && periodTo && periodFrom <= periodTo),
     [periodFrom, periodTo],
   );
 
-  const clampDriverDraft = useCallback(
-    (d: SalarySheetDraftDrivers): SalarySheetDraftDrivers => ({
-      ...d,
-      ...clampPayrollDriverFieldsToPeriod(
+  const clampReportFor = useCallback(
+    (d: SalarySheetDraftDrivers) =>
+      reportPayrollDriverClamp(
         periodFrom,
         periodTo,
         periodHolidayDates,
@@ -138,10 +158,48 @@ export function SalarySheetAdjustDialog({
           earnedSundayPayDays: d.earnedSundayPayDays,
           sundayPresentBonusDays: d.sundayPresentBonusDays,
         },
+        dayPayCap,
       ),
-    }),
-    [periodFrom, periodTo, periodHolidayDates],
+    [periodFrom, periodTo, periodHolidayDates, dayPayCap],
   );
+
+  const clampDriverDraft = useCallback(
+    (d: SalarySheetDraftDrivers): SalarySheetDraftDrivers => ({
+      ...d,
+      ...clampReportFor(d).values,
+    }),
+    [clampReportFor],
+  );
+
+  /**
+   * Which typed figures the period ceilings pulled down, remembered from the
+   * moment it happened.
+   *
+   * The boxes below show the clamped value — they must, or the sheet would
+   * promise a number it will not save — so by the time anything is rendered the
+   * evidence of the trim is gone. Recording it here at the point of the edit is
+   * what lets the dialog say "we moved your number and here is why" instead of
+   * doing it silently, which is the whole complaint this work answers.
+   */
+  const [trimmedDriverKeys, setTrimmedDriverKeys] = useState<
+    (typeof DRIVER_FIELDS)[number]["key"][]
+  >([]);
+
+  const applyDraftChange = useCallback(
+    (update: (current: SalarySheetDraftDrivers) => SalarySheetDraftDrivers) => {
+      setDraftDrivers((current) => {
+        if (!current) return current;
+        const wanted = update(current);
+        const report = clampReportFor(wanted);
+        setTrimmedDriverKeys(
+          DRIVER_FIELDS.filter((f) => report.trimmed[f.key]).map((f) => f.key),
+        );
+        return { ...wanted, ...report.values };
+      });
+    },
+    [clampReportFor],
+  );
+
 
   useEffect(() => {
     if (!open || !row) return;
@@ -162,21 +220,19 @@ export function SalarySheetAdjustDialog({
     onOpenChange(false);
     setDraftDrivers(null);
     setDraftNotes("");
+    setTrimmedDriverKeys([]);
     setPeriodHolidayDates([]);
   };
 
   const resetDraftField = (field: SalarySheetDriverField) => {
     if (!row) return;
     const defaults = getSalarySheetDriverDefaults(row);
-    setDraftDrivers((current) => {
-      if (!current) return current;
-      const merged = { ...current, [field]: defaults[field] };
-      return clampDriverDraft(merged);
-    });
+    applyDraftChange((current) => ({ ...current, [field]: defaults[field] }));
   };
 
   const resetAllDraftFields = () => {
     if (row) setDraftDrivers(clampDriverDraft(getSalarySheetDriverDefaults(row)));
+    setTrimmedDriverKeys([]);
     setDraftNotes("");
   };
 
@@ -215,9 +271,14 @@ export function SalarySheetAdjustDialog({
       ? buildSalarySheetDraftState(row, clampDriverDraft(draftDrivers))
       : null;
 
+
   const maxForAdjustDriver = (key: SalarySheetDriverField): number | undefined => {
     if (key === "presentDays") {
-      return driverCaps.maxPresent > 0 ? driverCaps.maxPresent : undefined;
+      // `Infinity` is what "no limit" looks like here, and an input whose max
+      // is Infinity has no max at all.
+      return driverCaps.maxPresent > 0 && Number.isFinite(driverCaps.maxPresent)
+        ? driverCaps.maxPresent
+        : undefined;
     }
     if (key === "earnedSundayPayDays") {
       return driverCaps.maxEarned;
@@ -308,6 +369,47 @@ export function SalarySheetAdjustDialog({
                   </CardContent>
                 </Card>
 
+                {/* Surface tokens, not tinted alphas: an alpha modifier
+                    compiles to color-mix(), which Chrome 109 cannot parse. */}
+                {row.dayPayCap && row.dayPayCap.clippedDates > 0 ? (
+                  <p className="flex items-start gap-2 rounded-xl border border-warning bg-surface-4 p-4 text-base leading-relaxed text-foreground">
+                    <AlertTriangle
+                      className="mt-0.5 size-5 shrink-0 text-warning"
+                      aria-hidden
+                    />
+                    <span>
+                      {t("capSheetClipped", {
+                        dates: row.dayPayCap.clippedDates,
+                        days: number(row.dayPayCap.clippedDays),
+                        limit:
+                          row.dayPayCap.limit === null
+                            ? t("capNoLimit")
+                            : number(row.dayPayCap.limit),
+                      })}
+                    </span>
+                  </p>
+                ) : null}
+
+                {trimmedDriverKeys.length > 0 ? (
+                  <p className="flex items-start gap-2 rounded-xl border border-warning bg-surface-4 p-4 text-base leading-relaxed text-foreground">
+                    <AlertTriangle
+                      className="mt-0.5 size-5 shrink-0 text-warning"
+                      aria-hidden
+                    />
+                    <span>
+                      {t("capOverrideTrimmed", {
+                        fields: trimmedDriverKeys
+                          .map((key) =>
+                            t(
+                              DRIVER_FIELDS.find((f) => f.key === key)!.labelKey,
+                            ),
+                          )
+                          .join(", "),
+                      })}
+                    </span>
+                  </p>
+                ) : null}
+
                 <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                   {draftState &&
                     DRIVER_FIELDS.map((field) => (
@@ -341,9 +443,11 @@ export function SalarySheetAdjustDialog({
                               periodRangeValid &&
                               driverCaps.maxPresent > 0 ? (
                                 <p className="text-xs text-muted-foreground">
-                                  {t("salaryAdjustPresentDaysCap", {
-                                    count: driverCaps.maxPresent,
-                                  })}
+                                  {Number.isFinite(driverCaps.maxPresent)
+                                    ? t("salaryAdjustPresentDaysCap", {
+                                        count: driverCaps.maxPresent,
+                                      })
+                                    : t("capPresentDaysNoLimit")}
                                 </p>
                               ) : null}
                               {field.key === "earnedSundayPayDays" &&
@@ -382,18 +486,13 @@ export function SalarySheetAdjustDialog({
                               size="icon-sm"
                               className="size-11 shrink-0 border-chart-1/30 bg-chart-1/5 hover:bg-chart-1/15"
                               onClick={() =>
-                                setDraftDrivers((current) =>
-                                  current
-                                    ? clampDriverDraft({
-                                        ...current,
-                                        [field.key]:
-                                          stepSalarySheetDriverValue(
-                                            current[field.key],
-                                            -1,
-                                          ),
-                                      })
-                                    : current,
-                                )
+                                applyDraftChange((current) => ({
+                                  ...current,
+                                  [field.key]: stepSalarySheetDriverValue(
+                                    current[field.key],
+                                    -1,
+                                  ),
+                                }))
                               }
                             >
                               -
@@ -408,14 +507,10 @@ export function SalarySheetAdjustDialog({
                                 const next = Number(event.target.value);
                                 if (!Number.isFinite(next)) return;
                                 const v = Math.max(0, Math.round(next));
-                                setDraftDrivers((current) =>
-                                  current
-                                    ? clampDriverDraft({
-                                        ...current,
-                                        [field.key]: v,
-                                      })
-                                    : current,
-                                );
+                                applyDraftChange((current) => ({
+                                  ...current,
+                                  [field.key]: v,
+                                }));
                               }}
                             />
                             <Button
@@ -431,18 +526,13 @@ export function SalarySheetAdjustDialog({
                                 );
                               })()}
                               onClick={() =>
-                                setDraftDrivers((current) =>
-                                  current
-                                    ? clampDriverDraft({
-                                        ...current,
-                                        [field.key]:
-                                          stepSalarySheetDriverValue(
-                                            current[field.key],
-                                            1,
-                                          ),
-                                      })
-                                    : current,
-                                )
+                                applyDraftChange((current) => ({
+                                  ...current,
+                                  [field.key]: stepSalarySheetDriverValue(
+                                    current[field.key],
+                                    1,
+                                  ),
+                                }))
                               }
                             >
                               +

@@ -31,6 +31,7 @@ vi.mock("@/lib/services/advanceService", () => ({
 }));
 
 import {
+  describeOverrideSave,
   getSalarySheetOverridesForMonth,
   getSalarySheetOverridesTouchingMonth,
   saveSalarySheetOverride,
@@ -235,5 +236,40 @@ describe("getSalarySheetOverridesTouchingMonth", () => {
     const rows = await getSalarySheetOverridesForMonth(2026, 3);
     expect(rows).toHaveLength(1);
     expect(rows[0].fromDate).toBe("2026-04-16");
+  });
+});
+
+describe("describeOverrideSave", () => {
+  const noTrim = {
+    values: { presentDays: 0, earnedSundayPayDays: 0, sundayPresentBonusDays: 0 },
+    trimmed: {
+      presentDays: false,
+      earnedSundayPayDays: false,
+      sundayPresentBonusDays: false,
+    },
+    limits: { presentDays: 54, earnedSundayPayDays: 4, sundayPresentBonusDays: 4 },
+  };
+
+  it("says only what happened when nothing was trimmed", () => {
+    expect(describeOverrideSave(noTrim)).toBe(
+      "payroll figures were entered by hand, replacing what the app calculated",
+    );
+  });
+
+  it("names every figure the period limits pulled down", () => {
+    const trimmed = {
+      ...noTrim,
+      trimmed: {
+        presentDays: true,
+        earnedSundayPayDays: false,
+        sundayPresentBonusDays: true,
+      },
+    };
+    // A correction reduced without a word is the defect this work exists to
+    // end, so the audit line has to carry it.
+    expect(describeOverrideSave(trimmed)).toBe(
+      "payroll figures were entered by hand, replacing what the app calculated; " +
+        "the period limits trimmed present days down to 54, Sundays present down to 4",
+    );
   });
 });

@@ -16,7 +16,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { CalendarDays, Clock, Info, Pencil, Plus, Save, Trash2, X } from "lucide-react";
+import { CalendarDays, Clock, Info, Pencil, Plus, Save, Timer, Trash2, X } from "lucide-react";
 import { useAuthGuard } from "@/lib/hooks/useAuthGuard";
 import { getShifts, saveShift, deleteShift } from "@/lib/services/shiftService";
 import {
@@ -49,20 +49,33 @@ import {
   type SundayRule,
 } from "@/lib/utils/sundayRule";
 import { resolveSundayCategoryRule } from "@/lib/services/sundayCategoryService";
+import { DayPayCapEditor } from "@/components/rules/day-pay-cap-editor";
+import {
+  getAppSettings,
+  saveAppSettings,
+} from "@/lib/services/appSettingsService";
+import { normalizeDayPayCap, type DayPayCap } from "@/lib/utils/date";
 
 type PayRules = {
   shifts: Record<string, unknown>[];
   sundayCategories: SundayCategory[];
+  /** Most one date may pay, in days. `null` = no limit. */
+  maxDayPayFraction: DayPayCap;
 };
 
 /** Module scope so the effect can hand the setter straight to the promise
  * rather than calling setState inside its own body. */
 async function fetchPayRules(): Promise<PayRules> {
-  const [shifts, sundayCategories] = await Promise.all([
+  const [shifts, sundayCategories, settings] = await Promise.all([
     getShifts(),
     getSundayCategories(),
+    getAppSettings(),
   ]);
-  return { shifts, sundayCategories };
+  return {
+    shifts,
+    sundayCategories,
+    maxDayPayFraction: normalizeDayPayCap(settings.maxDayPayFraction),
+  };
 }
 
 export default function ShiftsPage() {
@@ -83,6 +96,13 @@ export default function ShiftsPage() {
   // one. Rules are rich enough now that add-only would strand every mistake.
   const [editingId, setEditingId] = useState<string | null>(null);
   const [categoryRule, setCategoryRule] = useState<SundayRule>(DEFAULT_SUNDAY_RULE);
+  // Held separately from `data` so typing in the limit box does not need a
+  // database round trip per keystroke; `null` means the form has not been
+  // seeded from storage yet.
+  const [dayPayCapDraft, setDayPayCapDraft] = useState<
+    { value: DayPayCap } | null
+  >(null);
+  const [savingDayPayCap, setSavingDayPayCap] = useState(false);
 
   const resetCategoryForm = () => {
     setCategoryName("");
@@ -97,7 +117,10 @@ export default function ShiftsPage() {
   useEffect(() => {
     if (!guardReady) return;
     fetchPayRules()
-      .then(setData)
+      .then((next) => {
+        setData(next);
+        setDayPayCapDraft({ value: next.maxDayPayFraction });
+      })
       .catch(() => {});
   }, [guardReady]);
 
@@ -124,8 +147,10 @@ export default function ShiftsPage() {
           </p>
         </header>
 
-        {/* The two blocks below are not unrelated settings: together they are
-            the whole answer to "how does a day of work turn into pay?". */}
+        {/* The three blocks below are not unrelated settings: together they
+            are the whole answer to "how does a day of work turn into pay?" —
+            how long a day is, what extra days it earns, and the most any one
+            day may pay. */}
         <div className="flex max-w-2xl flex-col gap-2 rounded-xl border border-border bg-surface-2 p-4">
           <p className="flex items-center gap-2 text-base font-semibold text-foreground">
             <Info className="size-5 shrink-0" aria-hidden />
@@ -444,6 +469,49 @@ export default function ShiftsPage() {
                   {t("ruleCancelEdit")}
                 </Button>
               ) : null}
+            </div>
+          </form>
+        </SettingsSection>
+
+        <SettingsSection
+          icon={Timer}
+          title={`${t("setgShiftsStep", { n: 3 })} · ${t("capCardTitle")}`}
+          description={t("capCardSubtitle")}
+        >
+          <form
+            className="flex w-full min-w-0 flex-col gap-5 rounded-xl border border-border bg-surface-2 p-4"
+            onSubmit={async (e) => {
+              e.preventDefault();
+              if (!dayPayCapDraft) return;
+              setSavingDayPayCap(true);
+              try {
+                await saveAppSettings({
+                  maxDayPayFraction: normalizeDayPayCap(dayPayCapDraft.value),
+                });
+                await load();
+                toast.success(t("capSaveSuccess"));
+              } catch {
+                toast.error(t("capSaveFail"));
+              } finally {
+                setSavingDayPayCap(false);
+              }
+            }}
+          >
+            <DayPayCapEditor
+              value={dayPayCapDraft?.value ?? null}
+              onChange={(next) => setDayPayCapDraft({ value: next })}
+              exampleHoursPerDay={(shifts[0]?.hoursPerDay as number) ?? 8}
+              t={t}
+            />
+            <div>
+              <Button
+                type="submit"
+                className={btnPrimaryClass}
+                disabled={savingDayPayCap}
+              >
+                <Save data-icon="inline-start" aria-hidden />
+                {t("capSave")}
+              </Button>
             </div>
           </form>
         </SettingsSection>

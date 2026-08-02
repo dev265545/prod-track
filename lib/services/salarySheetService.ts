@@ -26,12 +26,16 @@ import {
 } from "@/lib/utils/salaryRates";
 import {
   getMonthRange,
+  normalizeDayPayCap,
+  type DayPayCap,
 } from "@/lib/utils/date";
 import {
   buildAttendanceSalarySummaryForRange,
   buildMonthSalaryBreakdown,
   computeEarnedExtraPayDaysForCalendarScope,
+  reportDayPayCapForRange,
   type AttendanceRecord,
+  type DayPayCapReport,
   type SundayCategoryRule,
 } from "@/lib/utils/attendanceStats";
 
@@ -63,6 +67,14 @@ export interface SalarySheetRow {
   overrideUpdatedAt: string;
   overrideValues: SalarySheetOverrideValues;
   calculatedValues: Required<SalarySheetOverrideValues>;
+  /**
+   * What the per-day pay limit removed from `presentDays` over this period.
+   *
+   * Carried on every row, even when nothing was clipped, so the sheet and the
+   * adjust dialog can always answer "why is this number what it is?" — the
+   * limit used to apply with nothing anywhere saying it had.
+   */
+  dayPayCap: DayPayCapReport;
 }
 
 function round2(value: number): number {
@@ -293,6 +305,7 @@ function buildOperatorSummaryForRange(input: {
   ratePerDay: number;
   sundayCategoryRule: SundayCategoryRule;
   operatorSundayRule: { requiredPresentDays: number; sundayMultiplier: number };
+  maxDayPayFraction: DayPayCap;
 }): AttendanceSalarySummaryLike {
   const {
     year,
@@ -305,6 +318,7 @@ function buildOperatorSummaryForRange(input: {
     ratePerDay,
     sundayCategoryRule,
     operatorSundayRule,
+    maxDayPayFraction,
   } = input;
 
   const breakdown = buildMonthSalaryBreakdown({
@@ -318,6 +332,7 @@ function buildOperatorSummaryForRange(input: {
     includeProductionPay: false,
     sundayCategoryRule,
     operatorSundayRule,
+    maxDayPayFraction,
   });
 
   const daysInRange = breakdown.days.filter(
@@ -446,6 +461,8 @@ interface SalarySheetContext {
   appSettings: {
     defaultSundayPremiumRequiredDays: number;
     defaultSundayPremiumMultiplier: number;
+    /** Most one date may pay, in days. `null` = no limit. */
+    maxDayPayFraction?: DayPayCap;
   };
 }
 
@@ -503,6 +520,7 @@ function buildBaseSalarySheetRow(
     ? sundayCategoryMap[sundayCategoryId]
     : undefined;
   const sundayCategoryRule = resolveSundayCategoryRule(sundayCategory);
+  const maxDayPayFraction = normalizeDayPayCap(appSettings.maxDayPayFraction);
   const ratePerHour = getRatePerHour(
     monthlySalary,
     calendarDaysInMonth,
@@ -542,6 +560,7 @@ function buildBaseSalarySheetRow(
           sundayCategoryRule,
           appSettings,
         ),
+        maxDayPayFraction,
       })
     : buildAttendanceSalarySummaryForRange({
         fromDate: rangeFrom,
@@ -551,6 +570,7 @@ function buildBaseSalarySheetRow(
         hoursPerDay,
         ratePerDay,
         sundayCategoryRule,
+        maxDayPayFraction,
       });
 
   const advanceDeduction = isProduction
@@ -596,6 +616,13 @@ function buildBaseSalarySheetRow(
       advanceDeduction,
       netCalculatedSalary,
     },
+    dayPayCap: reportDayPayCapForRange(
+      attendanceForRange,
+      rangeFrom,
+      rangeTo,
+      hoursPerDay,
+      maxDayPayFraction,
+    ),
   };
 }
 

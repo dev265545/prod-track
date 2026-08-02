@@ -16,6 +16,8 @@ import type { SalarySheetOverrideRecord } from "./salarySheetOverrideService";
 import { DEFAULT_SUNDAY_CATEGORY_RULE } from "@/lib/utils/attendanceStats";
 import { DEFAULT_SUNDAY_MULTIPLIER } from "./salarySheetService";
 
+let mockMaxDayPayFraction: number | null | undefined;
+
 const {
   mockGetEmployees,
   mockGetEmployee,
@@ -71,6 +73,20 @@ vi.mock("./attendanceService", () => ({
     );
   },
 }));
+// The per-day pay limit lives in app settings now. Stubbed so a test can move
+// it; `undefined` means "not configured", which is how every existing install
+// looks and must keep paying what it paid.
+vi.mock("./appSettingsService", async () => {
+  const actual = await vi.importActual<
+    typeof import("./appSettingsService")
+  >("./appSettingsService");
+  return {
+    ...actual,
+    getAppSettings: async () =>
+      actual.normalizeAppSettings({ maxDayPayFraction: mockMaxDayPayFraction }),
+  };
+});
+
 vi.mock("./factoryHolidayService", () => ({
   getHolidaysInRange: mockGetHolidaysInRange,
 }));
@@ -116,6 +132,7 @@ function attRow(
 
 function buildBaseRow(): SalarySheetRow {
   return {
+    dayPayCap: { limit: 2, clippedDays: 0, clippedDates: 0 },
     id: "emp_1",
     name: "Asha",
     employeeType: "salaried",
@@ -871,5 +888,138 @@ describe("getSalarySheetRowForEmployee — identical to the whole-sheet row", ()
     // And the whole-store attendance read is only reached via the per-employee
     // index range, never as an unfiltered sheet-wide scan.
     expect(mockGetAttendanceInRange).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * The per-day pay limit, on a real sheet.
+ *
+ * The limit was `MAX_DAY_PAY_FRACTION = 2` hardcoded in `date.ts`. Making it
+ * configurable is only safe if the default reproduces the old numbers exactly,
+ * so this compares whole rows rather than a couple of fields: any drift
+ * anywhere in the row fails the test.
+ */
+describe("getSalarySheetForRange — the per-day pay limit", () => {
+  const YEAR = 2026;
+  const MONTH = 3; // April 2026
+  const FROM = "2026-04-01";
+  const TO = "2026-04-30";
+
+  /** Two long days: 10 hours extra (2.25 days) and 20 hours worked (2.5 days). */
+  const LONG_DAYS = [
+    { date: "2026-04-01", hoursExtra: 10 },
+    { date: "2026-04-02", hoursWorked: 20 },
+    { date: "2026-04-03", hoursExtra: 4 },
+    { date: "2026-04-06" },
+  ];
+
+  beforeEach(() => {
+    mockMaxDayPayFraction = undefined;
+    mockGetEmployees.mockReset();
+    mockGetEmployee.mockReset();
+    mockGetAttendanceInRange.mockReset().mockResolvedValue([]);
+    mockGetHolidaysInRange.mockReset().mockResolvedValue([]);
+    mockGetOperatorHolidaysInRange.mockReset().mockResolvedValue([]);
+    mockGetShifts.mockReset().mockResolvedValue([]);
+    mockGetSundayCategories.mockReset().mockResolvedValue([]);
+    mockGetSalarySheetOverridesForMonth.mockReset().mockResolvedValue([]);
+    mockGetDeductionsByEmployee.mockReset().mockResolvedValue([]);
+  });
+
+  function seed() {
+    mockGetEmployees.mockResolvedValue([
+      { id: "e1", name: "Asha", monthlySalary: 30000, employeeType: "salaried" },
+      {
+        id: "e2",
+        name: "Om",
+        monthlySalary: 30000,
+        employeeType: "operator",
+        requiredPresentDays: 1,
+        sundayMultiplier: 1.5,
+      },
+    ]);
+    mockGetAttendanceInRange.mockResolvedValue(
+      ["e1", "e2"].flatMap((employeeId) =>
+        LONG_DAYS.map((d) => ({
+          employeeId,
+          status: "present",
+          ...d,
+        })),
+      ),
+    );
+  }
+
+  it("an unconfigured install and an explicit limit of 2 produce identical rows", async () => {
+    seed();
+    mockMaxDayPayFraction = undefined;
+    const before = await getSalarySheetForRange(YEAR, MONTH, FROM, TO);
+    mockMaxDayPayFraction = 2;
+    const after = await getSalarySheetForRange(YEAR, MONTH, FROM, TO);
+    expect(after).toEqual(before);
+  });
+
+  it("pays exactly what the hardcoded limit paid, and says what it withheld", async () => {
+    seed();
+    const { rows } = await getSalarySheetForRange(YEAR, MONTH, FROM, TO);
+    const asha = rows.find((r) => r.id === "e1")!;
+
+    // 2 + 2 + 1.5 + 1 = 6.5 paid days at ₹1000, which is the figure the
+    // hardcoded 2 produced. Uncapped it would have been 2.25 + 2.5 + 1.5 + 1.
+    expect(asha.presentDays).toBe(6.5);
+    expect(asha.calculatedSalary).toBe(6500);
+    expect(asha.dayPayCap).toEqual({
+      limit: 2,
+      clippedDays: 0.75,
+      clippedDates: 2,
+    });
+
+    // The Operator path builds its totals a different way and must report the
+    // same withholding for the same days.
+    const om = rows.find((r) => r.id === "e2")!;
+    expect(om.dayPayCap).toEqual({
+      limit: 2,
+      clippedDays: 0.75,
+      clippedDates: 2,
+    });
+    expect(om.presentDays).toBe(6.5);
+  });
+
+  it("turning the limit off pays the withheld days and reports nothing withheld", async () => {
+    seed();
+    mockMaxDayPayFraction = null;
+    const { rows } = await getSalarySheetForRange(YEAR, MONTH, FROM, TO);
+    const asha = rows.find((r) => r.id === "e1")!;
+
+    expect(asha.presentDays).toBe(7.25);
+    expect(asha.calculatedSalary).toBe(7250);
+    expect(asha.dayPayCap).toEqual({
+      limit: null,
+      clippedDays: 0,
+      clippedDates: 0,
+    });
+  });
+
+  it("only the day figures move when the limit moves — everything else is the same row", async () => {
+    seed();
+    const { rows: capped } = await getSalarySheetForRange(YEAR, MONTH, FROM, TO);
+    mockMaxDayPayFraction = null;
+    const { rows: uncapped } = await getSalarySheetForRange(YEAR, MONTH, FROM, TO);
+
+    const a = capped.find((r) => r.id === "e1")!;
+    const b = uncapped.find((r) => r.id === "e1")!;
+    const changed = (Object.keys(a) as (keyof typeof a)[]).filter(
+      (key) => JSON.stringify(a[key]) !== JSON.stringify(b[key]),
+    );
+    expect(changed.sort()).toEqual(
+      [
+        "baseCalculatedSalary",
+        "calculatedSalary",
+        "calculatedValues",
+        "dayPayCap",
+        "netCalculatedSalary",
+        "presentDays",
+        "totalPaidDays",
+      ].sort(),
+    );
   });
 });

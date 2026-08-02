@@ -15,6 +15,11 @@
 import { get, put, remove } from "@/lib/db/adapter";
 import { METADATA_STORE } from "@/lib/db/schema";
 import { AUDIT_ACTIONS, diffEntity, record as auditRecord } from "./auditService";
+import {
+  DEFAULT_MAX_DAY_PAY_FRACTION,
+  normalizeDayPayCap,
+  type DayPayCap,
+} from "@/lib/utils/date";
 
 export const APP_SETTINGS_ID = "app_settings";
 export const APP_SETTINGS_VERSION = 1;
@@ -41,6 +46,16 @@ export interface AppSettings {
    */
   defaultSundayPremiumRequiredDays: number;
   defaultSundayPremiumMultiplier: number;
+  /**
+   * The most one calendar date may pay, in days, or `null` for no limit.
+   *
+   * Was a hardcoded 2 in `date.ts`: a person who did their shift plus ten hours
+   * extra had earned 2.25 days by the app's own formula and was paid 2, with
+   * nothing saying so. The default is still 2, so no install's pay moves until
+   * somebody deliberately changes this. See {@link DayPayCap} for why this is
+   * factory-wide rather than per shift.
+   */
+  maxDayPayFraction: DayPayCap;
   /**
    * Backup freshness and schedule. All of this is deliberately part of the
    * normal settings row: it must travel in a backup like everything else, so a
@@ -77,6 +92,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   lowStockWarningsEnabled: true,
   defaultSundayPremiumRequiredDays: 26,
   defaultSundayPremiumMultiplier: 1.2,
+  maxDayPayFraction: DEFAULT_MAX_DAY_PAY_FRACTION,
   lastBackupAt: "",
   lastBackupVerifiedAt: "",
   backupReminderDays: 7,
@@ -155,6 +171,9 @@ export function normalizeAppSettings(raw: unknown): AppSettings {
       0,
       10,
       DEFAULT_APP_SETTINGS.defaultSundayPremiumMultiplier,
+    ),
+    maxDayPayFraction: normalizeDayPayCap(
+      "maxDayPayFraction" in row ? row.maxDayPayFraction : undefined,
     ),
     lastBackupAt: textOr(row.lastBackupAt, ""),
     lastBackupVerifiedAt: textOr(row.lastBackupVerifiedAt, ""),

@@ -181,6 +181,8 @@ export interface AttendanceStatsInput {
   attendance: AttendanceRecord[];
   hoursPerDay?: number;
   sundayCategoryRule?: SundayCategoryRule;
+  /** Most one date may pay, in days. `null` = no limit. Default 2, as before. */
+  maxDayPayFraction?: DayPayCap;
 }
 
 export interface AttendanceStats {
@@ -193,6 +195,13 @@ export interface AttendanceStats {
   sundayPresentBonusDays: number;
   totalPaidDays: number;
   totalHoursWorked: number;
+  /**
+   * What the per-day limit removed from `presentDays`, for reporting.
+   *
+   * Optional because callers outside this module hand-build this shape for
+   * display; every function here always sets it.
+   */
+  dayPayCap?: DayPayCapReport;
 }
 
 export interface AttendanceSalarySummaryForRange extends AttendanceStats {
@@ -201,22 +210,116 @@ export interface AttendanceSalarySummaryForRange extends AttendanceStats {
   calculatedSalary: number;
 }
 
+/**
+ * What one present day earns, before and after the per-day limit.
+ *
+ * The limit used to be a hardcoded 2 applied inside `computeDayPayFraction`,
+ * so a person who worked eight hours extra on an eight-hour shift earned 2.25
+ * days by the app's own arithmetic and was paid 2, with nothing anywhere saying
+ * a number had been reduced. Returning both figures — exactly as
+ * `evaluateSundayRuleForCycle` does for Sunday earnings — is what lets a caller
+ * say "this day earned 2.25 days, the limit pays 2" instead of quietly paying
+ * the smaller one.
+ */
+export interface DayPayFractionResult {
+  /** What the day actually pays. */
+  paid: number;
+  /** What the formula produced before the limit was applied. */
+  uncapped: number;
+  /** True when the limit reduced the day. */
+  capped: boolean;
+}
+
 /** Paid-day fraction for a present working day (hours worked or extra/less adjust). */
+export function computeDayPayFractionDetailed(
+  att: { hoursWorked?: number; hoursReduced?: number; hoursExtra?: number },
+  fullDayHours: number,
+  cap: DayPayCap = DEFAULT_MAX_DAY_PAY_FRACTION,
+): DayPayFractionResult {
+  const limit = dayPayCapValue(cap);
+  // A shift with no hours has no scale to measure a long day against, so there
+  // is nothing for the limit to act on: the day is simply a full day.
+  if (fullDayHours <= 0) return { paid: 1, uncapped: 1, capped: false };
+  const uncapped =
+    att.hoursWorked != null && att.hoursWorked >= 0
+      ? Math.max(att.hoursWorked / fullDayHours, 0)
+      : Math.max(1 + ((att.hoursExtra ?? 0) - (att.hoursReduced ?? 0)) / fullDayHours, 0);
+  const paid = Math.min(uncapped, limit);
+  // `capped` stays false for NaN, where the comparison is false anyway: a
+  // number nobody can read is not a limit story worth telling.
+  return { paid, uncapped, capped: paid < uncapped };
+}
+
+/** {@link computeDayPayFractionDetailed}, paid fraction only. */
 export function computeDayPayFraction(
   att: { hoursWorked?: number; hoursReduced?: number; hoursExtra?: number },
-  fullDayHours: number
+  fullDayHours: number,
+  cap: DayPayCap = DEFAULT_MAX_DAY_PAY_FRACTION,
 ): number {
-  if (fullDayHours <= 0) return 1;
-  if (att.hoursWorked != null && att.hoursWorked >= 0) {
-    return Math.min(
-      Math.max(att.hoursWorked / fullDayHours, 0),
-      MAX_DAY_PAY_FRACTION,
-    );
+  return computeDayPayFractionDetailed(att, fullDayHours, cap).paid;
+}
+
+/**
+ * How much pay a per-day limit removed over a set of days, so the salary sheet
+ * and the adjust dialog can report it instead of the owner discovering it by
+ * arithmetic.
+ */
+export interface DayPayCapReport {
+  /** The limit in force, `null` when there is none. */
+  limit: DayPayCap;
+  /** Days of pay the limit removed, rounded to two places. */
+  clippedDays: number;
+  /** How many dates were reduced. */
+  clippedDates: number;
+}
+
+/** Running total of what a per-day limit took off. */
+class DayPayCapTally {
+  private days = 0;
+  private dates = 0;
+  constructor(private readonly limit: DayPayCap) {}
+  add(result: DayPayFractionResult): number {
+    if (result.capped) {
+      this.days += result.uncapped - result.paid;
+      this.dates += 1;
+    }
+    return result.paid;
   }
-  const reduced = att.hoursReduced ?? 0;
-  const extra = att.hoursExtra ?? 0;
-  const adj = (extra - reduced) / fullDayHours;
-  return Math.min(Math.max(1 + adj, 0), MAX_DAY_PAY_FRACTION);
+  report(): DayPayCapReport {
+    return {
+      limit: this.limit,
+      clippedDays: Math.round(this.days * 100) / 100,
+      clippedDates: this.dates,
+    };
+  }
+}
+
+/**
+ * What the per-day limit takes off an employee's present days in a date range.
+ *
+ * Computed on its own rather than read off a summary because the two salary
+ * sheet paths (ordinary and Operator) build their totals differently — the
+ * Operator path runs a whole month and filters afterwards — and a report that
+ * covers a different span from the row it sits on is worse than no report.
+ *
+ * Sundays are skipped: a present Sunday pays a flat bonus day, so no per-day
+ * limit is applied to it and none can be reported.
+ */
+export function reportDayPayCapForRange(
+  attendance: AttendanceRecord[],
+  fromDate: string,
+  toDate: string,
+  hoursPerDay: number,
+  cap: DayPayCap = DEFAULT_MAX_DAY_PAY_FRACTION,
+): DayPayCapReport {
+  const tally = new DayPayCapTally(cap);
+  for (const a of attendance) {
+    if (a.date < fromDate || a.date > toDate) continue;
+    if (a.status !== "present") continue;
+    if (isSunday(a.date)) continue;
+    tally.add(computeDayPayFractionDetailed(a, hoursPerDay, cap));
+  }
+  return tally.report();
 }
 
 export function computeAttendanceStats(input: AttendanceStatsInput): AttendanceStats {
@@ -227,8 +330,10 @@ export function computeAttendanceStats(input: AttendanceStatsInput): AttendanceS
     attendance,
     hoursPerDay = 8,
     sundayCategoryRule = DEFAULT_SUNDAY_CATEGORY_RULE,
+    maxDayPayFraction = DEFAULT_MAX_DAY_PAY_FRACTION,
   } = input;
 
+  const capTally = new DayPayCapTally(maxDayPayFraction);
   const workingDayDates = getWorkingDayDates(year, month, holidayDates);
   const attByDate = new Map(
     attendance.map((a) => [
@@ -250,7 +355,9 @@ export function computeAttendanceStats(input: AttendanceStatsInput): AttendanceS
   for (const dateStr of workingDayDates) {
     const att = attByDate.get(dateStr);
     if (att?.status === "present") {
-      const dayVal = computeDayPayFraction(att, hoursPerDay);
+      const dayVal = capTally.add(
+        computeDayPayFractionDetailed(att, hoursPerDay, maxDayPayFraction),
+      );
       paidWorkingDays += dayVal;
       const extra = (att.hoursExtra ?? 0) - (att.hoursReduced ?? 0);
       totalHoursWorked += att.hoursWorked != null ? att.hoursWorked : hoursPerDay + extra;
@@ -264,7 +371,9 @@ export function computeAttendanceStats(input: AttendanceStatsInput): AttendanceS
   for (const dateStr of holidayDates) {
     const att = attByDate.get(dateStr);
     if (att?.status !== "present") continue;
-    const dayVal = computeDayPayFraction(att, hoursPerDay);
+    const dayVal = capTally.add(
+      computeDayPayFractionDetailed(att, hoursPerDay, maxDayPayFraction),
+    );
     paidWorkingDays += dayVal;
     holidayPresentCount += 1;
     const extra = (att.hoursExtra ?? 0) - (att.hoursReduced ?? 0);
@@ -301,6 +410,7 @@ export function computeAttendanceStats(input: AttendanceStatsInput): AttendanceS
     sundayPresentBonusDays,
     totalPaidDays,
     totalHoursWorked,
+    dayPayCap: capTally.report(),
   };
 }
 
@@ -350,6 +460,8 @@ export interface MonthSalaryBreakdown {
   sundayMarkBonusPay: number;
   sumHoursExtra: number;
   sumHoursReduced: number;
+  /** What the per-day limit removed from `paidWorkingDays`, for reporting. */
+  dayPayCap: DayPayCapReport;
 }
 
 /**
@@ -379,6 +491,8 @@ export function buildMonthSalaryBreakdown(input: {
     requiredPresentDays: number;
     sundayMultiplier: number;
   };
+  /** Most one date may pay, in days. `null` = no limit. Default 2, as before. */
+  maxDayPayFraction?: DayPayCap;
 }): MonthSalaryBreakdown {
   const {
     year,
@@ -391,8 +505,10 @@ export function buildMonthSalaryBreakdown(input: {
     includeProductionPay = true,
     sundayCategoryRule = DEFAULT_SUNDAY_CATEGORY_RULE,
     operatorSundayRule,
+    maxDayPayFraction = DEFAULT_MAX_DAY_PAY_FRACTION,
   } = input;
 
+  const capTally = new DayPayCapTally(maxDayPayFraction);
   const holidaySet = new Set(holidayDates);
   const attByDate = new Map(
     attendance.map((a) => [
@@ -482,7 +598,9 @@ export function buildMonthSalaryBreakdown(input: {
     if (holidaySet.has(dateStr)) {
       const att = attByDate.get(dateStr);
       if (att?.status === "present") {
-        const frac = computeDayPayFraction(att, hoursPerDay);
+        const frac = capTally.add(
+          computeDayPayFractionDetailed(att, hoursPerDay, maxDayPayFraction),
+        );
         const ex = att.hoursExtra ?? 0;
         const red = att.hoursReduced ?? 0;
         paidWorkingDays += frac;
@@ -530,7 +648,9 @@ export function buildMonthSalaryBreakdown(input: {
     const att = attByDate.get(dateStr);
 
     if (att?.status === "present") {
-      const frac = computeDayPayFraction(att, hoursPerDay);
+      const frac = capTally.add(
+        computeDayPayFractionDetailed(att, hoursPerDay, maxDayPayFraction),
+      );
       paidWorkingDays += frac;
       presentWorkingDayCountSoFar += 1;
       const ex = att.hoursExtra ?? 0;
@@ -636,6 +756,7 @@ export function buildMonthSalaryBreakdown(input: {
     sundayMarkBonusPay,
     sumHoursExtra,
     sumHoursReduced,
+    dayPayCap: capTally.report(),
   };
 }
 
@@ -647,6 +768,8 @@ export function computeAttendanceStatsForRange(input: {
   attendance: AttendanceRecord[];
   hoursPerDay?: number;
   sundayCategoryRule?: SundayCategoryRule;
+  /** Most one date may pay, in days. `null` = no limit. Default 2, as before. */
+  maxDayPayFraction?: DayPayCap;
 }): AttendanceStats {
   const {
     fromDate,
@@ -655,8 +778,10 @@ export function computeAttendanceStatsForRange(input: {
     attendance,
     hoursPerDay = 8,
     sundayCategoryRule = DEFAULT_SUNDAY_CATEGORY_RULE,
+    maxDayPayFraction = DEFAULT_MAX_DAY_PAY_FRACTION,
   } = input;
 
+  const capTally = new DayPayCapTally(maxDayPayFraction);
   const holidaySet = new Set(holidayDates);
   const rangeDates = getDatesInRange(fromDate, toDate);
   const attByDate = new Map(
@@ -683,7 +808,9 @@ export function computeAttendanceStatsForRange(input: {
   for (const dateStr of workingDayDatesInRange) {
     const att = attByDate.get(dateStr);
     if (att?.status === "present") {
-      const dayVal = computeDayPayFraction(att, hoursPerDay);
+      const dayVal = capTally.add(
+        computeDayPayFractionDetailed(att, hoursPerDay, maxDayPayFraction),
+      );
       paidWorkingDays += dayVal;
       const extra = (att.hoursExtra ?? 0) - (att.hoursReduced ?? 0);
       totalHoursWorked += att.hoursWorked != null ? att.hoursWorked : hoursPerDay + extra;
@@ -698,7 +825,9 @@ export function computeAttendanceStatsForRange(input: {
     if (!holidaySet.has(dateStr)) continue;
     const att = attByDate.get(dateStr);
     if (att?.status !== "present") continue;
-    const dayVal = computeDayPayFraction(att, hoursPerDay);
+    const dayVal = capTally.add(
+      computeDayPayFractionDetailed(att, hoursPerDay, maxDayPayFraction),
+    );
     paidWorkingDays += dayVal;
     holidayPresentCount += 1;
     const extra = (att.hoursExtra ?? 0) - (att.hoursReduced ?? 0);
@@ -735,6 +864,7 @@ export function computeAttendanceStatsForRange(input: {
     sundayPresentBonusDays,
     totalPaidDays,
     totalHoursWorked,
+    dayPayCap: capTally.report(),
   };
 }
 
@@ -746,6 +876,8 @@ export function buildAttendanceSalarySummaryForRange(input: {
   hoursPerDay?: number;
   ratePerDay: number;
   sundayCategoryRule?: SundayCategoryRule;
+  /** Most one date may pay, in days. `null` = no limit. Default 2, as before. */
+  maxDayPayFraction?: DayPayCap;
 }): AttendanceSalarySummaryForRange {
   const {
     fromDate,
@@ -755,6 +887,7 @@ export function buildAttendanceSalarySummaryForRange(input: {
     hoursPerDay = 8,
     ratePerDay,
     sundayCategoryRule = DEFAULT_SUNDAY_CATEGORY_RULE,
+    maxDayPayFraction = DEFAULT_MAX_DAY_PAY_FRACTION,
   } = input;
 
   const stats = computeAttendanceStatsForRange({
@@ -764,6 +897,7 @@ export function buildAttendanceSalarySummaryForRange(input: {
     attendance,
     hoursPerDay,
     sundayCategoryRule,
+    maxDayPayFraction,
   });
   const { hoursExtraSum, hoursReducedSum } = sumHoursAdjustmentsInRange(
     attendance,

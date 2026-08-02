@@ -9,6 +9,7 @@ import {
 
 function buildRow(): SalarySheetRow {
   return {
+    dayPayCap: { limit: 2, clippedDays: 0, clippedDates: 0 },
     id: "emp_1",
     name: "Asha",
     employeeType: "salaried",

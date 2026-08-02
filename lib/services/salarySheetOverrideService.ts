@@ -1,11 +1,14 @@
 import { getAll, put, remove, STORES } from "@/lib/db/adapter";
 import { getHolidaysInRange } from "@/lib/services/factoryHolidayService";
 import { getAdvancesByEmployee } from "@/lib/services/advanceService";
+import { getAppSettings } from "@/lib/services/appSettingsService";
 import {
-  clampPayrollDriverFieldsToPeriod,
+  normalizeDayPayCap,
+  reportPayrollDriverClamp,
   getMonthRange,
   getMonthRangePresets,
   getYearMonthFromIsoDate,
+  type PayrollDriverClampReport,
 } from "@/lib/utils/date";
 import { AUDIT_ACTIONS, diffEntity, record as auditRecord } from "@/lib/services/auditService";
 import { employeeName } from "@/lib/services/auditNames";
@@ -265,9 +268,17 @@ export async function saveSalarySheetOverride(
 ): Promise<SalarySheetOverrideRecord> {
   const anchored = anchorOverrideMonthFromDates(input);
   const sanitized = sanitizeSalarySheetOverrideValues(anchored.overrides);
-  const holidays = await getHolidaysInRange(anchored.fromDate, anchored.toDate);
+  const [holidays, appSettings] = await Promise.all([
+    getHolidaysInRange(anchored.fromDate, anchored.toDate),
+    getAppSettings(),
+  ]);
   const holidayDates = holidays.map((h) => h.date as string);
-  const cappedDrivers = clampPayrollDriverFieldsToPeriod(
+  // The present-days ceiling is the configured per-day pay limit times the
+  // number of non-Sunday dates, not the constant 2 it used to be. A factory
+  // that has turned the limit off has no ceiling here either — clamping a
+  // correction to a number the owner has explicitly removed would be the same
+  // silent trim this rework exists to end.
+  const clampReport = reportPayrollDriverClamp(
     anchored.fromDate,
     anchored.toDate,
     holidayDates,
@@ -288,7 +299,9 @@ export async function saveSalarySheetOverride(
           ? sanitized.sundayPresentBonusDays
           : 0,
     },
+    normalizeDayPayCap(appSettings.maxDayPayFraction),
   );
+  const cappedDrivers = clampReport.values;
   if (typeof sanitized.presentDays === "number") {
     sanitized.presentDays = cappedDrivers.presentDays;
   }
@@ -375,9 +388,34 @@ export async function saveSalarySheetOverride(
     record.toDate,
     previous,
     record,
-    "payroll figures were entered by hand, replacing what the app calculated",
+    describeOverrideSave(clampReport),
   );
   return record;
+}
+
+/**
+ * The audit sentence for a saved correction, naming any figure the period
+ * ceilings trimmed.
+ *
+ * A correction is a deliberate statement, so quietly reducing one and logging
+ * "figures were entered by hand" would describe something that did not happen.
+ */
+export function describeOverrideSave(report: PayrollDriverClampReport): string {
+  const base =
+    "payroll figures were entered by hand, replacing what the app calculated";
+  const trimmed: string[] = [];
+  if (report.trimmed.presentDays) {
+    trimmed.push(`present days down to ${report.limits.presentDays}`);
+  }
+  if (report.trimmed.earnedSundayPayDays) {
+    trimmed.push(`earned Sunday days down to ${report.limits.earnedSundayPayDays}`);
+  }
+  if (report.trimmed.sundayPresentBonusDays) {
+    trimmed.push(`Sundays present down to ${report.limits.sundayPresentBonusDays}`);
+  }
+  return trimmed.length === 0
+    ? base
+    : `${base}; the period limits trimmed ${trimmed.join(", ")}`;
 }
 
 /**
