@@ -3,7 +3,10 @@ import {
   countUnpricedItems,
   filterItemRows,
   itemMatchesQuery,
+  isStockRow,
   normalizeItemRows,
+  stockItemRow,
+  validateStockRate,
   rateToInput,
   readStoredRate,
   sortItemRows,
@@ -41,7 +44,7 @@ describe("normalizeItemRows", () => {
       { name: "no id", rate: 1 },
     ]);
     expect(rows).toEqual([
-      { id: "a", name: "Round Tin", code: "RT04", rate: 3 },
+      { id: "a", name: "Round Tin", code: "RT04", rate: 3, origin: "items" },
     ]);
   });
 
@@ -186,5 +189,59 @@ describe("rateToInput", () => {
     expect(rateToInput(null)).toBe("");
     expect(rateToInput(0)).toBe("0");
     expect(rateToInput(12.5)).toBe("12.5");
+  });
+});
+
+describe("stock rows — items added on the Stock screen, waiting for a price", () => {
+  it("namespaces the id so it can never collide with an items row", () => {
+    const row = stockItemRow({ id: "inv-1", name: "Round tin", code: "RT04" });
+    expect(row.id).toBe("stock:inv-1");
+    expect(row.stockItemId).toBe("inv-1");
+    expect(isStockRow(row)).toBe(true);
+  });
+
+  it("falls back to the code when the stock item has no name", () => {
+    expect(stockItemRow({ id: "inv-1", name: "", code: "RT04" }).name).toBe("RT04");
+  });
+
+  it("shows no money when the stock item has none", () => {
+    expect(stockItemRow({ id: "inv-1", name: "Tin" }).rate).toBeNull();
+    // A migrated seed rate is real money and is shown as such.
+    expect(stockItemRow({ id: "inv-1", name: "Tin", rate: 2.5 }).rate).toBe(2.5);
+  });
+
+  it("counts as unpriced work until it is given money", () => {
+    const rows = [
+      stockItemRow({ id: "inv-1", name: "Tin" }),
+      stockItemRow({ id: "inv-2", name: "Jar", rate: 3 }),
+    ];
+    expect(countUnpricedItems(rows)).toBe(1);
+    // Unpriced first, wherever it came from.
+    expect(sortItemRows(rows)[0].name).toBe("Tin");
+  });
+
+  it("is searchable by its stock code like any other row", () => {
+    const rows = [stockItemRow({ id: "inv-1", name: "Round tin", code: "RT04" })];
+    expect(filterItemRows(rows, "rt04")).toHaveLength(1);
+  });
+
+  it("marks rows read from the items store as such", () => {
+    expect(normalizeItemRows([{ id: "a", name: "X" }])[0].origin).toBe("items");
+    expect(isStockRow(normalizeItemRows([{ id: "a", name: "X" }])[0])).toBe(false);
+  });
+});
+
+describe("validateStockRate", () => {
+  it("refuses blank, because there is no row yet to leave unpriced", () => {
+    expect(validateStockRate("")).toEqual({ ok: false, problem: "missing" });
+    expect(validateStockRate("   ")).toEqual({ ok: false, problem: "missing" });
+  });
+
+  it("still refuses zero with the same answer as everywhere else", () => {
+    expect(validateStockRate("0")).toEqual({ ok: false, problem: "zero" });
+  });
+
+  it("accepts a real amount", () => {
+    expect(validateStockRate("2.50")).toEqual({ ok: true, rate: 2.5 });
   });
 });

@@ -72,6 +72,28 @@ function toRate(value: unknown): number | null {
   return Number.isFinite(rate) && rate > 0 ? rate : null;
 }
 
+/**
+ * What one piece pays, given both lists.
+ *
+ * The `items` row wins whenever there is one. That is the row the Items screen
+ * writes and the row `salaryService` multiplies by, so this is the only
+ * ordering under which the number the owner reads is the number that gets
+ * paid. The stock row's `rate` is never typed by anyone — only the legacy
+ * migration and the spreadsheet import ever set it — so it acts purely as a
+ * *seed* for a stock item that has no `items` row yet. Reading it first (as
+ * this did originally) meant that editing the price on Items changed the
+ * screen and not the pay packet, because the stale migrated copy still won.
+ *
+ * Exported so the precedence itself is a tested fact, not a line buried in a
+ * loop.
+ */
+export function resolveEntryRate(
+  legacyRate: unknown,
+  inventoryRate: unknown,
+): number | null {
+  return toRate(legacyRate) ?? toRate(inventoryRate);
+}
+
 function isFinishedGood(item: InventoryItem): boolean {
   return FINISHED_CATEGORIES.has(item.category) && item.isActive !== false;
 }
@@ -138,9 +160,10 @@ export function resolveProductionCatalog(options: {
       id: item.id,
       name: item.name || item.code,
       code: item.code || undefined,
-      // The stock row's own rate wins; otherwise the paired `items` row
-      // supplies it. Never a silent 0 — null means "ask before saving".
-      rate: toRate(item.rate) ?? toRate(legacy?.rate),
+      // See `resolveEntryRate`: the paired `items` row wins, the stock row's
+      // migrated rate is only a seed. Never a silent 0 — null means "ask
+      // before saving".
+      rate: resolveEntryRate(legacy?.rate, item.rate),
       legacyItemId: legacyId,
       inventoryItemId: item.id,
     });
@@ -237,6 +260,34 @@ export async function loadProductionCatalog(): Promise<ProductionCatalog> {
   });
 }
 
+/**
+ * Finished-goods stock items that no `items` row covers yet — the rows the
+ * Items screen adds to its list so they can be given a price.
+ *
+ * "Unpaired", not "unpriced": a stock row may already carry a rate put there
+ * by the migration or the import, and it is still listed, because that seed
+ * lives on a screen with no money box and the owner must be able to change
+ * it. Pricing one creates the `items` row, and it drops out of here.
+ *
+ * Read whatever the link setting says, deliberately: with the link ON these
+ * are the items the picker draws a "no money set" chip against, and with it
+ * OFF they are the items Settings warns are missing from production. Both
+ * complaints are answered on the same screen, so there is still exactly one
+ * place a price is typed.
+ */
+export async function loadUnpairedStockItems(): Promise<InventoryItem[]> {
+  const [legacyItems, inventoryItems, map] = await Promise.all([
+    getItems(),
+    getInventoryItems().catch(() => [] as InventoryItem[]),
+    readLegacyItemMap(),
+  ]);
+  return unlinkedInventoryItems(
+    legacyItems as LegacyItemRow[],
+    inventoryItems,
+    map,
+  );
+}
+
 export type SaveTargetResult =
   | { ok: true; legacyItemId: string; inventoryItemId: string | null }
   | { ok: false; reason: "no-rate" };
@@ -272,4 +323,33 @@ export async function resolveSaveTarget(
     await writeLegacyItemMapEntry(legacyItemId, entry.inventoryItemId);
   }
   return { ok: true, legacyItemId, inventoryItemId: entry.inventoryItemId };
+}
+
+/**
+ * Give a stock item its price: create the paired `items` row and record the
+ * pairing.
+ *
+ * This is the Items screen's write path for a stock item that has never been
+ * produced, and it deliberately goes through {@link resolveSaveTarget} rather
+ * than round its own `saveItem` call. Pricing and first-production then create
+ * the row by exactly the same code, so an item priced here is by construction
+ * an item production will accept.
+ *
+ * The rate must be a real one. `null` (nothing typed) and `0` are both refused
+ * upstream by `validateRate`; refusing them here too means no `items` row is
+ * ever born worth nothing, which is the state this whole module exists to keep
+ * off the screen.
+ */
+export async function priceStockItem(
+  stock: { id: string; name: string; code?: string },
+  rate: number,
+): Promise<SaveTargetResult> {
+  return resolveSaveTarget({
+    id: stock.id,
+    name: stock.name,
+    code: stock.code,
+    rate: rate > 0 ? rate : null,
+    legacyItemId: null,
+    inventoryItemId: stock.id,
+  });
 }

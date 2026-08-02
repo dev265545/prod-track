@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { IndianRupee, Save } from "lucide-react";
+import { IndianRupee, PackageSearch, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -15,7 +15,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NumberInput } from "@/components/ui/number-input";
 import { useLanguage } from "@/components/language-provider";
-import { rateToInput, validateRate, type ItemRow } from "@/lib/utils/itemCatalog";
+import {
+  isStockRow,
+  rateToInput,
+  validateRate,
+  validateStockRate,
+  type ItemRow,
+} from "@/lib/utils/itemCatalog";
 
 /**
  * Add / change one item.
@@ -58,6 +64,11 @@ export function ItemEditorDialog({
   const [error, setError] = React.useState<string | null>(null);
   const [saving, setSaving] = React.useState(false);
 
+  // A row that came from the stock list is here for one reason: to be given a
+  // price. Its name and code belong to the Stock screen and are shown, not
+  // edited, so the same item can never end up with two different names.
+  const fromStock = item !== null && isStockRow(item);
+
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     if (saving) return;
@@ -67,14 +78,16 @@ export function ItemEditorDialog({
       setError(t("itmErrName"));
       return;
     }
-    const checked = validateRate(rate);
+    const checked = fromStock ? validateStockRate(rate) : validateRate(rate);
     if (!checked.ok) {
       setError(
         checked.problem === "zero"
           ? t("itmErrRateZero")
           : checked.problem === "negative"
             ? t("itmErrRateNegative")
-            : t("itmErrRateInvalid"),
+            : checked.problem === "missing"
+              ? t("rateStockNeedAmount")
+              : t("itmErrRateInvalid"),
       );
       return;
     }
@@ -95,12 +108,25 @@ export function ItemEditorDialog({
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle>
-            {item ? t("itmEditTitle") : t("itmAddTitle")}
+            {fromStock
+              ? t("rateStockDialogTitle")
+              : item
+                ? t("itmEditTitle")
+                : t("itmAddTitle")}
           </DialogTitle>
-          <DialogDescription>{t("itmDialogDesc")}</DialogDescription>
+          <DialogDescription>
+            {fromStock ? t("rateStockDialogDesc") : t("itmDialogDesc")}
+          </DialogDescription>
         </DialogHeader>
 
         <form className="flex w-full min-w-0 flex-col gap-5" onSubmit={submit}>
+          {fromStock ? (
+            <p className="flex items-start gap-2 rounded-xl border border-border bg-surface-2 p-4 text-base leading-relaxed text-muted-foreground">
+              <PackageSearch className="mt-1 size-5 shrink-0" aria-hidden />
+              <span>{t("rateStockNameLocked")}</span>
+            </p>
+          ) : null}
+
           <div className="flex flex-col gap-2">
             <Label htmlFor="itemName">{t("itmFieldName")}</Label>
             <Input
@@ -111,6 +137,7 @@ export function ItemEditorDialog({
               placeholder={t("itmFieldNamePlaceholder")}
               className="min-h-[44px] text-base"
               autoComplete="off"
+              readOnly={fromStock}
             />
           </div>
 
@@ -124,6 +151,7 @@ export function ItemEditorDialog({
               placeholder={t("itmFieldCodePlaceholder")}
               className="min-h-[44px] text-base"
               autoComplete="off"
+              readOnly={fromStock}
             />
           </div>
 
@@ -147,7 +175,7 @@ export function ItemEditorDialog({
               className="max-w-[12rem] text-xl font-semibold tabular-nums"
             />
             <p className="text-base leading-relaxed text-muted-foreground">
-              {t("itmFieldRateHelp")}
+              {fromStock ? t("rateStockFieldHelp") : t("itmFieldRateHelp")}
             </p>
           </div>
 

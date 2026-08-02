@@ -1468,10 +1468,10 @@ const en = {
   cfgUnlinkedTitle: "{count} stock items are not in your production list",
   cfgUnlinkedNames: "Not in production: {names}",
   cfgUnlinkedHelpOff:
-    "Turn on \u201cUse my stock list for production\u201d in Settings, or add them on the Items screen with a rate.",
+    "Turn on \u201cUse my stock list for production\u201d in Settings, or open Items \u2014 they are waiting at the top of that list \u2014 and write the money for one piece.",
   cfgOpenSettings: "Open settings",
   cfgNoRate:
-    "{item} has no rate, so this work cannot be paid. Open Items and set a rate first.",
+    "{item} has no money set, so this work cannot be paid. Open Items — it is waiting at the top of that list — and write the money for one piece.",
   cfgRateMissingBadge: "No rate",
 
   pickChoose: "Choose item",
@@ -1488,9 +1488,11 @@ const en = {
   pickNoResultsDesc:
     "Check the spelling, or type only the code written on the item.",
   pickEmptyListTitle: "No items yet",
-  pickEmptyListDesc: "Add an item with a rate on the Items screen first.",
+  pickEmptyListDesc:
+    "Open the Items screen first and add a thing with the money for one piece.",
   pickNoRate: "No rate",
-  pickNoRateHelp: "Rate not set — pay cannot be counted for this item.",
+  pickNoRateHelp:
+    "Money for one piece is not set — open Items, where this is waiting at the top, and write it.",
   pickHint: "Up/down arrow to move, Enter to choose.",
 
   /* Home dashboard — call to action, charts and the attention list. */
@@ -1691,6 +1693,43 @@ const en = {
   ruleCancelEdit: "Cancel",
   ruleSaveSuccess: "Rule saved",
 
+  // The per-day pay limit. Same register as the Sunday rule editor above it:
+  // the limit is a number the owner can read, change, or switch off, and every
+  // place it holds a figure down says so out loud.
+  capCardTitle: "The most one day can earn",
+  capCardSubtitle:
+    "A long day earns more than one day's pay. This is where you say how much more, and whether there is a top end at all.",
+  capLimitTitle: "Limit for one day",
+  capLimitHint:
+    "A day's pay goes up with extra hours. This is the most any single day may pay, counted in days' pay. 2 means a day can never pay more than two days, however many extra hours were worked.",
+  capLimitLabel: "Most days' pay for one day",
+  capNoLimit: "No limit",
+  capSetLimit: "Set a limit",
+  capNoLimitSet: "No limit",
+  capMinimumExplain:
+    "The smallest limit you can set is 1. Below 1 would cut the pay of an ordinary full day, which is not what this setting is for. Use \u201cNo limit\u201d if you do not want a top end.",
+  capPreviewTitle: "What this means for a day's work",
+  capPreviewSentence:
+    "Someone who works {extra} hours extra on an {hours}-hour shift earns {days} days' pay for that day.",
+  capWarning:
+    "{extra} hours extra on an {hours}-hour shift works out to {uncapped} days, but the limit pays {paid}. Raise the limit or switch it off if that is not what you want.",
+  capNoClipping:
+    "With this limit, none of the days below are being held down.",
+  capColExtra: "Extra hours that day",
+  capColPaid: "Days' pay for that day",
+  capColPaidClipped: "{paid} (would be {uncapped})",
+  capSummaryLimit: "At most {days} days' pay for one day",
+  capSummaryNoLimit: "No limit on what one day can pay",
+  capSave: "Save the limit",
+  capSaveSuccess: "Limit saved",
+  capSaveFail: "Could not save the limit. Nothing was changed.",
+  capSheetClipped:
+    "The per-day limit reduced {dates} day(s) in this period, by {days} days' pay in total. Those days earned more than the limit of {limit} days allows. Change it under Timings and pay rules.",
+  capOverrideTrimmed:
+    "Your typed figure is above what this period allows and has been brought down: {fields}. The number saved is the one shown in the box.",
+  capPresentDaysNoLimit:
+    "No limit is set on what one day can pay, so there is no top end here.",
+
   setgPayCardTitle: "Sunday extra pay — factory default",
   setgPayCardDesc:
     "The numbers the app falls back to when nothing closer to the worker has been set.",
@@ -1824,6 +1863,24 @@ const en = {
   itmNeedRateBody:
     "They are at the top of the list. Work written down for them cannot be paid until you set the money for one piece.",
   itmNeedRateOneTitle: "1 item has no money set",
+
+  /* Stock items waiting for their first price. They live in the stock list,
+     which has no money box, so this screen is where they are priced — and
+     pricing one turns it into an ordinary item row. */
+  rateFromStockBadge: "From the stock list",
+  rateFromStockTitle: "{count} things from your stock list have no money set",
+  rateFromStockOneTitle: "1 thing from your stock list has no money set",
+  rateFromStockBody:
+    "You added them in Stock, and Stock has no money box. Set the money for one piece here and they are ready for today's work entry.",
+  rateStockDialogTitle: "Set the money for this stock item",
+  rateStockDialogDesc:
+    "This thing is in your stock list. Once you set the money for one piece, work on it can be written down and paid.",
+  rateStockNameLocked:
+    "The name and code come from the Stock screen. Change them there — here you only set the money.",
+  rateStockFieldHelp:
+    "What a worker earns for making one piece. This is the only place this money is kept, so what you write here is what gets paid.",
+  rateStockNeedAmount:
+    "Please write the money for one piece. This thing comes from the stock list, so it cannot be saved empty.",
 
   itmEmptyTitle: "No items yet",
   itmEmptyBody:
@@ -3296,10 +3353,10 @@ const hi: Record<MessageKey, string> = {
   cfgUnlinkedTitle: "{count} \u0938\u094d\u091f\u0949\u0915 \u0906\u0907\u091f\u092e \u0909\u0924\u094d\u092a\u093e\u0926\u0928 \u0938\u0942\u091a\u0940 \u092e\u0947\u0902 \u0928\u0939\u0940\u0902 \u0939\u0948\u0902",
   cfgUnlinkedNames: "\u0909\u0924\u094d\u092a\u093e\u0926\u0928 \u092e\u0947\u0902 \u0928\u0939\u0940\u0902: {names}",
   cfgUnlinkedHelpOff:
-    "\u0938\u0947\u091f\u093f\u0902\u0917 \u092e\u0947\u0902 \u201c\u0909\u0924\u094d\u092a\u093e\u0926\u0928 \u092e\u0947\u0902 \u092e\u0947\u0930\u0940 \u0938\u094d\u091f\u0949\u0915 \u0938\u0942\u091a\u0940 \u0915\u093e \u0907\u0938\u094d\u0924\u0947\u092e\u093e\u0932 \u0915\u0930\u0947\u0902\u201d \u091a\u093e\u0932\u0942 \u0915\u0930\u0947\u0902, \u092f\u093e \u0906\u0907\u091f\u092e \u0938\u094d\u0915\u094d\u0930\u0940\u0928 \u092a\u0930 \u0930\u0947\u091f \u0915\u0947 \u0938\u093e\u0925 \u091c\u094b\u0921\u093c\u0947\u0902\u0964",
+    "\u0938\u0947\u091f\u093f\u0902\u0917 \u092e\u0947\u0902 \u201c\u0909\u0924\u094d\u092a\u093e\u0926\u0928 \u092e\u0947\u0902 \u092e\u0947\u0930\u0940 \u0938\u094d\u091f\u0949\u0915 \u0938\u0942\u091a\u0940 \u0915\u093e \u0907\u0938\u094d\u0924\u0947\u092e\u093e\u0932 \u0915\u0930\u0947\u0902\u201d \u091a\u093e\u0932\u0942 \u0915\u0930\u0947\u0902, \u092f\u093e आइटम स्क्रीन खोलकर एक पीस का पैसा लिखिए — वे वहाँ सबसे ऊपर मिलेंगी।",
   cfgOpenSettings: "\u0938\u0947\u091f\u093f\u0902\u0917 \u0916\u094b\u0932\u0947\u0902",
   cfgNoRate:
-    "{item} \u0915\u093e \u0930\u0947\u091f \u0928\u0939\u0940\u0902 \u0932\u0917\u093e \u0939\u0948, \u0907\u0938\u0932\u093f\u090f \u092a\u0948\u0938\u093e \u0928\u0939\u0940\u0902 \u092c\u0928\u0947\u0917\u093e\u0964 \u092a\u0939\u0932\u0947 \u0906\u0907\u091f\u092e \u092e\u0947\u0902 \u0930\u0947\u091f \u0932\u0917\u093e\u090f\u0901\u0964",
+    "{item} \u0915\u093e \u092a\u0948\u0938\u093e \u0928\u0939\u0940\u0902 \u0921\u093e\u0932\u093e \u0939\u0948, \u0907\u0938\u0932\u093f\u090f \u092a\u0917\u093e\u0930 \u0928\u0939\u0940\u0902 \u092c\u0928\u0947\u0917\u0940\u0964 आइटम स्क्रीन खोलिए — यह सबसे ऊपर मिलेगी — और एक पीस का पैसा लिखिए।",
   cfgRateMissingBadge: "\u0930\u0947\u091f \u0928\u0939\u0940\u0902",
 
   pickChoose: "\u0938\u093e\u092e\u093e\u0928 \u091a\u0941\u0928\u0947\u0902",
@@ -3315,9 +3372,11 @@ const hi: Record<MessageKey, string> = {
   pickNoResultsTitle: "\u0915\u0941\u091b \u0928\u0939\u0940\u0902 \u092e\u093f\u0932\u093e",
   pickNoResultsDesc: "\u0935\u0930\u094d\u0924\u0928\u0940 \u0926\u0947\u0916 \u0932\u0947\u0902, \u092f\u093e \u0938\u093e\u092e\u093e\u0928 \u092a\u0930 \u0932\u093f\u0916\u093e \u0938\u093f\u0930\u094d\u092b \u0915\u094b\u0921 \u0932\u093f\u0916\u0947\u0902\u0964",
   pickEmptyListTitle: "\u0905\u092d\u0940 \u0915\u094b\u0908 \u0938\u093e\u092e\u093e\u0928 \u0928\u0939\u0940\u0902",
-  pickEmptyListDesc: "\u092a\u0939\u0932\u0947 \u0906\u0907\u091f\u092e \u0938\u094d\u0915\u094d\u0930\u0940\u0928 \u092a\u0930 \u0930\u0947\u091f \u0915\u0947 \u0938\u093e\u0925 \u0938\u093e\u092e\u093e\u0928 \u091c\u094b\u0921\u093c\u0947\u0902\u0964",
+  pickEmptyListDesc:
+    "पहले आइटम स्क्रीन खोलकर एक पीस के पैसे के साथ सामान जोड़ें।",
   pickNoRate: "\u0930\u0947\u091f \u0928\u0939\u0940\u0902",
-  pickNoRateHelp: "\u0930\u0947\u091f \u0928\u0939\u0940\u0902 \u0932\u0917\u093e \u0939\u0948 \u2014 \u0907\u0938 \u0938\u093e\u092e\u093e\u0928 \u0915\u093e \u092a\u0948\u0938\u093e \u0928\u0939\u0940\u0902 \u092c\u0928\u0947\u0917\u093e\u0964",
+  pickNoRateHelp:
+    "एक पीस का पैसा नहीं डाला है — आइटम स्क्रीन खोलिए, यह सबसे ऊपर मिलेगी।",
   pickHint: "\u090a\u092a\u0930-\u0928\u0940\u091a\u0947 \u0924\u0940\u0930 \u0938\u0947 \u091a\u0941\u0928\u0947\u0902, Enter \u0926\u092c\u093e\u090f\u0901\u0964",
 
   /* Home dashboard — call to action, charts and the attention list. */
@@ -3519,6 +3578,40 @@ const hi: Record<MessageKey, string> = {
   ruleCancelEdit: "\u0930\u0939\u0928\u0947 \u0926\u0947\u0902",
   ruleSaveSuccess: "\u0928\u093f\u092f\u092e \u0938\u0939\u0947\u091c\u093e \u0917\u092f\u093e",
 
+  capCardTitle: "\u090f\u0915 \u0926\u093f\u0928 \u092e\u0947\u0902 \u0938\u092c\u0938\u0947 \u091c\u093c\u094d\u092f\u093e\u0926\u093e \u0915\u093f\u0924\u0928\u093e",
+  capCardSubtitle:
+    "\u0932\u0902\u092c\u0947 \u0926\u093f\u0928 \u0915\u093e \u092a\u0948\u0938\u093e \u090f\u0915 \u0926\u093f\u0928 \u0938\u0947 \u091c\u093c\u094d\u092f\u093e\u0926\u093e \u092c\u0928\u0924\u093e \u0939\u0948\u0964 \u092f\u0939\u093e\u0901 \u0906\u092a \u0924\u092f \u0915\u0930\u0924\u0947 \u0939\u0948\u0902 \u0915\u093f \u0915\u093f\u0924\u0928\u093e \u091c\u093c\u094d\u092f\u093e\u0926\u093e, \u0914\u0930 \u0915\u094b\u0908 \u0938\u0940\u092e\u093e \u0939\u094b \u092d\u0940 \u092f\u093e \u0928\u0939\u0940\u0902\u0964",
+  capLimitTitle: "\u090f\u0915 \u0926\u093f\u0928 \u0915\u0940 \u0938\u0940\u092e\u093e",
+  capLimitHint:
+    "\u0905\u0924\u093f\u0930\u093f\u0915\u094d\u0924 \u0918\u0902\u091f\u094b\u0902 \u0938\u0947 \u0926\u093f\u0928 \u0915\u093e \u092a\u0948\u0938\u093e \u092c\u0922\u093c\u0924\u093e \u0939\u0948\u0964 \u092f\u0939 \u0938\u092c\u0938\u0947 \u091c\u093c\u094d\u092f\u093e\u0926\u093e \u0939\u0948 \u091c\u094b \u0915\u094b\u0908 \u090f\u0915 \u0926\u093f\u0928 \u0926\u0947 \u0938\u0915\u0924\u093e \u0939\u0948, \u0926\u093f\u0928\u094b\u0902 \u0915\u0940 \u092a\u0917\u093e\u0930 \u092e\u0947\u0902\u0964 2 \u0915\u093e \u092e\u0924\u0932\u092c \u0939\u0948 \u0915\u093f \u091a\u093e\u0939\u0947 \u091c\u093f\u0924\u0928\u0947 \u0905\u0924\u093f\u0930\u093f\u0915\u094d\u0924 \u0918\u0902\u091f\u0947 \u0939\u094b\u0902, \u090f\u0915 \u0926\u093f\u0928 \u0926\u094b \u0926\u093f\u0928 \u0938\u0947 \u091c\u093c\u094d\u092f\u093e\u0926\u093e \u0928\u0939\u0940\u0902 \u0926\u0947\u0917\u093e\u0964",
+  capLimitLabel: "\u090f\u0915 \u0926\u093f\u0928 \u0915\u0947 \u0932\u093f\u090f \u0905\u0927\u093f\u0915\u0924\u092e \u0926\u093f\u0928\u094b\u0902 \u0915\u0940 \u092a\u0917\u093e\u0930",
+  capNoLimit: "\u0915\u094b\u0908 \u0938\u0940\u092e\u093e \u0928\u0939\u0940\u0902",
+  capSetLimit: "\u0938\u0940\u092e\u093e \u0932\u0917\u093e\u090f\u0902",
+  capNoLimitSet: "\u0915\u094b\u0908 \u0938\u0940\u092e\u093e \u0928\u0939\u0940\u0902",
+  capMinimumExplain:
+    "\u0938\u092c\u0938\u0947 \u091b\u094b\u091f\u0940 \u0938\u0940\u092e\u093e 1 \u0939\u0948\u0964 1 \u0938\u0947 \u0915\u092e \u092a\u0942\u0930\u0947 \u0926\u093f\u0928 \u0915\u0940 \u092a\u0917\u093e\u0930 \u0915\u093e\u091f \u0926\u0947\u0917\u0940, \u091c\u094b \u0907\u0938 \u0938\u0947\u091f\u093f\u0902\u0917 \u0915\u093e \u0915\u093e\u092e \u0928\u0939\u0940\u0902 \u0939\u0948\u0964 \u0915\u094b\u0908 \u090a\u092a\u0930\u0940 \u0938\u0940\u092e\u093e \u0928\u0939\u0940\u0902 \u091a\u093e\u0939\u093f\u090f \u0924\u094b \u201c\u0915\u094b\u0908 \u0938\u0940\u092e\u093e \u0928\u0939\u0940\u0902\u201d \u091a\u0941\u0928\u0947\u0902\u0964",
+  capPreviewTitle: "\u090f\u0915 \u0926\u093f\u0928 \u0915\u0947 \u0915\u093e\u092e \u092a\u0930 \u0907\u0938\u0915\u093e \u092e\u0924\u0932\u092c",
+  capPreviewSentence:
+    "{hours} \u0918\u0902\u091f\u0947 \u0915\u0940 \u0936\u093f\u092b\u093c\u094d\u091f \u092e\u0947\u0902 {extra} \u0918\u0902\u091f\u0947 \u0905\u0924\u093f\u0930\u093f\u0915\u094d\u0924 \u0915\u093e\u092e \u0915\u0930\u0928\u0947 \u0935\u093e\u0932\u0947 \u0915\u094b \u0909\u0938 \u0926\u093f\u0928 \u0915\u0947 {days} \u0926\u093f\u0928 \u0915\u0940 \u092a\u0917\u093e\u0930 \u092e\u093f\u0932\u0947\u0917\u0940\u0964",
+  capWarning:
+    "{hours} \u0918\u0902\u091f\u0947 \u0915\u0940 \u0936\u093f\u092b\u093c\u094d\u091f \u092e\u0947\u0902 {extra} \u0905\u0924\u093f\u0930\u093f\u0915\u094d\u0924 \u0918\u0902\u091f\u0947 {uncapped} \u0926\u093f\u0928 \u092c\u0928\u0924\u0947 \u0939\u0948\u0902, \u092a\u0930 \u0938\u0940\u092e\u093e {paid} \u0939\u0940 \u0926\u0947\u0924\u0940 \u0939\u0948\u0964 \u092f\u0939 \u0928\u0939\u0940\u0902 \u091a\u093e\u0939\u093f\u090f \u0924\u094b \u0938\u0940\u092e\u093e \u092c\u0922\u093c\u093e\u090f\u0902 \u092f\u093e \u0939\u091f\u093e \u0926\u0947\u0902\u0964",
+  capNoClipping:
+    "\u0907\u0938 \u0938\u0940\u092e\u093e \u0938\u0947 \u0928\u0940\u091a\u0947 \u0915\u093e \u0915\u094b\u0908 \u092d\u0940 \u0926\u093f\u0928 \u0915\u092e \u0928\u0939\u0940\u0902 \u0939\u094b \u0930\u0939\u093e\u0964",
+  capColExtra: "\u0909\u0938 \u0926\u093f\u0928 \u0905\u0924\u093f\u0930\u093f\u0915\u094d\u0924 \u0918\u0902\u091f\u0947",
+  capColPaid: "\u0909\u0938 \u0926\u093f\u0928 \u0915\u0940 \u0926\u093f\u0928\u094b\u0902 \u092e\u0947\u0902 \u092a\u0917\u093e\u0930",
+  capColPaidClipped: "{paid} ({uncapped} \u092c\u0928\u0924\u0940 \u0925\u0940)",
+  capSummaryLimit: "\u090f\u0915 \u0926\u093f\u0928 \u092e\u0947\u0902 \u0905\u0927\u093f\u0915\u0924\u092e {days} \u0926\u093f\u0928 \u0915\u0940 \u092a\u0917\u093e\u0930",
+  capSummaryNoLimit: "\u090f\u0915 \u0926\u093f\u0928 \u0915\u0940 \u092a\u0917\u093e\u0930 \u092a\u0930 \u0915\u094b\u0908 \u0938\u0940\u092e\u093e \u0928\u0939\u0940\u0902",
+  capSave: "\u0938\u0940\u092e\u093e \u0938\u0939\u0947\u091c\u0947\u0902",
+  capSaveSuccess: "\u0938\u0940\u092e\u093e \u0938\u0939\u0947\u091c\u0940 \u0917\u0908",
+  capSaveFail: "\u0938\u0940\u092e\u093e \u0938\u0939\u0947\u091c \u0928\u0939\u0940\u0902 \u0938\u0915\u0947\u0964 \u0915\u0941\u091b \u0928\u0939\u0940\u0902 \u092c\u0926\u0932\u093e\u0964",
+  capSheetClipped:
+    "\u0907\u0938 \u0905\u0935\u0927\u093f \u092e\u0947\u0902 \u0938\u0940\u092e\u093e \u0928\u0947 {dates} \u0926\u093f\u0928 \u0915\u092e \u0915\u093f\u090f, \u0915\u0941\u0932 {days} \u0926\u093f\u0928 \u0915\u0940 \u092a\u0917\u093e\u0930\u0964 \u0909\u0928 \u0926\u093f\u0928\u094b\u0902 \u0928\u0947 {limit} \u0926\u093f\u0928 \u0915\u0940 \u0938\u0940\u092e\u093e \u0938\u0947 \u091c\u093c\u094d\u092f\u093e\u0926\u093e \u0915\u092e\u093e\u092f\u093e \u0925\u093e\u0964 \u0938\u092e\u092f \u0914\u0930 \u092a\u0917\u093e\u0930 \u0915\u0947 \u0928\u093f\u092f\u092e \u092e\u0947\u0902 \u092c\u0926\u0932\u0947\u0902\u0964",
+  capOverrideTrimmed:
+    "\u0906\u092a\u0915\u093e \u0932\u093f\u0916\u093e \u0928\u0902\u092c\u0930 \u0907\u0938 \u0905\u0935\u0927\u093f \u0915\u0940 \u0938\u0940\u092e\u093e \u0938\u0947 \u090a\u092a\u0930 \u0925\u093e \u0914\u0930 \u0918\u091f\u093e \u0926\u093f\u092f\u093e \u0917\u092f\u093e: {fields}\u0964 \u092c\u0949\u0915\u094d\u0938 \u092e\u0947\u0902 \u0926\u093f\u0916 \u0930\u0939\u093e \u0928\u0902\u092c\u0930 \u0939\u0940 \u0938\u0939\u0947\u091c\u093e \u091c\u093e\u090f\u0917\u093e\u0964",
+  capPresentDaysNoLimit:
+    "\u090f\u0915 \u0926\u093f\u0928 \u0915\u0940 \u092a\u0917\u093e\u0930 \u092a\u0930 \u0915\u094b\u0908 \u0938\u0940\u092e\u093e \u0928\u0939\u0940\u0902 \u0939\u0948, \u0907\u0938\u0932\u093f\u090f \u092f\u0939\u093e\u0901 \u092d\u0940 \u0915\u094b\u0908 \u090a\u092a\u0930\u0940 \u0938\u0940\u092e\u093e \u0928\u0939\u0940\u0902\u0964",
+
   setgPayCardTitle: "\u0930\u0935\u093f\u0935\u093e\u0930 \u0915\u0940 \u0905\u0924\u093f\u0930\u093f\u0915\u094d\u0924 \u092a\u0917\u093e\u0930 \u2014 \u092b\u0948\u0915\u094d\u091f\u094d\u0930\u0940 \u0915\u0940 \u0921\u093f\u092b\u093c\u0949\u0932\u094d\u091f \u0938\u0947\u091f\u093f\u0902\u0917",
   setgPayCardDesc:
     "\u091c\u092c \u0935\u0930\u094d\u0915\u0930 \u092f\u093e \u0909\u0938\u0915\u0940 \u0930\u0935\u093f\u0935\u093e\u0930 \u0936\u094d\u0930\u0947\u0923\u0940 \u092e\u0947\u0902 \u0915\u0941\u091b \u0928\u0939\u0940\u0902 \u092d\u0930\u093e \u0939\u094b\u0924\u093e, \u0924\u092c \u0910\u092a \u092f\u0939\u0940 \u0926\u094b \u0938\u0902\u0916\u094d\u092f\u093e\u090f\u0901 \u0907\u0938\u094d\u0924\u0947\u092e\u093e\u0932 \u0915\u0930\u0924\u093e \u0939\u0948\u0964",
@@ -3653,6 +3746,21 @@ const hi: Record<MessageKey, string> = {
   itmNeedRateBody:
     "\u0935\u0947 \u0938\u0942\u091a\u0940 \u092e\u0947\u0902 \u0938\u092c\u0938\u0947 \u090a\u092a\u0930 \u0939\u0948\u0902\u0964 \u091c\u092c \u0924\u0915 \u090f\u0915 \u092a\u0940\u0938 \u0915\u093e \u092a\u0948\u0938\u093e \u0928\u0939\u0940\u0902 \u0921\u093e\u0932\u0947\u0902\u0917\u0947, \u0909\u0928\u0915\u0947 \u0932\u093f\u0916\u0947 \u0915\u093e\u092e \u0915\u0940 \u092a\u0917\u093e\u0930 \u0928\u0939\u0940\u0902 \u091c\u0941\u0921\u093c\u0947\u0917\u0940\u0964",
   itmNeedRateOneTitle: "1 \u0906\u0907\u091f\u092e \u0915\u093e \u092a\u0948\u0938\u093e \u0928\u0939\u0940\u0902 \u0921\u093e\u0932\u093e \u0939\u0948",
+
+  rateFromStockBadge: "स्टॉक सूची से",
+  rateFromStockTitle: "स्टॉक सूची की {count} चीज़ों का पैसा नहीं डाला है",
+  rateFromStockOneTitle: "स्टॉक सूची की 1 चीज़ का पैसा नहीं डाला है",
+  rateFromStockBody:
+    "आपने इन्हें स्टॉक में जोड़ा था, और स्टॉक में पैसे का खाना नहीं होता। यहाँ एक पीस का पैसा डाल दीजिए, फिर वे आज के काम में लिखी जा सकेंगी।",
+  rateStockDialogTitle: "इस स्टॉक चीज़ का पैसा डालें",
+  rateStockDialogDesc:
+    "यह चीज़ आपकी स्टॉक सूची में है। एक पीस का पैसा डालते ही इसका काम लिखा भी जाएगा और पगार में भी जुड़ेगा।",
+  rateStockNameLocked:
+    "नाम और कोड स्टॉक स्क्रीन से आते हैं। बदलना हो तो वहीं बदलिए — यहाँ सिर्फ़ पैसा डालना है।",
+  rateStockFieldHelp:
+    "एक पीस बनाने पर मज़दूर को कितना मिलेगा। यह पैसा सिर्फ़ यहीं रखा जाता है, इसलिए जो यहाँ लिखेंगे वही पगार में जुड़ेगा।",
+  rateStockNeedAmount:
+    "कृपया एक पीस का पैसा लिखें। यह चीज़ स्टॉक सूची से आई है, इसलिए खाली नहीं सहेजी जा सकती।",
 
   itmEmptyTitle: "\u0905\u092d\u0940 \u0915\u094b\u0908 \u0906\u0907\u091f\u092e \u0928\u0939\u0940\u0902 \u0939\u0948",
   itmEmptyBody:

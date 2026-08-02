@@ -19,6 +19,19 @@
  * Pure module: no DB, no React, so every rule below is unit-testable.
  */
 
+/**
+ * Where a row on this screen came from.
+ *
+ *  - `"items"` — a real `items` row. Everything about it is editable here.
+ *  - `"stock"` — a finished-goods stock item that has no `items` row yet.
+ *    It was added on the Stock screen, which has no money box, so until it is
+ *    priced it can be picked in Production and then refused at save time
+ *    ("no rate") with nowhere to fix it. Listing it here is that nowhere.
+ *    Pricing it creates the `items` row; from the next load it is an `"items"`
+ *    row like any other, so a price still lives in exactly one place.
+ */
+export type ItemOrigin = "items" | "stock";
+
 /** An item as this screen works with it, whatever shape the row was stored in. */
 export interface ItemRow {
   id: string;
@@ -27,6 +40,43 @@ export interface ItemRow {
   code?: string;
   /** Money for one piece. `null` means nothing has priced this item yet. */
   rate: number | null;
+  /** Defaults to `"items"`; see {@link ItemOrigin}. */
+  origin?: ItemOrigin;
+  /** The stock row this stands for. Only set when `origin === "stock"`. */
+  stockItemId?: string;
+}
+
+/** True for a row that has no `items` row behind it yet. */
+export function isStockRow(row: ItemRow): boolean {
+  return row.origin === "stock";
+}
+
+/**
+ * Draw an unpriced stock item as a row on this screen.
+ *
+ * Its id is namespaced so it can never collide with a real `items` id — the
+ * two lists have separate id spaces and both end up in one React list.
+ *
+ * `rate` is read exactly as an `items` rate is: a stock row can carry a rate
+ * put there by the legacy migration or the spreadsheet import, and that seed
+ * is what production would pay today, so it must be what this screen shows.
+ * Editing the row writes the number to the `items` row, which then wins — see
+ * `productionCatalog.resolveEntryRate`.
+ */
+export function stockItemRow(item: {
+  id: string;
+  name: string;
+  code?: string;
+  rate?: number;
+}): ItemRow {
+  return {
+    id: `stock:${item.id}`,
+    name: item.name || item.code || "",
+    code: item.code?.trim() || undefined,
+    rate: readStoredRate(item.rate),
+    origin: "stock",
+    stockItemId: item.id,
+  };
 }
 
 /** Read a stored rate, keeping "unset" and "zero" apart. */
@@ -51,6 +101,7 @@ export function normalizeItemRows(
       name: typeof row.name === "string" ? row.name : String(row.name ?? ""),
       code: code || undefined,
       rate: readStoredRate(row.rate),
+      origin: "items",
     });
   }
   return out;
@@ -100,7 +151,7 @@ export function countUnpricedItems(rows: readonly ItemRow[]): number {
   return rows.reduce((n, row) => (row.rate === null ? n + 1 : n), 0);
 }
 
-export type RateProblem = "invalid" | "negative" | "zero";
+export type RateProblem = "invalid" | "negative" | "zero" | "missing";
 
 export type RateValidation =
   | { ok: true; rate: number | null }
@@ -126,4 +177,20 @@ export function validateRate(input: string): RateValidation {
 /** What the rate box should show when an existing item is opened for editing. */
 export function rateToInput(rate: number | null): string {
   return rate === null ? "" : String(rate);
+}
+
+/**
+ * The same check for a row that came from the stock list.
+ *
+ * Blank is allowed for an `items` row — it already exists, and the screen
+ * nags until it is priced. A stock row has nothing behind it yet: saving it
+ * blank would create an `items` row worth nothing, which production would
+ * refuse all over again. So here, and only here, blank is an error.
+ */
+export function validateStockRate(input: string): RateValidation {
+  const checked = validateRate(input);
+  if (checked.ok && checked.rate === null) {
+    return { ok: false, problem: "missing" };
+  }
+  return checked;
 }

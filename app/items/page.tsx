@@ -13,6 +13,15 @@
  * then falls back to the legacy `items` store, and this is the only screen that
  * can add, price or remove those rows.
  *
+ * The list is deliberately BOTH item lists: the `items` rows, plus every
+ * finished stock item that has no `items` row yet. A thing added on the Stock
+ * screen had no money box there and no row here, so it could be picked in
+ * Production and then refused for want of a rate with nowhere to fix it.
+ * Pricing such a row here creates its `items` row (`priceStockItem`, the same
+ * call production makes on first use) and it becomes an ordinary row. There is
+ * still exactly one place a price is typed — `resolveEntryRate` makes the
+ * `items` row win, so the number read here is always the number paid.
+ *
  * Nothing here is optimistic. Every change is written first and the list is
  * then re-read from the database, so the screen can never show a rate the
  * database does not hold.
@@ -23,6 +32,7 @@ import {
   AlertTriangle,
   IndianRupee,
   Info,
+  PackageSearch,
   Pencil,
   Plus,
   Search,
@@ -71,7 +81,9 @@ import {
 import {
   countUnpricedItems,
   filterItemRows,
+  isStockRow,
   normalizeItemRows,
+  stockItemRow,
   type ItemRow,
 } from "@/lib/utils/itemCatalog";
 import {
@@ -81,6 +93,10 @@ import {
   saveItem,
 } from "@/lib/services/itemService";
 import { getAppSettings } from "@/lib/services/appSettingsService";
+import {
+  loadUnpairedStockItems,
+  priceStockItem,
+} from "@/lib/services/productionCatalog";
 
 /** The search box only earns its space once the list is long enough to scan. */
 const SEARCH_THRESHOLD = 8;
@@ -94,13 +110,32 @@ interface PageData {
   items: ItemRow[];
   /** True when production reads the stock list; changes only a help note here. */
   stockLinked: boolean;
+  /** How many of `items` are stock items still waiting for their first price. */
+  fromStock: number;
 }
 
+/**
+ * The list is the `items` rows *plus* every finished stock item that has no
+ * `items` row yet.
+ *
+ * Without the second half, an item added on the Stock screen was priceable
+ * nowhere: the Stock form has no money box, and this screen only knew about
+ * `items` rows — so production offered the item, refused to save it for want
+ * of a rate, and sent the owner here to a list it was not in. Both halves are
+ * shown together on purpose; the price is still typed in one place, and the
+ * moment it is typed the row becomes an ordinary `items` row.
+ */
 async function fetchPageData(): Promise<PageData> {
-  const [rows, settings] = await Promise.all([getItems(), getAppSettings()]);
+  const [rows, settings, stock] = await Promise.all([
+    getItems(),
+    getAppSettings(),
+    loadUnpairedStockItems().catch(() => []),
+  ]);
+  const stockRows = stock.map(stockItemRow);
   return {
-    items: normalizeItemRows(rows),
+    items: [...normalizeItemRows(rows), ...stockRows],
     stockLinked: settings.productionInventoryLinkEnabled,
+    fromStock: stockRows.length,
   };
 }
 
@@ -120,7 +155,7 @@ export default function ItemsPage() {
     if (!guardReady) return;
     fetchPageData()
       .then(setData)
-      .catch(() => setData({ items: [], stockLinked: false }));
+      .catch(() => setData({ items: [], stockLinked: false, fromStock: 0 }));
   }, [guardReady]);
 
   if (!guardReady || data === null) {
@@ -154,6 +189,26 @@ export default function ItemsPage() {
    */
   const handleSave = async (draft: ItemDraft): Promise<boolean> => {
     try {
+      // A stock row has no `items` row to update — pricing it creates one, by
+      // the same call production makes on first use, so an item priced here is
+      // an item production is guaranteed to accept.
+      if (editing && isStockRow(editing) && editing.stockItemId) {
+        const result = await priceStockItem(
+          {
+            id: editing.stockItemId,
+            name: editing.name,
+            code: editing.code,
+          },
+          draft.rate ?? 0,
+        );
+        if (!result.ok) {
+          toast.error(t("rateStockNeedAmount"));
+          return false;
+        }
+        await load();
+        toast.success(t("itmSaveSuccess"));
+        return true;
+      }
       const existing = editing ? await getItem(editing.id) : null;
       await saveItem({
         ...(existing ?? {}),
@@ -223,6 +278,20 @@ export default function ItemsPage() {
             </p>
             <p className="text-base leading-relaxed text-muted-foreground">
               {t("itmNeedRateBody")}
+            </p>
+          </div>
+        ) : null}
+
+        {data.fromStock > 0 ? (
+          <div className="flex max-w-2xl flex-col gap-2 rounded-xl border border-border bg-surface-2 p-4">
+            <p className="flex items-center gap-2 text-base font-semibold text-foreground">
+              <PackageSearch className="size-5 shrink-0" aria-hidden />
+              {data.fromStock === 1
+                ? t("rateFromStockOneTitle")
+                : t("rateFromStockTitle", { count: data.fromStock })}
+            </p>
+            <p className="text-base leading-relaxed text-muted-foreground">
+              {t("rateFromStockBody")}
             </p>
           </div>
         ) : null}
@@ -325,7 +394,18 @@ export default function ItemsPage() {
                       className="transition-colors hover:bg-surface-2"
                     >
                       <TableCell className="font-medium text-base">
-                        {item.name}
+                        <div className="flex flex-col items-start gap-2">
+                          <span>{item.name}</span>
+                          {isStockRow(item) ? (
+                            <Badge variant="outline">
+                              <PackageSearch
+                                data-icon="inline-start"
+                                aria-hidden
+                              />
+                              {t("rateFromStockBadge")}
+                            </Badge>
+                          ) : null}
+                        </div>
                       </TableCell>
                       <TableCell className="text-base text-muted-foreground">
                         {item.code ?? "—"}
@@ -369,8 +449,13 @@ export default function ItemsPage() {
                             onClick={() => openEdit(item)}
                           >
                             <Pencil data-icon="inline-start" aria-hidden />
-                            {t("itmEdit")}
+                            {isStockRow(item) ? t("itmSetRate") : t("itmEdit")}
                           </Button>
+                          {/* A stock row has no `items` row to delete, and
+                              deleting the stock item itself belongs to the
+                              Stock screen — so this row is priced here, and
+                              removed there. */}
+                          {isStockRow(item) ? null : (
                           <AlertDialog>
                             <AlertDialogTrigger asChild>
                               <Button
@@ -405,6 +490,7 @@ export default function ItemsPage() {
                               </AlertDialogFooter>
                             </AlertDialogContent>
                           </AlertDialog>
+                          )}
                         </div>
                       </TableCell>
                     </TableRow>

@@ -96,14 +96,28 @@ describe("resolveProductionCatalog — link on", () => {
     });
   });
 
-  it("prefers the stock item's own rate over the paired legacy rate", () => {
+  // The paired `items` row wins on purpose. It is the row the Items screen
+  // writes and the row pay is read from; the stock row's rate is only ever a
+  // copy left behind by the migration or the import, so preferring it meant a
+  // price changed on Items did nothing to the pay packet.
+  it("prefers the paired legacy rate over the stock item's migrated copy", () => {
     const withRate = resolveProductionCatalog({
       linkEnabled: true,
       legacyItems,
       inventoryItems: [stock({ id: "inv-1", name: "Round 500ml", rate: 4 })],
       map,
     });
-    expect(withRate.entries.find((e) => e.id === "inv-1")?.rate).toBe(4);
+    expect(withRate.entries.find((e) => e.id === "inv-1")?.rate).toBe(2.5);
+  });
+
+  it("uses the stock item's rate when no legacy row supplies one", () => {
+    const withRate = resolveProductionCatalog({
+      linkEnabled: true,
+      legacyItems,
+      inventoryItems: [stock({ id: "inv-9", name: "Only in stock", rate: 4 })],
+      map,
+    });
+    expect(withRate.entries.find((e) => e.id === "inv-9")?.rate).toBe(4);
   });
 
   it("pairs by name when the map has no row, avoiding a duplicate item", () => {
