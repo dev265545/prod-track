@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { Check, Moon, Sun } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { NumberInput } from "@/components/ui/number-input";
+import { ItemPicker } from "@/components/pickers/item-picker";
 import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
 import {
@@ -55,6 +56,12 @@ interface ProductionEntryFormProps {
   onSaved: () => Promise<void> | void;
   /** Blocks saving on a factory holiday until the page unlocks it. */
   disabled?: boolean;
+  /**
+   * Item ids most recently recorded for this date, newest first. The picker
+   * floats these above the full catalogue: daily entry is highly repetitive, and
+   * scrolling past two hundred items to reach the same five is the whole problem.
+   */
+  recentItemIds?: readonly string[];
 }
 
 export interface ProductionEntryFormHandle {
@@ -71,7 +78,7 @@ export const ProductionEntryForm = React.forwardRef<
   ProductionEntryFormHandle,
   ProductionEntryFormProps
 >(function ProductionEntryForm(
-  { date, employees, items, onSaved, disabled },
+  { date, employees, items, onSaved, disabled, recentItemIds },
   ref,
 ) {
   const { t } = useLanguage();
@@ -205,19 +212,17 @@ export const ProductionEntryForm = React.forwardRef<
 
         <div className="flex min-w-0 flex-col gap-1.5">
           <Label htmlFor="prod-what">{t("prodWhatLabel")}</Label>
-          <Select value={item} onValueChange={setItem}>
-            <SelectTrigger id="prod-what" className="min-h-[44px] w-full">
-              <SelectValue placeholder={t("selectPlaceholder")} />
-            </SelectTrigger>
-            <SelectContent>
-              {items.map((i) => (
-                <SelectItem key={i.id} value={i.id}>
-                  {i.code ? `${i.name} (${i.code})` : i.name}
-                  {i.rate == null ? ` \u2014 ${t("cfgRateMissingBadge")}` : ""}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          {/* A plain dropdown is fine for five items and unusable for two hundred,
+              which is what this list becomes once stock items are selectable. The
+              picker searches on name AND the code printed on the item, and flags
+              anything with no rate before it is chosen rather than failing on save. */}
+          <ItemPicker
+            id="prod-what"
+            items={items}
+            value={item}
+            onChange={setItem}
+            recentIds={recentItemIds}
+          />
         </div>
 
         <fieldset className="flex min-w-0 flex-col gap-1.5">

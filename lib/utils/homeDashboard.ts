@@ -14,6 +14,36 @@
  */
 
 import { stockStatus, type StockStatus } from "@/components/inventory/shared";
+import { getDatesInRange, toISODate } from "@/lib/utils/date";
+
+/* ---------------------------------------------------------------------- */
+/* The window the dashboard reads                                         */
+/* ---------------------------------------------------------------------- */
+
+export interface HomeTrendWindow {
+  /** ISO yyyy-mm-dd, inclusive — hand straight to `getProductionsInRange`. */
+  from: string;
+  to: string;
+  /** Every date from `from` through `to`, which drives the chart's spacing. */
+  dates: string[];
+}
+
+/**
+ * The last `days` calendar days ending on (and including) `endDate`.
+ *
+ * The window is computed once and shared by the query and the chart so the two
+ * cannot disagree: fetching a range and then plotting a differently-derived
+ * list of dates is how a day silently falls off the end of a line. Midday is
+ * used for the arithmetic (as `getDatesInRange` does) so a DST shift cannot
+ * push a date onto its neighbour.
+ */
+export function buildTrendWindow(endDate: string, days: number): HomeTrendWindow {
+  const span = Math.max(1, Math.floor(days));
+  const start = new Date(endDate + "T12:00:00");
+  start.setDate(start.getDate() - (span - 1));
+  const from = toISODate(start);
+  return { from, to: endDate, dates: getDatesInRange(from, endDate) };
+}
 
 /* ---------------------------------------------------------------------- */
 /* Production trend                                                       */

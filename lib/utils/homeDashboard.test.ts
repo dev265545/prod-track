@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   buildProductionTrend,
+  buildTrendWindow,
   buildAttendanceSplit,
   buildTrendGeometry,
   summarizeStockHealth,
@@ -293,5 +294,48 @@ describe("buildTrendGeometry", () => {
     expect(g.line.startsWith("M0.00")).toBe(true);
     expect(g.area.endsWith("Z")).toBe(true);
     expect(g.area).toContain("L0.00 50");
+  });
+});
+
+describe("buildTrendWindow", () => {
+  it("ends on the given day and includes it", () => {
+    const w = buildTrendWindow("2026-01-14", 14);
+    expect(w.to).toBe("2026-01-14");
+    expect(w.from).toBe("2026-01-01");
+    expect(w.dates).toHaveLength(14);
+    expect(w.dates[0]).toBe("2026-01-01");
+    expect(w.dates[13]).toBe("2026-01-14");
+  });
+
+  it("collapses a one-day window to that single day", () => {
+    const w = buildTrendWindow("2026-03-09", 1);
+    expect(w).toEqual({
+      from: "2026-03-09",
+      to: "2026-03-09",
+      dates: ["2026-03-09"],
+    });
+  });
+
+  it("treats a zero or negative span as one day rather than inverting", () => {
+    expect(buildTrendWindow("2026-03-09", 0).dates).toEqual(["2026-03-09"]);
+    expect(buildTrendWindow("2026-03-09", -5).dates).toEqual(["2026-03-09"]);
+  });
+
+  it("walks back across a month and a leap-year boundary", () => {
+    expect(buildTrendWindow("2026-03-02", 5).from).toBe("2026-02-26");
+    expect(buildTrendWindow("2024-03-01", 3).dates).toEqual([
+      "2024-02-28",
+      "2024-02-29",
+      "2024-03-01",
+    ]);
+  });
+
+  it("produces a window a trend can be built against with no gaps", () => {
+    const w = buildTrendWindow("2026-01-05", 5);
+    const trend = buildProductionTrend(
+      [{ date: "2026-01-05", quantity: 12, shift: "day" }],
+      w.dates,
+    );
+    expect(trend.points.map((p) => p.total)).toEqual([0, 0, 0, 0, 12]);
   });
 });

@@ -770,7 +770,8 @@ const en = {
   navInventory: "Inventory",
   inventoryNavDashboard: "Dashboard",
   inventoryPageTitle: "Inventory",
-  inventoryPageDescription: "Track raw materials and finished-goods stock",
+  inventoryPageDescription:
+    "Stock of the material you buy and the goods you make",
   inventoryLoadingTitle: "Loading inventory",
   inventoryLoadingDescription: "Preparing stock data",
   inventoryAddItem: "Add Item",
@@ -880,9 +881,9 @@ const en = {
   inventoryCountSummary: "{total} items · {low} low · {out} out",
 
   inventoryTotalStockUnits: "Total stock units",
-  inventoryRawFinishedSplit: "Raw vs finished",
-  inventoryRawShort: "Raw",
-  inventoryFinishedShort: "Finished",
+  inventoryRawFinishedSplit: "Kinds of stock",
+  inventoryRawShort: "We buy it",
+  inventoryFinishedShort: "We make it",
   inventoryStockHealthTitle: "Stock health",
   inventoryStockHealthDesc: "Share of items OK, low, or out of stock",
   inventoryStockByCategoryTitle: "Stock by category",
@@ -1021,7 +1022,7 @@ const en = {
   invHubNoSearchResultsDesc: "Try a different name or code",
   invHubMovedRecently: "Moved in last 14 days",
   invHubNeedsStockTitle: "Items that need stock",
-  invHubNeedsStockDesc: "Low or finished items. Add stock for these first.",
+  invHubNeedsStockDesc: "Items that are low or out. Add stock for these first.",
   invHubAllStocked: "Every item has enough stock",
   invHubAllStockedDesc: "Nothing needs to be added right now",
   invHubAddStock: "Add stock",
@@ -1091,6 +1092,19 @@ const en = {
   invCatStockIn: "Add stock",
   invCatStockOut: "Take out",
   invCatMoreActions: "More",
+
+  /* Plain words for the `layer` field: what the factory buys in, and what it
+   * makes and sells. "Raw"/"finished" is developer vocabulary and never
+   * reaches the screen. */
+  invUxKindBought: "Materials we buy",
+  invUxKindMade: "Goods we make",
+  invUxKindBoughtShort: "We buy it",
+  invUxKindMadeShort: "We make it",
+  invUxStockKindLabel: "Kinds of stock",
+  invUxStockKindValue: "{bought} we buy · {made} we make",
+  invUxDataMenu: "Data",
+  invUxDataMenuTitle: "File and printing",
+  invUxRecordStockHint: "Add what came in, or take out what was used",
   invCatLowBelow: "Low below {qty} {unit}",
 
   // --- Inventory item card (invCard*) ---
@@ -1515,6 +1529,9 @@ const en = {
   homeStockGo: "Open stock",
 
   homeAttentionFix: "Fix this",
+  homeTodayIs: "Today is {date}",
+  homeOverviewTitle: "How things are going",
+  homeAllSections: "All sections",
 } as const;
 
 export type MessageKey = keyof typeof en;
@@ -2286,7 +2303,8 @@ const hi: Record<MessageKey, string> = {
   navInventory: "इन्वेंटरी",
   inventoryNavDashboard: "डैशबोर्ड",
   inventoryPageTitle: "इन्वेंटरी",
-  inventoryPageDescription: "कच्चे माल और तैयार माल का स्टॉक ट्रैक करें",
+  inventoryPageDescription:
+    "जो सामान आप खरीदते हैं और जो माल आप बनाते हैं, दोनों का स्टॉक",
   inventoryLoadingTitle: "इन्वेंटरी लोड हो रही है",
   inventoryLoadingDescription: "स्टॉक डेटा तैयार किया जा रहा है",
   inventoryAddItem: "आइटम जोड़ें",
@@ -2396,9 +2414,9 @@ const hi: Record<MessageKey, string> = {
   inventoryCountSummary: "{total} आइटम · {low} कम · {out} खत्म",
 
   inventoryTotalStockUnits: "कुल स्टॉक इकाइयां",
-  inventoryRawFinishedSplit: "कच्चा बनाम तैयार",
-  inventoryRawShort: "कच्चा",
-  inventoryFinishedShort: "तैयार",
+  inventoryRawFinishedSplit: "स्टॉक के प्रकार",
+  inventoryRawShort: "हम खरीदते हैं",
+  inventoryFinishedShort: "हम बनाते हैं",
   inventoryStockHealthTitle: "स्टॉक की स्थिति",
   inventoryStockHealthDesc: "OK, कम और खत्म आइटम का अनुपात",
   inventoryStockByCategoryTitle: "श्रेणी अनुसार स्टॉक",
@@ -2603,6 +2621,16 @@ const hi: Record<MessageKey, string> = {
   invCatStockIn: "स्टॉक जोड़ें",
   invCatStockOut: "स्टॉक निकालें",
   invCatMoreActions: "और काम",
+
+  invUxKindBought: "जो सामान हम खरीदते हैं",
+  invUxKindMade: "जो माल हम बनाते हैं",
+  invUxKindBoughtShort: "हम खरीदते हैं",
+  invUxKindMadeShort: "हम बनाते हैं",
+  invUxStockKindLabel: "स्टॉक के प्रकार",
+  invUxStockKindValue: "{bought} खरीदते हैं · {made} बनाते हैं",
+  invUxDataMenu: "डेटा",
+  invUxDataMenuTitle: "फ़ाइल और छपाई",
+  invUxRecordStockHint: "जो आया वो जोड़ें, जो लगा वो निकालें",
   invCatLowBelow: "{qty} {unit} से कम होने पर कम",
 
   // --- Inventory item card (invCard*) ---
@@ -3016,6 +3044,9 @@ const hi: Record<MessageKey, string> = {
   homeStockEmptyHint: "\u0905\u092a\u0928\u093e \u092e\u093e\u0932 \u091c\u094b\u0921\u093c\u0947\u0902, \u092b\u093f\u0930 \u092f\u0939\u093e\u0901 \u0938\u094d\u091f\u0949\u0915 \u0926\u093f\u0916\u0947\u0917\u093e\u0964",
   homeStockGo: "\u0938\u094d\u091f\u0949\u0915 \u0916\u094b\u0932\u0947\u0902",
   homeAttentionFix: "\u0920\u0940\u0915 \u0915\u0930\u0947\u0902",
+  homeTodayIs: "\u0906\u091c {date} \u0939\u0948",
+  homeOverviewTitle: "\u0915\u093e\u0930\u0916\u093e\u0928\u093e \u0915\u0948\u0938\u093e \u091a\u0932 \u0930\u0939\u093e \u0939\u0948",
+  homeAllSections: "\u0938\u092d\u0940 \u0935\u093f\u092d\u093e\u0917",
 };
 
 export const messages: Record<AppLocale, Record<MessageKey, string>> = {
