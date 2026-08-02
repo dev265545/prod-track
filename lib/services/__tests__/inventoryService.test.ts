@@ -1,10 +1,16 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { STORES } from "@/lib/db/schema";
+import {
+  getIndexKeyPath,
+  matchesIndexRange,
+  sortByIndexOrder,
+} from "@/lib/db/indexes";
 
 // In-memory store keyed by store name -> id -> record, mirroring the real
 // db adapter's shape (see salarySheetOverrideService.test.ts for the
 // vi.hoisted + vi.mock("@/lib/db/adapter") pattern this follows).
-const { store, mockGetAll, mockGet, mockPut, mockRemove } = vi.hoisted(() => {
+const { store, mockGetAll, mockGetByIndex, mockGet, mockPut, mockRemove } =
+  vi.hoisted(() => {
   const store = new Map<string, Map<string, Record<string, unknown>>>();
   const tableFor = (name: string) => {
     let t = store.get(name);
@@ -17,6 +23,26 @@ const { store, mockGetAll, mockGet, mockPut, mockRemove } = vi.hoisted(() => {
   return {
     store,
     mockGetAll: vi.fn(async (name: string) => Array.from(tableFor(name).values())),
+    // Runs the production key-matching logic over the same in-memory rows, so
+    // this stays a stand-in for the adapter rather than a second definition of
+    // what an index range means.
+    mockGetByIndex: vi.fn(
+      async (
+        name: string,
+        indexName: string,
+        lower: string | string[],
+        upper: string | string[],
+      ) => {
+        const keyPath = getIndexKeyPath(name, indexName);
+        if (!keyPath) throw new Error(`Unknown index ${name}.${indexName}`);
+        return sortByIndexOrder(
+          Array.from(tableFor(name).values()).filter((row) =>
+            matchesIndexRange(row, keyPath, lower, upper),
+          ),
+          keyPath,
+        );
+      },
+    ),
     mockGet: vi.fn(async (name: string, id: string) => tableFor(name).get(id) ?? null),
     mockPut: vi.fn(async (name: string, record: Record<string, unknown>) => {
       tableFor(name).set(record.id as string, record);
@@ -30,6 +56,7 @@ const { store, mockGetAll, mockGet, mockPut, mockRemove } = vi.hoisted(() => {
 vi.mock("@/lib/db/adapter", () => ({
   STORES,
   getAll: mockGetAll,
+  getByIndex: mockGetByIndex,
   get: mockGet,
   put: mockPut,
   remove: mockRemove,

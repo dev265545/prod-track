@@ -1,46 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { STORES } from "@/lib/db/schema";
 
 /**
  * In-memory stand-in for the IndexedDB/SQLite adapter, so the thin payroll data
  * services (attendance, advances, advance deductions, Sunday categories,
  * factory holidays) can be exercised for real instead of against call spies.
  */
-const { store } = vi.hoisted(() => ({
-  store: new Map<string, Map<string, Record<string, unknown>>>(),
-}));
+const { adapter } = await vi.hoisted(async () => {
+  const { createMemoryAdapter } = await import("@/lib/db/testing/memoryAdapter");
+  return { adapter: createMemoryAdapter() };
+});
 
-function tableFor(name: string): Map<string, Record<string, unknown>> {
-  if (!store.has(name)) store.set(name, new Map());
-  return store.get(name)!;
-}
-
-vi.mock("@/lib/db/adapter", () => ({
-  STORES,
-  getAll: async (name: string) => Array.from(tableFor(name).values()),
-  get: async (name: string, id: string) => tableFor(name).get(id) ?? null,
-  put: async (name: string, row: Record<string, unknown>) => {
-    tableFor(name).set(row.id as string, { ...row });
-    return row;
-  },
-  remove: async (name: string, id: string) => {
-    tableFor(name).delete(id);
-  },
-  deleteWhere: async (
-    name: string,
-    predicate: (row: Record<string, unknown>) => boolean,
-  ) => {
-    const table = tableFor(name);
-    let n = 0;
-    for (const [id, row] of Array.from(table.entries())) {
-      if (predicate(row)) {
-        table.delete(id);
-        n += 1;
-      }
-    }
-    return n;
-  },
-}));
+vi.mock("@/lib/db/adapter", () => adapter);
 
 import {
   deleteAttendance,
@@ -80,7 +50,7 @@ import {
 import { DEFAULT_SUNDAY_CATEGORY_RULE } from "@/lib/utils/attendanceStats";
 
 beforeEach(() => {
-  store.clear();
+  adapter.tables.clear();
 });
 
 describe("attendanceService", () => {
@@ -316,13 +286,26 @@ describe("sundayCategoryService", () => {
     expect(resolveSundayCategoryRule(null)).toEqual(DEFAULT_SUNDAY_CATEGORY_RULE);
   });
 
-  it("uses a fully configured threshold or step category as-is", () => {
+  // Legacy categories are migrated on read into the general rule. The numbers
+  // must survive intact — same brackets/repeat, same legacy cycle and caps —
+  // because this runs against live payroll data.
+  it("migrates a fully configured threshold or step category", () => {
     expect(
       resolveSundayCategoryRule({ mode: "threshold", requiredPresent: 10, earnedSundays: 1 }),
-    ).toEqual({ mode: "threshold", requiredPresent: 10, earnedSundays: 1 });
+    ).toEqual({
+      ...DEFAULT_SUNDAY_CATEGORY_RULE,
+      kind: "table",
+      brackets: [{ whenPresentDaysAtLeast: 10, give: 1 }],
+    });
     expect(
       resolveSundayCategoryRule({ mode: "step", everyPresentDays: 6, earnedPerStep: 0.5 }),
-    ).toEqual({ mode: "step", everyPresentDays: 6, earnedPerStep: 0.5 });
+    ).toEqual({
+      ...DEFAULT_SUNDAY_CATEGORY_RULE,
+      kind: "repeat",
+      brackets: [],
+      repeatEveryPresentDays: 6,
+      repeatGive: 0.5,
+    });
   });
 
   // Bug 8: an explicit 0 was indistinguishable from "not configured", so a
@@ -330,10 +313,20 @@ describe("sundayCategoryService", () => {
   it("honours an explicit zero instead of substituting the default rule", () => {
     expect(
       resolveSundayCategoryRule({ mode: "threshold", requiredPresent: 12, earnedSundays: 0 }),
-    ).toEqual({ mode: "threshold", requiredPresent: 12, earnedSundays: 0 });
+    ).toEqual({
+      ...DEFAULT_SUNDAY_CATEGORY_RULE,
+      kind: "table",
+      brackets: [{ whenPresentDaysAtLeast: 12, give: 0 }],
+    });
     expect(
       resolveSundayCategoryRule({ mode: "step", everyPresentDays: 6, earnedPerStep: 0 }),
-    ).toEqual({ mode: "step", everyPresentDays: 6, earnedPerStep: 0 });
+    ).toEqual({
+      ...DEFAULT_SUNDAY_CATEGORY_RULE,
+      kind: "repeat",
+      brackets: [],
+      repeatEveryPresentDays: 6,
+      repeatGive: 0,
+    });
   });
 
   it("still falls back to the default when a field is genuinely unset", () => {
@@ -348,7 +341,11 @@ describe("sundayCategoryService", () => {
   it("clamps negative configured values to zero rather than defaulting", () => {
     expect(
       resolveSundayCategoryRule({ mode: "threshold", requiredPresent: 12, earnedSundays: -3 }),
-    ).toEqual({ mode: "threshold", requiredPresent: 12, earnedSundays: 0 });
+    ).toEqual({
+      ...DEFAULT_SUNDAY_CATEGORY_RULE,
+      kind: "table",
+      brackets: [{ whenPresentDaysAtLeast: 12, give: 0 }],
+    });
   });
 });
 

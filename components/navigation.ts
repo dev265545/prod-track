@@ -19,6 +19,7 @@ import {
   Factory,
   LayoutGrid,
   ListChecks,
+  ScrollText,
   Shapes,
   SlidersHorizontal,
   UsersRound,
@@ -144,6 +145,9 @@ export const MODULES: NavModule[] = [
     items: [
       // The module is the sliders; the page itself is the spanner.
       { href: "/settings", labelKey: "navSettings", icon: Wrench },
+      // The activity log is a scroll of everything that happened — no other
+      // module or page uses a text-lines glyph, so it stays distinct collapsed.
+      { href: "/audit", labelKey: "auditNavLog", icon: ScrollText },
     ],
   },
 ];
