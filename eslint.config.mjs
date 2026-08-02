@@ -11,6 +11,10 @@ const config = [
     ignores: [
       ".next/**",
       "out/**",
+      // Chrome 109 preview build (scripts/preview-legacy-chrome.mjs) — a copy of
+      // out/ with modern @supports blocks stripped. Linting it drowned the real
+      // findings in ~4800 problems from minified vendor bundles.
+      "out-legacy/**",
       "dist/**",
       "node_modules/**",
       "app/generated/**",

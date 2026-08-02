@@ -37,11 +37,9 @@ import {
 } from "@/components/ui/empty";
 import {
   Plus,
-  Download,
-  Upload,
-  Printer,
   Package,
   Layers,
+  ShoppingCart,
   AlertTriangle,
   CheckCircle2,
   ArrowLeftRight,
@@ -69,6 +67,8 @@ import { printInventory } from "@/lib/utils/inventoryPrint";
 import { CATEGORY_LABEL_KEY } from "@/components/inventory/shared";
 import { CATEGORY_THEME } from "@/components/inventory/category-theme";
 import { StatTile } from "@/components/inventory/stat-tile";
+import { DataMenu } from "@/components/inventory/data-menu";
+import { countStockKinds } from "@/lib/services/inventoryStockKind";
 import { ItemFormDialog } from "@/components/inventory/item-form-dialog";
 import { MovementDialog } from "@/components/inventory/movement-dialog";
 import { ItemPickerDialog } from "@/components/inventory/hub/item-picker-dialog";
@@ -168,17 +168,8 @@ export default function InventoryPage() {
   const okCount = Math.max(totalItems - lowCount - outCount, 0);
   const attentionCount = lowCount + outCount;
 
-  const layerByCategory = useMemo(() => {
-    const map = new Map<InventoryCategory, "raw" | "finished">();
-    for (const c of INVENTORY_CATEGORIES) map.set(c.value, c.layer);
-    return map;
-  }, []);
-  const rawCount = rows.filter(
-    (r) => layerByCategory.get(r.category) === "raw",
-  ).length;
-  const finishedCount = rows.filter(
-    (r) => layerByCategory.get(r.category) === "finished",
-  ).length;
+  /** How many items we buy in versus make — in words, never a bare ratio. */
+  const kindCounts = useMemo(() => countStockKinds(rows), [rows]);
 
   const categoryStats = useMemo(() => {
     const map = new Map<InventoryCategory, { out: number; low: number; totalStock: number }>();
@@ -342,48 +333,51 @@ export default function InventoryPage() {
     );
   }
 
+  /**
+   * Laid out by how often each job is done, not by what the code can do.
+   * Recording a movement is the daily job, so it is the one big filled button
+   * with the hint under it; finding and adding an item are occasional outline
+   * buttons; import/export/print are the owner's rare jobs and live together
+   * behind the Data menu.
+   */
   const toolbar = (
-    <div className="flex min-w-0 flex-wrap gap-2">
-      <Button
-        className="min-h-[44px] gap-2"
-        onClick={() => setPickerOpen(true)}
-        disabled={rows.length === 0}
-      >
-        <ArrowLeftRight className="size-4" aria-hidden />
-        {t("invHubRecordStock")}
-      </Button>
-      <Button
-        variant="outline"
-        className="min-h-[44px] gap-2"
-        onClick={() => setSearchOpen(true)}
-      >
-        <Search className="size-4" aria-hidden />
-        {t("invFindOpen")}
-      </Button>
-      <Button
-        variant="outline"
-        className="min-h-[44px] gap-2"
-        onClick={() => setItemDialogOpen(true)}
-      >
-        <Plus className="size-4" aria-hidden />
-        {t("inventoryAddItem")}
-      </Button>
-      <Button
-        variant="outline"
-        className="min-h-[44px] gap-2"
-        onClick={() => setImportModeDialogOpen(true)}
-      >
-        <Upload className="size-4" aria-hidden />
-        {t("inventoryImportExcel")}
-      </Button>
-      <Button variant="outline" className="min-h-[44px] gap-2" onClick={handleExport}>
-        <Download className="size-4" aria-hidden />
-        {t("inventoryExportExcel")}
-      </Button>
-      <Button variant="outline" className="min-h-[44px] gap-2" onClick={handlePrint}>
-        <Printer className="size-4" aria-hidden />
-        {t("inventoryPrint")}
-      </Button>
+    <div className="flex min-w-0 flex-wrap items-start gap-x-3 gap-y-3">
+      <div className="flex min-w-0 flex-col gap-1">
+        <Button
+          className="min-h-[56px] w-full min-w-0 px-6 text-base font-semibold sm:w-auto"
+          onClick={() => setPickerOpen(true)}
+          disabled={rows.length === 0}
+        >
+          <ArrowLeftRight className="size-5" data-icon="inline-start" aria-hidden />
+          {t("invHubRecordStock")}
+        </Button>
+        <span className="text-xs text-muted-foreground">
+          {t("invUxRecordStockHint")}
+        </span>
+      </div>
+      <div className="flex min-w-0 flex-wrap gap-2">
+        <Button
+          variant="outline"
+          className="min-h-[44px] gap-2"
+          onClick={() => setSearchOpen(true)}
+        >
+          <Search className="size-4" aria-hidden />
+          {t("invFindOpen")}
+        </Button>
+        <Button
+          variant="outline"
+          className="min-h-[44px] gap-2"
+          onClick={() => setItemDialogOpen(true)}
+        >
+          <Plus className="size-4" aria-hidden />
+          {t("inventoryAddItem")}
+        </Button>
+        <DataMenu
+          onImport={() => setImportModeDialogOpen(true)}
+          onExport={handleExport}
+          onPrint={handlePrint}
+        />
+      </div>
     </div>
   );
 
@@ -528,9 +522,12 @@ export default function InventoryPage() {
                 icon={Layers}
               />
               <StatTile
-                label={t("inventoryRawFinishedSplit")}
-                value={`${rawCount} / ${finishedCount}`}
-                icon={Layers}
+                label={t("invUxStockKindLabel")}
+                value={t("invUxStockKindValue", {
+                  bought: kindCounts.bought,
+                  made: kindCounts.made,
+                })}
+                icon={ShoppingCart}
               />
               <StatTile
                 label={t("invHubMovedRecently")}

@@ -30,6 +30,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import {
   Archive,
+  ArrowLeftRight,
   CircleAlert,
   CircleCheck,
   CircleSlash,
@@ -37,7 +38,6 @@ import {
   Package,
   PackageSearch,
   Plus,
-  Printer,
   RotateCw,
   Rows3,
   Search,
@@ -74,6 +74,12 @@ import { MovementDialog } from "@/components/inventory/movement-dialog";
 import { ProduceDialog } from "@/components/inventory/produce-dialog";
 import { HistorySheet } from "@/components/inventory/history-sheet";
 import { GlobalSearchDialog } from "@/components/inventory/global-search-dialog";
+import { ItemPickerDialog } from "@/components/inventory/hub/item-picker-dialog";
+import { DataMenu } from "@/components/inventory/data-menu";
+import {
+  STOCK_KIND_LABEL_KEY,
+  stockKindFor,
+} from "@/lib/services/inventoryStockKind";
 import { cn } from "@/lib/utils";
 
 function isInventoryCategory(value: string): value is InventoryCategory {
@@ -126,6 +132,7 @@ type ActiveDialog =
   | { kind: "delete"; item: InventoryItem }
   | { kind: "archive"; item: InventoryItem }
   | { kind: "find" }
+  | { kind: "pick" }
   | null;
 
 interface CategoryPageClientProps {
@@ -242,6 +249,12 @@ export function CategoryPageClient({ category }: CategoryPageClientProps) {
     }
     return map;
   }, [movements]);
+
+  /** What can be stocked in or out from the page-level button: live items. */
+  const stockableRows = useMemo(
+    () => categoryRows.filter((r) => r.isActive !== false),
+    [categoryRows],
+  );
 
   const lowCount = categoryRows.filter(
     (r) => r.currentStock > 0 && r.isLow,
@@ -379,7 +392,12 @@ export function CategoryPageClient({ category }: CategoryPageClientProps) {
                 <h1 className="font-heading text-2xl font-extrabold tracking-tight text-foreground sm:text-3xl">
                   {categoryLabel}
                 </h1>
-                <span className="text-sm font-medium text-muted-foreground">
+                {/* Says in plain words what the code calls `layer`: is this
+                    something we buy in, or something we make? */}
+                <span className="mt-1 inline-flex w-fit max-w-full items-center rounded-full border border-border bg-surface-2 px-2.5 py-1 text-xs font-semibold text-muted-foreground">
+                  {t(STOCK_KIND_LABEL_KEY[stockKindFor(category as InventoryCategory)])}
+                </span>
+                <span className="mt-1 text-sm font-medium text-muted-foreground">
                   {t("inventoryCountSummary", {
                     total: categoryRows.length,
                     low: lowCount,
@@ -389,27 +407,46 @@ export function CategoryPageClient({ category }: CategoryPageClientProps) {
               </div>
             </div>
 
-            <div className="flex min-w-0 flex-wrap gap-3">
-              <Button className="min-h-[52px] px-5 text-base" onClick={() => setDialog({ kind: "form", item: null })}>
-                <Plus className="size-5" data-icon="inline-start" aria-hidden />
-                {t("inventoryAddInCategory", { category: categoryLabel })}
-              </Button>
-              <Button
-                variant="outline"
-                className="min-h-[52px] px-5 text-base"
-                onClick={() => setDialog({ kind: "find" })}
-              >
-                <Search className="size-5" data-icon="inline-start" aria-hidden />
-                {t("invFindOpen")}
-              </Button>
-              <Button
-                variant="outline"
-                className="min-h-[52px] px-5 text-base"
-                onClick={handlePrint}
-              >
-                <Printer className="size-5" data-icon="inline-start" aria-hidden />
-                {t("inventoryPrint")}
-              </Button>
+            {/* Same shape as the hub toolbar: one big daily action, the
+                occasional ones as outline buttons, the owner's rare ones
+                inside the Data menu. */}
+            <div className="flex min-w-0 flex-wrap items-start gap-x-3 gap-y-3">
+              <div className="flex min-w-0 flex-col gap-1">
+                <Button
+                  className="min-h-[56px] w-full min-w-0 px-6 text-base font-semibold sm:w-auto"
+                  onClick={() => setDialog({ kind: "pick" })}
+                  disabled={stockableRows.length === 0}
+                >
+                  <ArrowLeftRight
+                    className="size-5"
+                    data-icon="inline-start"
+                    aria-hidden
+                  />
+                  {t("invHubRecordStock")}
+                </Button>
+                <span className="text-xs text-muted-foreground">
+                  {t("invUxRecordStockHint")}
+                </span>
+              </div>
+              <div className="flex min-w-0 flex-wrap gap-2">
+                <Button
+                  variant="outline"
+                  className="min-h-[44px] gap-2"
+                  onClick={() => setDialog({ kind: "find" })}
+                >
+                  <Search className="size-4" aria-hidden />
+                  {t("invFindOpen")}
+                </Button>
+                <Button
+                  variant="outline"
+                  className="min-h-[44px] gap-2"
+                  onClick={() => setDialog({ kind: "form", item: null })}
+                >
+                  <Plus className="size-4" aria-hidden />
+                  {t("inventoryAddInCategory", { category: categoryLabel })}
+                </Button>
+                <DataMenu onPrint={handlePrint} />
+              </div>
             </div>
           </div>
         </section>
@@ -563,6 +600,13 @@ export function CategoryPageClient({ category }: CategoryPageClientProps) {
           closeDialog();
           router.push(`/inventory/${row.category}?item=${encodeURIComponent(row.id)}`);
         }}
+      />
+
+      <ItemPickerDialog
+        open={dialog?.kind === "pick"}
+        onOpenChange={(open) => !open && closeDialog()}
+        items={stockableRows}
+        onPick={(item) => setDialog({ kind: "movement", item, type: "inward" })}
       />
 
       <ItemFormDialog

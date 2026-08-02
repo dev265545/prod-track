@@ -1,5 +1,6 @@
-import { getAll, get, put, remove, STORES } from "@/lib/db/adapter";
+import { getAll, get, getByIndex, put, remove, STORES } from "@/lib/db/adapter";
 import { METADATA_STORE } from "@/lib/db/schema";
+import { stockKindFor } from "@/lib/services/inventoryStockKind";
 
 const ITEMS_STORE = STORES.INVENTORY_ITEMS;
 const MOVEMENTS_STORE = STORES.INVENTORY_MOVEMENTS;
@@ -57,17 +58,22 @@ export interface InventoryMovement {
   createdAt: number;
 }
 
+/**
+ * `layer` is the internal name for "bought in and consumed" versus "made and
+ * sold"; `canProduce` and the packing bill of materials both hang off it, so
+ * the field stays. The split itself lives in `inventoryStockKind`, which also
+ * carries the words the operator actually reads — nothing shows "raw" or
+ * "finished" on screen.
+ */
 export const INVENTORY_CATEGORIES: {
   value: InventoryCategory;
   layer: "raw" | "finished";
-}[] = [
-  { value: "box", layer: "raw" },
-  { value: "dana", layer: "raw" },
-  { value: "poly", layer: "raw" },
-  { value: "container", layer: "finished" },
-  { value: "sticker", layer: "raw" },
-  { value: "glass", layer: "finished" },
-];
+}[] = (["box", "dana", "poly", "container", "sticker", "glass"] as const).map(
+  (value) => ({
+    value,
+    layer: stockKindFor(value) === "made" ? "finished" : "raw",
+  }),
+);
 
 export async function getInventoryItems(): Promise<InventoryItem[]> {
   const rows = await getAll(ITEMS_STORE);
@@ -122,8 +128,7 @@ export async function saveInventoryItem(
 }
 
 export async function deleteInventoryItem(id: string): Promise<void> {
-  const movements = await getMovements();
-  const toDelete = movements.filter((m) => m.itemId === id);
+  const toDelete = await getMovementsForItem(id);
   await Promise.all(toDelete.map((m) => remove(MOVEMENTS_STORE, m.id)));
   await remove(ITEMS_STORE, id);
 }
@@ -158,11 +163,17 @@ export async function getMovements(): Promise<InventoryMovement[]> {
   return rows as unknown as InventoryMovement[];
 }
 
+/**
+ * Reads the `by_item` index rather than the whole movement store. This is
+ * called once per item while importing a spreadsheet
+ * (`inventoryExcel`, `legacyInventoryImport`), so scanning every movement each
+ * time made import cost grow with the square of the catalogue.
+ */
 export async function getMovementsForItem(
   itemId: string
 ): Promise<InventoryMovement[]> {
-  const movements = await getMovements();
-  return movements.filter((m) => m.itemId === itemId);
+  const rows = await getByIndex(MOVEMENTS_STORE, "by_item", itemId, itemId);
+  return rows as unknown as InventoryMovement[];
 }
 
 export async function addMovement(

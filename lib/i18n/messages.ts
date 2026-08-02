@@ -638,6 +638,7 @@ const en = {
   empSavePeriodSettlement: "Save period settlement",
   empToastSettlementSaved: "Period settlement saved",
   empToastSettlementFailed: "Could not save period settlement",
+  emp2SaveFailed: "Could not save. The old value is back.",
 
   empStoredSalaryRecords: "Stored salary records",
   empStoredSalaryRecordsDesc:
@@ -2172,6 +2173,7 @@ const hi: Record<MessageKey, string> = {
   empSavePeriodSettlement: "पीरियड हिसाब सेव करें",
   empToastSettlementSaved: "पीरियड हिसाब सेव हो गया",
   empToastSettlementFailed: "पीरियड हिसाब सेव नहीं हुआ",
+  emp2SaveFailed: "सेव नहीं हुआ। पुराना नंबर वापस आ गया है।",
 
   empStoredSalaryRecords: "सेव की गई सैलरी रिकॉर्ड",
   empStoredSalaryRecordsDesc:
