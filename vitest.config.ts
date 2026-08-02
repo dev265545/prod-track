@@ -29,6 +29,16 @@ export default defineConfig({
           name: "node",
           environment: "node",
           include: ["lib/**/*.test.ts"],
+          /**
+           * The *.bench.test.ts files seed realistic datasets — one builds
+           * 146,000 audit rows, another 43,800 attendance rows — to prove a
+           * read is bounded rather than scanning. That work is genuinely
+           * slower than a unit test, and at the default 5s they flake on any
+           * machine that is also compiling or running other work, which says
+           * nothing about the code. The assertions are on row counts, not
+           * wall-clock, so a longer ceiling costs nothing.
+           */
+          testTimeout: 30_000,
         },
       },
       {
