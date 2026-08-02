@@ -214,3 +214,52 @@ export function getDayKind(date: string, holidayDates: string[]): DayKind {
 export function rowsToFillPresent(rows: RosterRow[]): RosterRow[] {
   return rows.filter((row) => row.mark === null);
 }
+
+/**
+ * How many of the bulk fill's writes may be in flight at once.
+ *
+ * One at a time meant thirty sequential round trips with the operator watching
+ * the spinner. All at once is worse: a hundred and fifty concurrent
+ * transactions on a low-end Windows 7 machine is a write storm that starves the
+ * read the same page is doing and can time the whole batch out. A small pool
+ * keeps the disk busy without flooding it.
+ */
+export const BULK_FILL_CONCURRENCY = 4;
+
+/**
+ * Run `work` over `items` with at most `limit` in flight, and count how many
+ * did not succeed.
+ *
+ * Every item is attempted even if earlier ones fail — a bulk fill that stopped
+ * at the first bad write would leave the roster half-written with no way to
+ * tell where it stopped. `work` returning `false` **or** throwing both count as
+ * a failure, so a caller's own bug cannot be mistaken for a clean run.
+ */
+export async function runWithConcurrency<T>(
+  items: T[],
+  limit: number,
+  work: (item: T) => Promise<boolean>,
+): Promise<{ failed: number }> {
+  let cursor = 0;
+  let failed = 0;
+
+  async function worker(): Promise<void> {
+    for (;;) {
+      const at = cursor;
+      cursor += 1;
+      if (at >= items.length) return;
+      try {
+        if (!(await work(items[at]))) failed += 1;
+      } catch {
+        failed += 1;
+      }
+    }
+  }
+
+  const workers: Promise<void>[] = [];
+  const width = Math.max(1, Math.min(limit, items.length));
+  for (let i = 0; i < width; i += 1) workers.push(worker());
+  await Promise.all(workers);
+
+  return { failed };
+}

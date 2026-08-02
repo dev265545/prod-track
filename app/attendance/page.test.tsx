@@ -166,6 +166,76 @@ describe("attendance roster", () => {
     ).toHaveAttribute("aria-pressed", "false");
   });
 
+  it("never claims 'done' when a write inside the bulk fill failed", async () => {
+    const user = userEvent.setup();
+    await renderRoster();
+
+    // One person's write fails, in the middle of the batch.
+    saveAttendance.mockImplementation(async (record: { employeeId: string }) => {
+      if (record.employeeId === "e2") throw new Error("disk full");
+      return { ...record, id: `att-${record.employeeId}` };
+    });
+
+    await user.click(
+      screen.getByRole("button", { name: "Everyone is here today" }),
+    );
+
+    await waitFor(() => expect(saveAttendance).toHaveBeenCalledTimes(3));
+    // Every target is still attempted — the batch does not stop at the failure.
+    expect(saveAttendance.mock.calls.map((c) => c[0].employeeId).sort()).toEqual(
+      ["e1", "e2", "e3"],
+    );
+    // The count in the message and the blanks on screen are the same person.
+    await waitFor(() =>
+      expect(toastError).toHaveBeenCalledWith(expect.stringContaining("1")),
+    );
+    expect(toastSuccess).not.toHaveBeenCalled();
+    expect(screen.getAllByText("Not written yet")).toHaveLength(1);
+    expect(
+      personRow("Bhim Singh").getByRole("button", { name: "Here today" }),
+    ).toHaveAttribute("aria-pressed", "false");
+    expect(
+      personRow("Asha Devi").getByRole("button", { name: "Here today" }),
+    ).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("runs the bulk fill a few at a time, not one after another", async () => {
+    const user = userEvent.setup();
+    getEmployees.mockResolvedValue(
+      Array.from({ length: 12 }, (_, i) => ({
+        id: `p${i}`,
+        name: `Person ${i}`,
+        isActive: true,
+      })),
+    );
+
+    let inFlight = 0;
+    let peak = 0;
+    saveAttendance.mockImplementation(async (record: { employeeId: string }) => {
+      inFlight += 1;
+      peak = Math.max(peak, inFlight);
+      await new Promise((r) => setTimeout(r, 1));
+      inFlight -= 1;
+      return { ...record, id: `att-${record.employeeId}` };
+    });
+
+    render(
+      <LanguageProvider>
+        <AttendancePage />
+      </LanguageProvider>,
+    );
+    await screen.findByRole("group", { name: "Person 0" });
+
+    await user.click(
+      screen.getByRole("button", { name: "Everyone is here today" }),
+    );
+    await waitFor(() => expect(saveAttendance).toHaveBeenCalledTimes(12));
+
+    // Faster than serial, but never a write storm on a low-end machine.
+    expect(peak).toBeGreaterThan(1);
+    expect(peak).toBeLessThanOrEqual(4);
+  });
+
   it("reverts the row and names the person when the save fails", async () => {
     const user = userEvent.setup();
     await renderRoster();

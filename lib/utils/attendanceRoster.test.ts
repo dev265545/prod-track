@@ -1,10 +1,11 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   buildAttendancePayload,
   buildRoster,
   deriveMark,
   getDayKind,
   rowsToFillPresent,
+  runWithConcurrency,
   summarizeRoster,
   type RosterRow,
 } from "./attendanceRoster";
@@ -310,5 +311,59 @@ describe("rowsToFillPresent", () => {
       row({ employeeId: "5", mark: "present" }),
     ];
     expect(rowsToFillPresent(rows).map((r) => r.employeeId)).toEqual(["2", "4"]);
+  });
+});
+
+describe("runWithConcurrency", () => {
+  /** Runs `work` over 1..n, recording how many were in flight at the peak. */
+  async function measure(n: number, limit: number) {
+    const items = Array.from({ length: n }, (_, i) => i);
+    let inFlight = 0;
+    let peak = 0;
+    const order: number[] = [];
+    const { failed } = await runWithConcurrency(items, limit, async (i) => {
+      inFlight += 1;
+      peak = Math.max(peak, inFlight);
+      order.push(i);
+      await new Promise((r) => setTimeout(r, 1));
+      inFlight -= 1;
+      return true;
+    });
+    return { peak, order, failed };
+  }
+
+  it("never exceeds the limit, and still visits everybody", async () => {
+    const { peak, order, failed } = await measure(30, 4);
+    expect(peak).toBeLessThanOrEqual(4);
+    expect(failed).toBe(0);
+    expect(order.slice().sort((a, b) => a - b)).toEqual(
+      Array.from({ length: 30 }, (_, i) => i),
+    );
+  });
+
+  it("does not spawn more workers than there are items", async () => {
+    const { peak } = await measure(2, 8);
+    expect(peak).toBeLessThanOrEqual(2);
+  });
+
+  it("keeps going after a failure and counts every one of them", async () => {
+    const items = [1, 2, 3, 4, 5];
+    const seen: number[] = [];
+    const { failed } = await runWithConcurrency(items, 2, async (n) => {
+      seen.push(n);
+      if (n === 2) return false;
+      if (n === 4) throw new Error("disk full");
+      return true;
+    });
+    // A thrown write is a failure, not a crashed batch.
+    expect(failed).toBe(2);
+    expect(seen.slice().sort()).toEqual([1, 2, 3, 4, 5]);
+  });
+
+  it("does nothing, successfully, when there is nothing to do", async () => {
+    const work = vi.fn();
+    const { failed } = await runWithConcurrency([], 4, work);
+    expect(failed).toBe(0);
+    expect(work).not.toHaveBeenCalled();
   });
 });

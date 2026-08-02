@@ -31,10 +31,12 @@ import { getEmployees } from "@/lib/services/employeeService";
 import { getHolidayByDate } from "@/lib/services/factoryHolidayService";
 import { getShifts } from "@/lib/services/shiftService";
 import {
+  BULK_FILL_CONCURRENCY,
   buildAttendancePayload,
   buildRoster,
   getDayKind,
   rowsToFillPresent,
+  runWithConcurrency,
   summarizeRoster,
   type RosterMark,
   type RosterRow,
@@ -79,6 +81,14 @@ export default function AttendancePage() {
    * answer. A response only touches state if it is still the newest.
    */
   const writeSeq = React.useRef(new Map<string, number>());
+
+  /**
+   * Bumped whenever the displayed day changes. A bulk fill captures it and
+   * reports nothing if it no longer matches: the rows it wrote belong to a date
+   * that is no longer on screen, so neither "30 people marked" nor a failure
+   * count would be about anything the operator can see.
+   */
+  const dayToken = React.useRef(0);
 
   /** Reads everything the roster needs for one date. Pure — the caller stores it. */
   const load = React.useCallback(async (forDate: string) => {
@@ -155,6 +165,7 @@ export default function AttendancePage() {
   const changeDate = React.useCallback((next: string) => {
     if (!next) return;
     writeSeq.current.clear();
+    dayToken.current += 1;
     setLoaded(false);
     setLoadFailed(false);
     setHolidayUnlocked(false);
@@ -244,20 +255,38 @@ export default function AttendancePage() {
    * The day's biggest lever: most days, most people are here, so the operator
    * fills the whole roster in one tap and then corrects only the exceptions.
    * It touches unmarked rows only — see `rowsToFillPresent`.
+   *
+   * The writes run a few at a time rather than one after another. Thirty
+   * sequential round trips is thirty waits the operator sits through, and there
+   * was never a reason for them to be sequential: each target is a *different*
+   * employee, so no two of these writes touch the same row, and
+   * `saveAttendance` now queues per `(employee, date)` anyway, so even an
+   * overlap with a tap cannot duplicate a day. Unbounded would be the wrong
+   * cure — see `BULK_FILL_CONCURRENCY`.
+   *
+   * Every target is attempted even after one fails, and each failure has
+   * already rolled its own row back to "not written yet", so the count in the
+   * message and the blanks left on screen are the same people. A batch with any
+   * failure is never reported as done.
    */
   const handleMarkAllPresent = React.useCallback(async () => {
     const targets = rowsToFillPresent(rows);
     if (targets.length === 0) return;
+    const token = dayToken.current;
     setBulkSaving(true);
-    let failed = 0;
+    let failed: number;
     try {
-      for (const row of targets) {
-        const ok = await persist(row, { ...row, mark: "present" });
-        if (!ok) failed += 1;
-      }
+      ({ failed } = await runWithConcurrency(
+        targets,
+        BULK_FILL_CONCURRENCY,
+        (row) => persist(row, { ...row, mark: "present" }),
+      ));
     } finally {
       setBulkSaving(false);
     }
+    // The operator moved to another day mid-batch: none of these rows are on
+    // screen, so saying anything about them would be a message about nothing.
+    if (dayToken.current !== token) return;
     if (failed > 0) toast.error(t("rostBulkFailed", { count: failed }));
     else toast.success(t("rostMarkAllDone", { count: targets.length }));
   }, [persist, rows, t]);
