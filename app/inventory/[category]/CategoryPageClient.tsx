@@ -46,7 +46,7 @@ import {
 } from "lucide-react";
 import {
   getStockLevels,
-  getMovements,
+  getStockLevelsWithMovements,
   deleteInventoryItem,
   saveInventoryItem,
   INVENTORY_CATEGORIES,
@@ -171,10 +171,8 @@ export function CategoryPageClient({ category }: CategoryPageClientProps) {
   /** Always resolves. A failed load sets the error flag; it never looks like "no data". */
   const load = useCallback(async () => {
     try {
-      const [stockLevels, movs] = await Promise.all([
-        getStockLevels(),
-        getMovements(),
-      ]);
+      const { levels: stockLevels, movements: movs } =
+        await getStockLevelsWithMovements();
       setRows(stockLevels);
       setMovements(movs);
       setLoadFailed(false);

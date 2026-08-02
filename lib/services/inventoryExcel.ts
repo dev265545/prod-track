@@ -9,12 +9,12 @@ async function loadXlsx() {
 }
 import {
   getInventoryItems,
-  getMovements,
   saveInventoryItemSilently,
   addMovementSilently,
   getMovementsForItem,
   deleteMovementSilently,
   getStockLevels,
+  getStockLevelsWithMovements,
   clearInventory,
   getInventoryImportHash,
   setInventoryImportHash,
@@ -149,10 +149,8 @@ export async function buildInventoryWorkbook(
  * category, and trigger a browser download.
  */
 export async function exportInventoryToWorkbook(): Promise<void> {
-  const [stockLevels, movements] = await Promise.all([
-    getStockLevels(),
-    getMovements(),
-  ]);
+  const { levels: stockLevels, movements } =
+    await getStockLevelsWithMovements();
 
   const wb = await buildInventoryWorkbook(stockLevels, movements);
 

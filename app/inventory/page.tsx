@@ -49,8 +49,7 @@ import {
   Search,
 } from "lucide-react";
 import {
-  getStockLevels,
-  getMovements,
+  getStockLevelsWithMovements,
   INVENTORY_CATEGORIES,
   type InventoryMovement,
   type InventoryCategory,
@@ -123,10 +122,8 @@ export default function InventoryPage() {
 
   const load = useCallback(async () => {
     await migrateLegacyItems();
-    const [stockLevels, movs] = await Promise.all([
-      getStockLevels(),
-      getMovements(),
-    ]);
+    const { levels: stockLevels, movements: movs } =
+      await getStockLevelsWithMovements();
     setRows(stockLevels);
     setMovements(movs);
     setLoadFailed(false);

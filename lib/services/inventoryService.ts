@@ -572,13 +572,44 @@ export async function produceFinishedGood(
   return { finishedItemId: finishedItem.id, qty, deducted, missing };
 }
 
-export async function getStockLevels(): Promise<
-  Array<InventoryItem & { currentStock: number; isLow: boolean }>
-> {
+export type StockLevel = InventoryItem & {
+  currentStock: number;
+  isLow: boolean;
+};
+
+/**
+ * Stock levels AND the raw movement list from a SINGLE read of
+ * `inventory_movements`.
+ *
+ * `inventory_movements` is the largest store in the app — every production
+ * entry writes into it — so the screens that show both a stock table and a
+ * recent-movements list used to deserialise the whole store twice per load.
+ * `getStockLevels()` already reads every movement to compute the balances;
+ * this hands that same array back instead of throwing it away.
+ *
+ * The returned `movements` are in exactly the order `getMovements()` yields
+ * (raw store order, unsorted) — callers sort for display themselves.
+ */
+export async function getStockLevelsWithMovements(): Promise<{
+  levels: StockLevel[];
+  movements: InventoryMovement[];
+}> {
   const [items, movements] = await Promise.all([
     getInventoryItems(),
     getMovements(),
   ]);
+  return { levels: buildStockLevels(items, movements), movements };
+}
+
+export async function getStockLevels(): Promise<StockLevel[]> {
+  const { levels } = await getStockLevelsWithMovements();
+  return levels;
+}
+
+function buildStockLevels(
+  items: InventoryItem[],
+  movements: InventoryMovement[]
+): StockLevel[] {
 
   const movementsByItem = new Map<string, InventoryMovement[]>();
   for (const m of movements) {
