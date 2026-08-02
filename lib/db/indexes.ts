@@ -1,11 +1,15 @@
 /**
  * ProdTrack Lite — index definitions, shared by every backend.
  *
- * IndexedDB is the only backend that can execute these as real B-tree lookups.
- * The SQLite backends store rows as `id TEXT, data TEXT` JSON blobs, so they
- * emulate the same query with a scan + `matchesIndexRange`. Keeping the key
- * paths in one place is what lets those two implementations stay in agreement:
- * a query must return the same rows whichever backend answers it.
+ * Every backend executes these as real index lookups. IndexedDB has B-trees of
+ * its own; the SQLite backends promote each key path to a VIRTUAL generated
+ * column over the JSON blob and put a real SQLite index on it (see
+ * {@link sqliteIndexSchemaStatements} and {@link planSqliteIndexQuery}).
+ * Keeping the key paths in one place is what lets those implementations stay in
+ * agreement: a query must return the same rows, in the same order, whichever
+ * backend answers it. `matchesIndexRange` / `sortByIndexOrder` remain the
+ * reference semantics, and the documented fallback path for the handful of
+ * bound shapes SQL cannot express.
  */
 
 import { STORES } from "./schema";
@@ -197,4 +201,205 @@ export function sortByIndexOrder(
     const y = b.id as string;
     return x < y ? -1 : x > y ? 1 : 0;
   });
+}
+
+// ---------------------------------------------------------------------------
+// SQLite: the same indexes, as real columns and real B-trees.
+//
+// Both SQLite backends (Tauri via rusqlite, and the sqlite-file web build via
+// sql.js) store a row as `(id TEXT PRIMARY KEY, data TEXT)` where `data` is the
+// JSON blob. Until now an index read on those backends meant `SELECT data FROM
+// store`, `JSON.parse` every row, and filter in JS — so a factory with two
+// years of history parsed ~150k audit rows to show one screenful.
+//
+// The fix is to give SQLite something to index. Each key-path field becomes a
+// VIRTUAL generated column (`k_<field>`) over `data`, and each declared index
+// becomes a real SQLite index over those columns plus `id`. Virtual generated
+// columns store nothing and are computed on read, so adding one to a table with
+// years of data is an instant catalogue change — no table rewrite, no backfill,
+// and nothing that can lose a row. Building the index over it reads the store
+// once, at upgrade time, and never again.
+//
+// The generated expression must reproduce `extractKey` EXACTLY:
+//   * a row whose `data` is not valid JSON contributes NULL (and `getAll`
+//     already skips such rows, so it must not appear in an index read either);
+//   * a field that is missing, null, a number, a boolean or an object is NOT a
+//     string, so `extractKey` returns undefined and IndexedDB omits the record
+//     from the index entirely — `json_type(...) = 'text'` is that same test;
+//   * only a JSON string produces a key.
+// NULL is how "absent from the index" is spelled here, which is why every
+// generated query carries an explicit `IS NOT NULL` guard per column: SQLite's
+// row-value comparison short-circuits on a decisive earlier element, so
+// `('e1', NULL) >= ('e0', '9999')` is TRUE and a row missing `date` would
+// otherwise sneak into a compound range.
+//
+// One deliberate difference, documented rather than papered over: SQLite
+// compares TEXT with the BINARY collation (UTF-8 byte order) while JavaScript's
+// `<` compares UTF-16 code units. The two disagree only for supplementary-plane
+// characters (U+10000 and above) ordered against U+E000..U+FFFF. Every key here
+// is an ISO date, an ISO timestamp, a month string or a generated id, so the
+// question does not arise in practice.
+// ---------------------------------------------------------------------------
+
+/** Field names are interpolated into SQL and into a JSON path; keep them plain. */
+const SAFE_FIELD = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+function assertSafeField(field: string): string {
+  if (!SAFE_FIELD.test(field)) {
+    throw new Error(`Index key path is not a plain field name: ${field}`);
+  }
+  return field;
+}
+
+/** The generated column that carries `field`'s index key. */
+export function indexColumnName(field: string): string {
+  return `k_${assertSafeField(field)}`;
+}
+
+/** Key-path fields of one index, in key order. */
+function keyPathFields(keyPath: string | string[]): string[] {
+  return (typeof keyPath === "string" ? [keyPath] : keyPath).map(assertSafeField);
+}
+
+/** Every distinct field any index of `storeName` keys on, in declaration order. */
+export function sqliteIndexFields(storeName: string): string[] {
+  const seen: string[] = [];
+  for (const spec of Object.values(INDEXES[storeName] ?? {})) {
+    for (const field of keyPathFields(spec.keyPath)) {
+      if (!seen.includes(field)) seen.push(field);
+    }
+  }
+  return seen;
+}
+
+/**
+ * `ALTER TABLE`/`CREATE INDEX` statements that bring `storeName` up to date.
+ *
+ * `existingColumns` is what `PRAGMA table_xinfo(<store>)` reports — `table_info`
+ * will not do, because it hides virtual generated columns and would make this
+ * try to add the same column on every single open.
+ *
+ * Idempotent by construction: a column already present yields no ALTER, and
+ * every index is `IF NOT EXISTS`. Safe to run on every open, which is what
+ * makes it correct for a restored backup or a database file copied in from
+ * another install — neither of those goes through a version-numbered migration.
+ */
+export function sqliteIndexSchemaStatements(
+  storeName: string,
+  existingColumns: readonly string[]
+): string[] {
+  const statements: string[] = [];
+  const have = new Set(existingColumns);
+  for (const field of sqliteIndexFields(storeName)) {
+    const column = indexColumnName(field);
+    if (have.has(column)) continue;
+    statements.push(
+      `ALTER TABLE "${storeName}" ADD COLUMN "${column}" TEXT ` +
+        `GENERATED ALWAYS AS (CASE WHEN json_valid(data) ` +
+        `AND json_type(data, '$.${field}') = 'text' ` +
+        `THEN json_extract(data, '$.${field}') END) VIRTUAL`
+    );
+  }
+  for (const [indexName, spec] of Object.entries(INDEXES[storeName] ?? {})) {
+    const cols = keyPathFields(spec.keyPath).map(indexColumnName);
+    // `id` is part of the index, not just the sort: it makes the tie-break in
+    // `sortByIndexOrder` an index-order read rather than a sort of the result.
+    statements.push(
+      `CREATE INDEX IF NOT EXISTS "idx_${storeName}_${indexName}" ` +
+        `ON "${storeName}" (${[...cols, "id"].map((c) => `"${c}"`).join(", ")})`
+    );
+  }
+  return statements;
+}
+
+/** The stores that declare an index, i.e. the ones with SQL columns to keep. */
+export function sqliteIndexedStores(): string[] {
+  return Object.keys(INDEXES);
+}
+
+/**
+ * A translated index range read. `null` from {@link planSqliteIndexQuery} means
+ * "this bound shape has no SQL equivalent — use the JS path".
+ */
+export interface SqliteIndexQueryPlan {
+  /** `WHERE` body, already parameterised. */
+  where: string;
+  whereParams: string[];
+  /** `ORDER BY` body honouring `direction`. */
+  orderBy: string;
+  /** `LIMIT`/`OFFSET` body, or `""`. Only meaningful for row reads. */
+  limit: string;
+  limitParams: number[];
+}
+
+function boundParts(
+  keyPath: string | string[],
+  key: IndexKey
+): string[] | null {
+  const fields = keyPathFields(keyPath);
+  if (typeof keyPath === "string") {
+    // An array bound against a string key path: in IndexedDB's type ordering
+    // arrays sort after every string, which SQL has no notion of.
+    return typeof key === "string" ? [key] : null;
+  }
+  if (!Array.isArray(key)) return null;
+  // A shorter or longer bound is compared by length after the common prefix
+  // (see `compareIndexKeys`); SQL row values require equal arity.
+  if (key.length !== fields.length) return null;
+  return key.every((p) => typeof p === "string") ? [...key] : null;
+}
+
+/**
+ * Translate `index.getAll(IDBKeyRange.bound(lower, upper))` — inclusive at both
+ * ends — into SQL over the generated columns.
+ *
+ * Returns `null` when the bounds cannot be expressed: a bound whose arity does
+ * not match the compound key path, or one that mixes the string and array key
+ * types. Those are cross-type comparisons in IndexedDB's key ordering and have
+ * no SQL spelling; callers fall back to the scan, which is correct and, since
+ * nothing in the app issues such a query, never hot. Making that explicit is the
+ * point — a silently slow path is the bug this whole change exists to remove.
+ */
+export function planSqliteIndexQuery(
+  storeName: string,
+  indexName: string,
+  lower: IndexKey,
+  upper: IndexKey,
+  options?: IndexReadOptions
+): SqliteIndexQueryPlan | null {
+  const keyPath = getIndexKeyPath(storeName, indexName);
+  if (!keyPath) throw new Error(`Unknown index ${storeName}.${indexName}`);
+  const lowerParts = boundParts(keyPath, lower);
+  const upperParts = boundParts(keyPath, upper);
+  if (!lowerParts || !upperParts) return null;
+
+  const cols = keyPathFields(keyPath).map((f) => `"${indexColumnName(f)}"`);
+  const tuple = `(${cols.join(", ")})`;
+  const placeholders = `(${cols.map(() => "?").join(", ")})`;
+
+  const clauses = cols.map((c) => `${c} IS NOT NULL`);
+  clauses.push(`${tuple} >= ${placeholders}`, `${tuple} <= ${placeholders}`);
+  const whereParams = [...lowerParts, ...upperParts];
+  if (cols.length > 1) {
+    // Redundant but implied by the row-value bounds, and it is what lets SQLite
+    // seek on the leading column instead of walking the whole index.
+    clauses.push(`${cols[0]} >= ?`, `${cols[0]} <= ?`);
+    whereParams.push(lowerParts[0], upperParts[0]);
+  }
+
+  const desc = options?.direction === "prev";
+  const orderCols = [...cols, `"id"`];
+  const orderBy = orderCols
+    .map((c) => (desc ? `${c} DESC` : c))
+    .join(", ");
+
+  // Mirrors `applyIndexReadOptions` exactly, including its clamping.
+  const offset = Math.max(0, Math.floor(options?.offset ?? 0));
+  const hasLimit = options?.limit !== undefined;
+  const count = hasLimit ? Math.max(0, Math.floor(options!.limit!)) : -1;
+  const limit =
+    !hasLimit && offset === 0 ? "" : "LIMIT ? OFFSET ?";
+  const limitParams = limit ? [count, offset] : [];
+
+  return { where: clauses.join(" AND "), whereParams, orderBy, limit, limitParams };
 }

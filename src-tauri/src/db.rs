@@ -31,6 +31,173 @@ const TABLES: &[&str] = &[
     "audit_log",
 ];
 
+/// Must match lib/db/indexes.ts INDEXES: `(store, index name, key path fields)`.
+///
+/// Duplicated rather than shared because this process cannot read the
+/// TypeScript, and because it is what makes `db_get_by_index` safe: the store,
+/// the index and the number of bound values are all checked against this table
+/// before a single identifier is interpolated into SQL. The frontend sends key
+/// values as bound parameters and nothing else.
+const INDEXES: &[(&str, &str, &[&str])] = &[
+    ("productions", "by_date", &["date"]),
+    ("productions", "by_employee", &["employeeId"]),
+    ("productions", "by_item", &["itemId"]),
+    ("productions", "employee_date", &["employeeId", "date"]),
+    ("advances", "by_employee", &["employeeId"]),
+    ("advances", "by_date", &["date"]),
+    ("advances", "employee_date", &["employeeId", "date"]),
+    ("advance_deductions", "by_employee", &["employeeId"]),
+    (
+        "advance_deductions",
+        "employee_period",
+        &["employeeId", "periodFrom"],
+    ),
+    ("salary_records", "by_employee", &["employeeId"]),
+    ("salary_records", "by_month", &["month"]),
+    ("attendance", "by_date", &["date"]),
+    ("attendance", "employee_date", &["employeeId", "date"]),
+    ("inventory_movements", "by_item", &["itemId"]),
+    ("audit_log", "by_timestamp", &["timestamp"]),
+];
+
+fn index_fields(store: &str, index: &str) -> Result<&'static [&'static str], String> {
+    INDEXES
+        .iter()
+        .find(|(s, i, _)| *s == store && *i == index)
+        .map(|(_, _, fields)| *fields)
+        .ok_or_else(|| format!("Unknown index {}.{}", store, index))
+}
+
+/// Every distinct key-path field of `store`, in declaration order.
+fn index_columns(store: &str) -> Vec<&'static str> {
+    let mut out: Vec<&'static str> = Vec::new();
+    for (s, _, fields) in INDEXES {
+        if *s != store {
+            continue;
+        }
+        for f in *fields {
+            if !out.contains(f) {
+                out.push(f);
+            }
+        }
+    }
+    out
+}
+
+/// Promote every index key path to a VIRTUAL generated column with a real
+/// SQLite index over it. See the long note in lib/db/indexes.ts: the expression
+/// reproduces `extractKey` exactly (only a JSON *string* yields a key, so a
+/// missing, null, numeric or non-JSON value is NULL = absent from the index).
+///
+/// This is the migration, and it is deliberately not keyed to a schema version:
+/// a virtual column stores nothing, so adding it is an instant catalogue change
+/// that rewrites no rows and can lose no data, and running it on every open is
+/// also what fixes a database that arrived by restore rather than by upgrade.
+/// `table_xinfo` rather than `table_info` — the latter hides generated columns
+/// and this would then try to add them again on every open.
+fn ensure_index_schema(conn: &Connection) -> Result<(), String> {
+    let mut stores: Vec<&str> = Vec::new();
+    for (s, _, _) in INDEXES {
+        if !stores.contains(s) {
+            stores.push(s);
+        }
+    }
+    for store in stores {
+        let mut existing: Vec<String> = Vec::new();
+        {
+            let mut stmt = conn
+                .prepare(&format!("PRAGMA table_xinfo({})", store))
+                .map_err(|e| e.to_string())?;
+            let rows = stmt
+                .query_map([], |row| row.get::<_, String>(1))
+                .map_err(|e| e.to_string())?;
+            for row in rows {
+                existing.push(row.map_err(|e| e.to_string())?);
+            }
+        }
+        for field in index_columns(store) {
+            let column = format!("k_{}", field);
+            if existing.iter().any(|c| c == &column) {
+                continue;
+            }
+            conn.execute(
+                &format!(
+                    "ALTER TABLE {} ADD COLUMN {} TEXT GENERATED ALWAYS AS \
+                     (CASE WHEN json_valid(data) AND json_type(data, '$.{}') = 'text' \
+                     THEN json_extract(data, '$.{}') END) VIRTUAL",
+                    store, column, field, field
+                ),
+                [],
+            )
+            .map_err(|e| e.to_string())?;
+        }
+        for (s, index, fields) in INDEXES {
+            if *s != store {
+                continue;
+            }
+            let mut cols: Vec<String> = fields.iter().map(|f| format!("k_{}", f)).collect();
+            cols.push("id".to_string());
+            conn.execute(
+                &format!(
+                    "CREATE INDEX IF NOT EXISTS idx_{}_{} ON {} ({})",
+                    store,
+                    index,
+                    store,
+                    cols.join(", ")
+                ),
+                [],
+            )
+            .map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(())
+}
+
+/// The `WHERE` body for an inclusive index range, and its bound values.
+///
+/// Row-value comparison gives the element-wise lexicographic ordering a
+/// compound IndexedDB key has. The `IS NOT NULL` guards are not decoration:
+/// SQLite short-circuits a row-value comparison on a decisive earlier element,
+/// so without them `('e1', NULL) >= ('e0', '9999')` would be TRUE and a row
+/// missing `date` would be returned from a compound range IndexedDB omits.
+fn index_where(
+    store: &str,
+    index: &str,
+    lower: &[String],
+    upper: &[String],
+) -> Result<(String, Vec<String>), String> {
+    let fields = index_fields(store, index)?;
+    if lower.len() != fields.len() || upper.len() != fields.len() {
+        return Err(format!(
+            "Index {}.{} takes {} key part(s)",
+            store,
+            index,
+            fields.len()
+        ));
+    }
+    let cols: Vec<String> = fields.iter().map(|f| format!("k_{}", f)).collect();
+    let tuple = format!("({})", cols.join(", "));
+    let placeholders = format!(
+        "({})",
+        cols.iter().map(|_| "?").collect::<Vec<_>>().join(", ")
+    );
+    let mut clauses: Vec<String> = cols.iter().map(|c| format!("{} IS NOT NULL", c)).collect();
+    clauses.push(format!("{} >= {}", tuple, placeholders));
+    clauses.push(format!("{} <= {}", tuple, placeholders));
+    let mut params: Vec<String> = Vec::new();
+    params.extend_from_slice(lower);
+    params.extend_from_slice(upper);
+    if cols.len() > 1 {
+        // Implied by the row-value bounds, but it is what lets SQLite seek on
+        // the leading column instead of walking the index.
+        clauses.push(format!("{} >= ?", cols[0]));
+        clauses.push(format!("{} <= ?", cols[0]));
+        params.push(lower[0].clone());
+        params.push(upper[0].clone());
+    }
+    Ok((clauses.join(" AND "), params))
+}
+
 fn get_schema_version(conn: &Connection) -> Result<u32, String> {
     let mut stmt = conn
         .prepare("SELECT data FROM _metadata WHERE id = '_schema'")
@@ -80,14 +247,14 @@ fn run_migration(_conn: &Connection, to_version: u32) -> Result<(), String> {
         }
         11 => {
             // Reserved: adds IndexedDB indexes on attendance/advances (see
-            // lib/db/indexes.ts). Nothing to do here — rows are JSON blobs in
-            // an (id, data) table, so SQLite has no column to index.
+            // lib/db/indexes.ts). Nothing to do here — the matching SQLite
+            // columns and indexes are created by `ensure_index_schema`, which
+            // runs on every open rather than on a version step, because a
+            // database can also arrive by restore or by being copied in.
         }
         12 => {
             // Reserved: adds the IndexedDB `audit_log.by_timestamp` index (see
-            // lib/db/indexes.ts). Nothing to do here — audit_log is the same
-            // (id, data) JSON blob table, so the SQLite backends answer the
-            // ranged read by scanning and filtering with `matchesIndexRange`.
+            // lib/db/indexes.ts). As above — `ensure_index_schema` owns it.
         }
         _ => {}
     }
@@ -140,6 +307,7 @@ impl DbState {
             )
             .map_err(|e| e.to_string())?;
         }
+        ensure_index_schema(&conn)?;
         run_migrations(&conn)?;
         Ok(conn)
     }
@@ -189,6 +357,87 @@ pub fn db_get_all(state: State<DbState>, store: String) -> Result<Vec<serde_json
             out.push(v);
         }
         Ok(out)
+    })
+}
+
+/// `IDBIndex.getAll(IDBKeyRange.bound(lower, upper))` — inclusive both ends —
+/// as a real index seek. `descending` reverses the whole ordered range before
+/// `offset`/`limit` are applied, matching `applyIndexReadOptions`; `limit < 0`
+/// means no limit. Order is index columns then `id`, which is exactly
+/// `sortByIndexOrder` — the tie-break payroll depends on.
+#[tauri::command]
+pub fn db_get_by_index(
+    state: State<DbState>,
+    store: String,
+    index: String,
+    lower: Vec<String>,
+    upper: Vec<String>,
+    descending: bool,
+    limit: i64,
+    offset: i64,
+) -> Result<Vec<serde_json::Value>, String> {
+    if !TABLES.contains(&store.as_str()) {
+        return Err(format!("Unknown store: {}", store));
+    }
+    let fields = index_fields(&store, &index)?;
+    let (where_sql, key_params) = index_where(&store, &index, &lower, &upper)?;
+    let direction = if descending { " DESC" } else { "" };
+    let order_by = fields
+        .iter()
+        .map(|f| format!("k_{}{}", f, direction))
+        .chain(std::iter::once(format!("id{}", direction)))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let sql = format!(
+        "SELECT data FROM {} WHERE {} ORDER BY {} LIMIT ? OFFSET ?",
+        store, where_sql, order_by
+    );
+    state.with_conn(|conn| {
+        let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
+        let mut params: Vec<rusqlite::types::Value> = key_params
+            .iter()
+            .map(|v| rusqlite::types::Value::Text(v.clone()))
+            .collect();
+        params.push(rusqlite::types::Value::Integer(limit));
+        params.push(rusqlite::types::Value::Integer(offset.max(0)));
+        let rows = stmt
+            .query_map(rusqlite::params_from_iter(params), |row| {
+                row.get::<_, String>(0)
+            })
+            .map_err(|e| e.to_string())?;
+        let mut out = Vec::new();
+        for row in rows {
+            let data: String = row.map_err(|e| e.to_string())?;
+            let v: serde_json::Value = serde_json::from_str(&data).map_err(|e| e.to_string())?;
+            out.push(v);
+        }
+        Ok(out)
+    })
+}
+
+/// Rows in the same range, counted without reading or parsing any of them.
+#[tauri::command]
+pub fn db_count_by_index(
+    state: State<DbState>,
+    store: String,
+    index: String,
+    lower: Vec<String>,
+    upper: Vec<String>,
+) -> Result<i64, String> {
+    if !TABLES.contains(&store.as_str()) {
+        return Err(format!("Unknown store: {}", store));
+    }
+    let (where_sql, key_params) = index_where(&store, &index, &lower, &upper)?;
+    let sql = format!("SELECT COUNT(*) FROM {} WHERE {}", store, where_sql);
+    let params: Vec<rusqlite::types::Value> = key_params
+        .into_iter()
+        .map(rusqlite::types::Value::Text)
+        .collect();
+    state.with_conn(|conn| {
+        conn.query_row(&sql, rusqlite::params_from_iter(params), |row| {
+            row.get::<_, i64>(0)
+        })
+        .map_err(|e| e.to_string())
     })
 }
 

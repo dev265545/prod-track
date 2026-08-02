@@ -32,6 +32,8 @@ pub fn run() {
     .invoke_handler(tauri::generate_handler![
       db::init_db,
       db::db_get_all,
+      db::db_get_by_index,
+      db::db_count_by_index,
       db::db_get,
       db::db_put,
       db::db_remove,
