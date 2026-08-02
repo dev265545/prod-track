@@ -30,9 +30,14 @@ export interface EmployeeCalendarProps {
   attendance: Record<string, unknown>[];
   factoryHolidays: string[];
   selectedDate: string | null;
+  /**
+   * Choosing a day only *selects* it. Attendance is written from the day card
+   * below, where marking is a labelled button and clearing is confirmed. A
+   * double-click used to delete the day's attendance outright: unconfirmed,
+   * unreachable on a touch screen, and undiscoverable without the caption
+   * that advertised it.
+   */
   onDateClick: (date: string) => void;
-  /** Double-click on a date to mark employee present (e.g. from employee dashboard). */
-  onDateDoubleClick?: (date: string) => void;
   periodFrom: string;
   periodTo: string;
   /** When set (e.g. selected payroll period label), shown under the month title. */
@@ -53,7 +58,6 @@ export function EmployeeCalendar({
   factoryHolidays,
   selectedDate,
   onDateClick,
-  onDateDoubleClick,
   periodFrom,
   periodTo,
   periodStatusLabel,
@@ -199,11 +203,6 @@ export function EmployeeCalendar({
                 isDayOff && !isSelected && "bg-destructive/10",
               )}
               onClick={() => onDateClick(dateStr)}
-              onDoubleClick={
-                onDateDoubleClick
-                  ? () => onDateDoubleClick(dateStr)
-                  : undefined
-              }
               aria-label={[
                 t("calAriaDay", { day }),
                 isDayOff ? t("calAriaHoliday") : "",
@@ -311,11 +310,6 @@ export function EmployeeCalendar({
           <span className="size-4 rounded border border-chart-1/50 bg-chart-1/20" />{" "}
           {t("calLegendSelectedPeriod")}
         </div>
-        {onDateDoubleClick && (
-          <p className="text-[10px] italic">
-            {t("empCalDoubleClickPresent")}
-          </p>
-        )}
       </div>
     </div>
   );

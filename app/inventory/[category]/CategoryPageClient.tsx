@@ -389,7 +389,7 @@ export function CategoryPageClient({ category }: CategoryPageClientProps) {
                 <Icon className="size-8" aria-hidden />
               </div>
               <div className="flex min-w-0 flex-col">
-                <h1 className="font-heading text-2xl font-extrabold tracking-tight text-foreground sm:text-3xl">
+                <h1 className="font-heading text-3xl font-bold tracking-tight text-foreground md:text-4xl">
                   {categoryLabel}
                 </h1>
                 {/* Says in plain words what the code calls `layer`: is this

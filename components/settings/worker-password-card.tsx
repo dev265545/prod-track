@@ -39,7 +39,6 @@ export function WorkerPasswordCard() {
   const [value, setValue] = React.useState("");
   const [confirmValue, setConfirmValue] = React.useState("");
   const [error, setError] = React.useState<ToneMessage>(null);
-  const [result, setResult] = React.useState<ToneMessage>(null);
   const [isSet, setIsSet] = React.useState<boolean | null>(null);
   const [noticeDismissed, setNoticeDismissed] = React.useState(false);
   const [confirmOpen, setConfirmOpen] = React.useState(false);
@@ -52,7 +51,6 @@ export function WorkerPasswordCard() {
 
   const validateThenConfirm = async () => {
     setError(null);
-    setResult(null);
     const next = value.trim();
     if (next.length < MIN_PASSWORD_LENGTH) {
       setError({ tone: "danger", text: t("twoPwTooShort") });
@@ -81,7 +79,8 @@ export function WorkerPasswordCard() {
     setValue("");
     setConfirmValue("");
     setIsSet(true);
-    setResult({ tone: "success", text: t("settingsWorkerPasswordUpdated") });
+    // Toast only. The banner slot stays for validation errors the owner has
+    // to fix; success used to fill both with the identical sentence.
     toast.success(t("settingsWorkerPasswordUpdated"));
   };
 
@@ -149,7 +148,6 @@ export function WorkerPasswordCard() {
       </div>
 
       <ToneAlert message={error} />
-      <ToneAlert message={result} />
 
       <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <AlertDialogContent>

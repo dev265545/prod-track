@@ -230,7 +230,7 @@ export default function ReportsPage() {
     return (
       <AppShell>
         <main className="flex flex-col gap-6 animate-fade-in">
-          <h1 className="text-3xl font-bold text-foreground font-heading">
+          <h1 className="font-heading text-3xl font-bold tracking-tight text-foreground md:text-4xl">
             {t("reportsPageTitle")}
           </h1>
           <Card className="p-6 sm:p-8">
@@ -266,9 +266,14 @@ export default function ReportsPage() {
     <AppShell>
       <main className="flex flex-col gap-8 animate-fade-in">
         <div className="flex flex-wrap items-end justify-between gap-4">
-          <h1 className="min-w-0 text-3xl font-bold text-foreground font-heading">
-            {t("reportsPageTitle")}
-          </h1>
+          <div className="flex min-w-0 flex-col gap-2">
+            <h1 className="min-w-0 font-heading text-3xl font-bold tracking-tight text-foreground md:text-4xl">
+              {t("reportsPageTitle")}
+            </h1>
+            <p className="max-w-prose text-sm text-muted-foreground">
+              {t("ux3ReportsIntro")}
+            </p>
+          </div>
           <div className="flex min-w-0 flex-wrap items-end gap-4">
             <div className="flex min-w-0 flex-col gap-2">
               <Label>{t("reportsPeriod")}</Label>

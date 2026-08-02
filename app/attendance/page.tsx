@@ -57,8 +57,10 @@ import { formatDisplayDate, today, yesterday } from "@/lib/utils/date";
  * the database disagrees with.
  */
 
+// The one page-title scale. Every screen's <h1> uses it; three different
+// sizes across the app was the drift this replaces.
 const HEADING_CLASS =
-  "text-2xl sm:text-3xl font-bold tracking-tight text-foreground font-heading";
+  "font-heading text-3xl font-bold tracking-tight text-foreground md:text-4xl";
 
 export default function AttendancePage() {
   const { t, locale } = useLanguage();

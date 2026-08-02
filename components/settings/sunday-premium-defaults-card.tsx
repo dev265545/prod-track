@@ -91,14 +91,16 @@ export function SundayPremiumDefaultsCard() {
       });
       setSaved(clean);
       setDraft(clean);
-      setMessage({ tone: "success", text: t("setgPaySaved") });
+      // One channel per event. A save that worked needs no follow-up, so it
+      // is a toast; the banner below is reserved for the failure the owner
+      // has to act on. Firing both said the same sentence twice.
+      setMessage(null);
       toast.success(t("setgPaySaved"));
     } catch (error) {
       console.error("[settings] could not save Sunday premium defaults", error);
       // Never leave a number on screen that the database does not hold.
       setDraft(saved);
       setMessage({ tone: "danger", text: t("setgPaySaveFailed") });
-      toast.error(t("setgPaySaveFailed"));
     } finally {
       setSaving(false);
     }

@@ -384,7 +384,7 @@ export default function InventoryPage() {
   const header = (
     <header className="flex min-w-0 flex-col gap-4">
       <div className="flex min-w-0 flex-col gap-1">
-        <h1 className="font-heading text-3xl font-bold tracking-[-0.03em] text-foreground sm:text-4xl">
+        <h1 className="font-heading text-3xl font-bold tracking-tight text-foreground md:text-4xl">
           {t("inventoryPageTitle")}
         </h1>
         <p className="text-base text-muted-foreground">

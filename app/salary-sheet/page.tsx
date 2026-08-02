@@ -337,7 +337,7 @@ export default function SalarySheetPage() {
       <main className="flex flex-col gap-8 animate-fade-in">
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div className="min-w-0 space-y-1">
-            <h1 className="text-3xl font-bold text-foreground font-heading">
+            <h1 className="font-heading text-3xl font-bold tracking-tight text-foreground md:text-4xl">
               {tr("navSalarySheet")}
             </h1>
             <p className="text-sm text-muted-foreground">

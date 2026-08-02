@@ -769,31 +769,6 @@ export function EmployeePageClient() {
     toast.success(t("empToastHoursUpdated"));
   };
 
-  const toggleAttendanceForDate = useCallback(
-    async (date: string) => {
-      const existing = findAttendanceForDate(calendarAttendance, date);
-      if (existing?.status === "present" && existing?.id) {
-        await deleteAttendance(existing.id as string);
-      } else {
-        await saveAttendance({
-          ...(existing?.id ? { id: existing.id as string } : {}),
-          employeeId: id,
-          date,
-          status: "present",
-        });
-      }
-      setSelectedDate(date);
-      setHoursDraft(null);
-      await refreshAttendance();
-      toast.success(
-        existing?.status === "present"
-          ? t("empToastClearedPresent", { date: dateDisplay(date) })
-          : t("empToastMarkedPresent", { date: dateDisplay(date) }),
-      );
-    },
-    [calendarAttendance, id, refreshAttendance, t],
-  );
-
   const submitProduction = useCallback(async () => {
     if (!productionDraft.itemId) return;
     const holiday = await getHolidayByDate(productionDraft.date);
@@ -1003,9 +978,12 @@ export function EmployeePageClient() {
       <main id="main" className="flex flex-col gap-8">
         <div className="animate-fade-in flex min-w-0 flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
-            <h1 className="break-words text-2xl font-semibold text-foreground sm:text-3xl">
+            <h1 className="break-words font-heading text-3xl font-bold tracking-tight text-foreground md:text-4xl">
               {employee.name as string}
             </h1>
+            <p className="mt-2 max-w-prose text-sm text-muted-foreground">
+              {t("ux3EmployeeIntro")}
+            </p>
           </div>
           <MissingDataPopover days={missingDataDays} />
         </div>
@@ -1058,7 +1036,6 @@ export function EmployeePageClient() {
                 setFrom(p.from);
                 setTo(p.to);
               }}
-              onDateDoubleClick={toggleAttendanceForDate}
               periodFrom={from || ""}
               periodTo={to || ""}
               periodStatusLabel={currentPeriodLabel}

@@ -713,7 +713,7 @@ const en = {
   machineColName: "Name",
   machineColCavities: "Pieces per shot",
   machineColCycleTime: "Seconds per shot",
-  machineEmptyHint: "No machines yet — add your first below.",
+  machineEmptyHint: "Add your first machine in the form below.",
   machineDeleteTitle: "Delete machine?",
   machineDeleteAria: "Delete machine {name}",
   machineDeleteDesc: "Delete {name}? This cannot be undone.",
@@ -755,7 +755,7 @@ const en = {
     "Items that are made together and go out together. Write how many pieces of each item make one full set.",
   comboColName: "Name",
   comboColComponents: "Items in the set",
-  comboEmptyHint: "No item sets yet — add your first below.",
+  comboEmptyHint: "Add your first item set in the form below.",
   comboDeleteTitle: "Delete item set?",
   comboDeleteAria: "Delete item set {name}",
   comboDeleteDesc: "Delete {name}? This cannot be undone.",
@@ -1506,7 +1506,7 @@ const en = {
   cfgOpenSettings: "Open settings",
   cfgNoRate:
     "{item} has no money set, so this work cannot be paid. Open Items — it is waiting at the top of that list — and write the money for one piece.",
-  cfgRateMissingBadge: "No rate",
+  cfgRateMissingBadge: "No money set",
 
   pickChoose: "Choose item",
   pickChange: "Change",
@@ -1524,7 +1524,7 @@ const en = {
   pickEmptyListTitle: "No items yet",
   pickEmptyListDesc:
     "Open the Items screen first and add a thing with the money for one piece.",
-  pickNoRate: "No rate",
+  pickNoRate: "No money set",
   pickNoRateHelp:
     "The money for one piece is not set — open Items, where this is waiting at the top, and write it.",
   pickHint: "Up/down arrow to move, Enter to choose.",
@@ -1949,6 +1949,26 @@ const en = {
   a11yFavouriteMark: "Starred item",
   a11yOpenEmployee: "Open {name}",
   a11yResultCount: "{count} shown",
+  /* ux3 — consistency pass: holiday control, module tile captions, empty
+     states and page intros. */
+  ux3CalHolidayAdd: "Mark holiday",
+  ux3CalHolidayRemove: "Remove holiday",
+  ux3CalHolidayAddTitle: "Mark {date} as a factory holiday?",
+  ux3CalHolidayAddDesc:
+    "No work can be written down on a factory holiday, and the day is paid as a holiday for everyone.",
+  ux3CalHolidayRemoveTitle: "Remove the factory holiday on {date}?",
+  ux3CalHolidayRemoveDesc:
+    "This day becomes a normal working day again. Everyone's pay for this day changes.",
+  ux3CalHolidayHint: "Choose a day above, then use this button.",
+  ux3HomeCapPeople: "people working",
+  ux3HomeCapMadeToday: "made today",
+  ux3HomeCapInStock: "items in stock",
+  ux3HomeCapLowStock: "running low",
+  ux3MachineEmptyTitle: "No machines yet",
+  ux3ComboEmptyTitle: "No item sets yet",
+  ux3DailyEntryIntro: "Write down today's work, one person at a time.",
+  ux3ReportsIntro: "How much of each item was made in a period.",
+  ux3EmployeeIntro: "Attendance, work done and pay for this person.",
 } as const;
 
 export type MessageKey = keyof typeof en;
@@ -2661,7 +2681,7 @@ const hi: Record<MessageKey, string> = {
   machineColName: "नाम",
   machineColCavities: "एक शॉट में पीस",
   machineColCycleTime: "एक शॉट के सेकंड",
-  machineEmptyHint: "अभी कोई मशीन नहीं — नीचे पहली जोड़ें।",
+  machineEmptyHint: "नीचे दिए फ़ॉर्म में पहली मशीन जोड़ें।",
   machineDeleteTitle: "मशीन हटाएँ?",
   machineDeleteAria: "{name} मशीन हटाएँ",
   machineDeleteDesc: "{name} हटाएँ? यह वापस नहीं होगा।",
@@ -2702,7 +2722,7 @@ const hi: Record<MessageKey, string> = {
     "जो आइटम साथ बनते और साथ जाते हैं। लिखें कि एक पूरा सेट बनाने में हर आइटम के कितने पीस लगते हैं।",
   comboColName: "नाम",
   comboColComponents: "सेट के आइटम",
-  comboEmptyHint: "अभी कोई आइटम सेट नहीं — नीचे पहला जोड़ें।",
+  comboEmptyHint: "नीचे दिए फ़ॉर्म में पहला आइटम सेट जोड़ें।",
   comboDeleteTitle: "आइटम सेट हटाएँ?",
   comboDeleteAria: "{name} आइटम सेट हटाएँ",
   comboDeleteDesc: "{name} हटाएँ? यह वापस नहीं होगा।",
@@ -3440,7 +3460,7 @@ const hi: Record<MessageKey, string> = {
   cfgOpenSettings: "\u0938\u0947\u091f\u093f\u0902\u0917 \u0916\u094b\u0932\u0947\u0902",
   cfgNoRate:
     "{item} \u0915\u093e \u092a\u0948\u0938\u093e \u0928\u0939\u0940\u0902 \u0921\u093e\u0932\u093e \u0939\u0948, \u0907\u0938\u0932\u093f\u090f \u092a\u0917\u093e\u0930 \u0928\u0939\u0940\u0902 \u092c\u0928\u0947\u0917\u0940\u0964 आइटम स्क्रीन खोलिए — यह सबसे ऊपर मिलेगी — और एक पीस का पैसा लिखिए।",
-  cfgRateMissingBadge: "\u0930\u0947\u091f \u0928\u0939\u0940\u0902",
+  cfgRateMissingBadge: "\u092a\u0948\u0938\u093e \u0928\u0939\u0940\u0902 \u0921\u093e\u0932\u093e",
 
   pickChoose: "\u0938\u093e\u092e\u093e\u0928 \u091a\u0941\u0928\u0947\u0902",
   pickChange: "\u092c\u0926\u0932\u0947\u0902",
@@ -3457,7 +3477,7 @@ const hi: Record<MessageKey, string> = {
   pickEmptyListTitle: "\u0905\u092d\u0940 \u0915\u094b\u0908 \u0938\u093e\u092e\u093e\u0928 \u0928\u0939\u0940\u0902",
   pickEmptyListDesc:
     "पहले आइटम स्क्रीन खोलकर एक पीस के पैसे के साथ सामान जोड़ें।",
-  pickNoRate: "\u0930\u0947\u091f \u0928\u0939\u0940\u0902",
+  pickNoRate: "\u092a\u0948\u0938\u093e \u0928\u0939\u0940\u0902 \u0921\u093e\u0932\u093e",
   pickNoRateHelp:
     "एक पीस का पैसा नहीं डाला है — आइटम स्क्रीन खोलिए, यह सबसे ऊपर मिलेगी।",
   pickHint: "\u090a\u092a\u0930-\u0928\u0940\u091a\u0947 \u0924\u0940\u0930 \u0938\u0947 \u091a\u0941\u0928\u0947\u0902, Enter \u0926\u092c\u093e\u090f\u0901\u0964",
@@ -3875,6 +3895,24 @@ const hi: Record<MessageKey, string> = {
   a11yFavouriteMark: "\u0924\u093e\u0930\u093e \u0932\u0917\u093e \u0906\u0907\u091f\u092e",
   a11yOpenEmployee: "{name} \u0915\u094b \u0916\u094b\u0932\u0947\u0902",
   a11yResultCount: "{count} \u0926\u093f\u0916 \u0930\u0939\u0947 \u0939\u0948\u0902",
+  ux3CalHolidayAdd: "छुट्टी लगाएँ",
+  ux3CalHolidayRemove: "छुट्टी हटाएँ",
+  ux3CalHolidayAddTitle: "{date} को फैक्टरी की छुट्टी करें?",
+  ux3CalHolidayAddDesc:
+    "फैक्टरी की छुट्टी वाले दिन काम नहीं लिखा जा सकता, और वह दिन सबके लिए छुट्टी की तरह जुड़ता है।",
+  ux3CalHolidayRemoveTitle: "{date} की फैक्टरी छुट्टी हटाएँ?",
+  ux3CalHolidayRemoveDesc:
+    "यह दिन फिर से आम काम का दिन बन जाएगा। इस दिन की सबकी पगार बदल जाएगी।",
+  ux3CalHolidayHint: "पहले ऊपर दिन चुनें, फिर यह बटन दबाएँ।",
+  ux3HomeCapPeople: "लोग काम पर",
+  ux3HomeCapMadeToday: "आज बने",
+  ux3HomeCapInStock: "सामान स्टॉक में",
+  ux3HomeCapLowStock: "कम पड़ रहे हैं",
+  ux3MachineEmptyTitle: "अभी कोई मशीन नहीं",
+  ux3ComboEmptyTitle: "अभी कोई आइटम सेट नहीं",
+  ux3DailyEntryIntro: "आज का काम एक-एक करके लिखिए।",
+  ux3ReportsIntro: "एक पीरियड में हर आइटम कितना बना।",
+  ux3EmployeeIntro: "इस व्यक्ति की हाजिरी, काम और पगार।",
 };
 
 export const messages: Record<AppLocale, Record<MessageKey, string>> = {

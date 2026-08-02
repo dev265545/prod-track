@@ -14,7 +14,13 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
 import {
   Select,
   SelectContent,
@@ -117,13 +123,19 @@ export function ItemSetsCard({
             <TableBody>
               {combos.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={3} className="h-24 text-center">
-                    <div className="flex flex-col items-center gap-2 py-4">
-                      <Skeleton className="h-4 w-40 rounded-md" />
-                      <span className="text-sm text-muted-foreground">
-                        {t("comboEmptyHint")}
-                      </span>
-                    </div>
+                  <TableCell colSpan={3} className="p-0">
+                    {/* A real empty state. This used to draw a Skeleton bar,
+                        so "nothing here yet" was indistinguishable from
+                        "still loading". */}
+                    <Empty className="border-0 py-8">
+                      <EmptyHeader>
+                        <EmptyMedia variant="icon">
+                          <Boxes aria-hidden />
+                        </EmptyMedia>
+                        <EmptyTitle>{t("ux3ComboEmptyTitle")}</EmptyTitle>
+                        <EmptyDescription>{t("comboEmptyHint")}</EmptyDescription>
+                      </EmptyHeader>
+                    </Empty>
                   </TableCell>
                 </TableRow>
               ) : (

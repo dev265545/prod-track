@@ -173,7 +173,7 @@ export default function EmployeesPage() {
         {/* Setup screen, not a daily one: say so, and point the daily job at
             the roster so this page stops reading as "attendance". */}
         <div className="flex flex-col gap-3 min-w-0">
-          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground font-heading">
+          <h1 className="font-heading text-3xl font-bold tracking-tight text-foreground md:text-4xl">
             {t("rostPeopleTitle")}
           </h1>
           <p className="max-w-prose text-sm text-muted-foreground">

@@ -82,10 +82,10 @@ describe("ItemPicker", () => {
     const bucket = within(list).getByRole("option", { name: /Bucket/ });
     // Not colour, not an icon: the warning is in the name a screen reader
     // reads out, and it is on the row itself rather than on a later error.
-    expect(bucket).toHaveAccessibleName(/No rate/);
+    expect(bucket).toHaveAccessibleName(/No money set/);
 
     const priced = within(list).getByRole("option", { name: /Round Tin/ });
-    expect(priced).not.toHaveAccessibleName(/No rate/);
+    expect(priced).not.toHaveAccessibleName(/No money set/);
   });
 
   it("announces how many items matched", async () => {

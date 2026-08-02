@@ -1,11 +1,23 @@
 "use client";
 
 import { useMemo } from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { CalendarOff, ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/components/language-provider";
 import {
+  formatDisplayDate,
   formatMonthCalendarHeading,
   weekdayShortLabels,
 } from "@/lib/utils/date";
@@ -30,6 +42,12 @@ export interface DashboardCalendarProps {
   employees: Record<string, unknown>[];
   selectedDate: string | null;
   onDateClick: (date: string) => void;
+  /**
+   * Adds or removes a factory holiday on the *selected* day. Drawn as a
+   * labelled, confirmed button under the grid, never as a gesture: this write
+   * changes what the day pays every worker, and the double-click it replaces
+   * was invisible on a touch screen and unconfirmed.
+   */
   onToggleHoliday?: (date: string) => void;
   /** 15-day salary period range to highlight (same as employee calendar). */
   periodFrom?: string;
@@ -78,6 +96,7 @@ export function DashboardCalendar({
   }, [employees]);
 
   const today = toISODate(new Date());
+  const selectedIsDayOff = selectedDate ? dayOffSet.has(selectedDate) : false;
 
   const cells: (number | null)[] = [];
   for (let i = 0; i < firstDayOfWeek; i++) cells.push(null);
@@ -170,11 +189,6 @@ export function DashboardCalendar({
                 isDayOff && !isSelected && "bg-destructive/10",
               )}
               onClick={() => onDateClick(dateStr)}
-              onDoubleClick={
-                onToggleHoliday
-                  ? () => onToggleHoliday(dateStr)
-                  : undefined
-              }
               aria-label={[
                 t("calAriaDay", { day }),
                 isDayOff ? t("calAriaHoliday") : "",
@@ -254,10 +268,61 @@ export function DashboardCalendar({
             {t("calLegendSelectedPeriod")}
           </div>
         )}
-        {onToggleHoliday && (
-          <p className="text-xs italic">{t("calDoubleClickHoliday")}</p>
-        )}
       </div>
+
+      {onToggleHoliday && (
+        <div className="mt-3 flex min-w-0 flex-col gap-1 border-t border-border pt-3">
+          {selectedDate ? (
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="min-h-[44px] w-full justify-center px-4"
+                >
+                  <CalendarOff data-icon="inline-start" aria-hidden />
+                  {selectedIsDayOff
+                    ? t("ux3CalHolidayRemove")
+                    : t("ux3CalHolidayAdd")}
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>
+                    {t(
+                      selectedIsDayOff
+                        ? "ux3CalHolidayRemoveTitle"
+                        : "ux3CalHolidayAddTitle",
+                      { date: formatDisplayDate(selectedDate, locale) },
+                    )}
+                  </AlertDialogTitle>
+                  <AlertDialogDescription>
+                    {t(
+                      selectedIsDayOff
+                        ? "ux3CalHolidayRemoveDesc"
+                        : "ux3CalHolidayAddDesc",
+                    )}
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>{t("commonCancel")}</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={() => onToggleHoliday(selectedDate)}
+                  >
+                    {selectedIsDayOff
+                      ? t("ux3CalHolidayRemove")
+                      : t("ux3CalHolidayAdd")}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              {t("ux3CalHolidayHint")}
+            </p>
+          )}
+        </div>
+      )}
     </div>
   );
 }

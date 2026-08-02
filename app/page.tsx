@@ -283,25 +283,45 @@ export default function Home() {
     );
   }
 
-  /** The one live number shown on a module's card. */
-  const statFor = (id: ModuleId): string | null => {
+  /**
+   * What a module's card says at the bottom.
+   *
+   * A figure is a *number* — it gets the large tabular-nums treatment and a
+   * small word underneath saying what it counts. Two modules have no number
+   * worth showing (payroll opens on a period, settings is a door), so they get
+   * the caption alone rather than a sentence dressed up as a figure. This is
+   * the same split the inventory stat tile was corrected to.
+   */
+  const statFor = (
+    id: ModuleId,
+  ): { figure?: string; caption: string } | null => {
     if (!data) return null;
     const stats = data.stats;
     switch (id) {
       case "attendance":
-        return t("homeStatEmployees", { count: number(stats.employees) });
+        return {
+          figure: number(stats.employees),
+          caption: t("ux3HomeCapPeople"),
+        };
       case "production":
-        return t("homeStatProducedToday", {
-          count: number(stats.producedToday),
-        });
+        return {
+          figure: number(stats.producedToday),
+          caption: t("ux3HomeCapMadeToday"),
+        };
       case "inventory":
         return stats.lowStock > 0
-          ? t("homeStatLowStock", { count: number(stats.lowStock) })
-          : t("homeStatStock", { count: number(stats.stockItems) });
+          ? {
+              figure: number(stats.lowStock),
+              caption: t("ux3HomeCapLowStock"),
+            }
+          : {
+              figure: number(stats.stockItems),
+              caption: t("ux3HomeCapInStock"),
+            };
       case "payroll":
-        return t("homeStatPeriod", { label: stats.periodLabel });
+        return { caption: t("homeStatPeriod", { label: stats.periodLabel }) };
       case "settings":
-        return t("homeStatSettings");
+        return { caption: t("homeStatSettings") };
     }
   };
 
@@ -392,8 +412,21 @@ export default function Home() {
                     <span className="text-sm text-muted-foreground">
                       {t(mod.descriptionKey)}
                     </span>
-                    <span className="mt-auto text-base font-medium tabular-nums text-foreground">
-                      {stat ?? (
+                    <span className="mt-auto flex min-w-0 flex-col">
+                      {stat ? (
+                        <>
+                          {stat.figure ? (
+                            <span className="font-heading text-2xl font-bold tabular-nums text-foreground">
+                              {stat.figure}
+                            </span>
+                          ) : null}
+                          {/* Prose never gets `tabular-nums`: it is a caption,
+                              not a figure. */}
+                          <span className="min-w-0 text-sm text-muted-foreground">
+                            {stat.caption}
+                          </span>
+                        </>
+                      ) : (
                         <Skeleton className="inline-block h-5 w-32 rounded-md align-middle" />
                       )}
                     </span>

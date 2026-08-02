@@ -73,7 +73,9 @@ export function DangerZoneCard({ onCleared }: { onCleared: () => void }) {
     setBusy(true);
     try {
       await clearAllData();
-      setMessage({ tone: "success", text: t("setgDangerDone") });
+      // Toast only. The banner below belongs to "save a copy first", which
+      // the owner may still have to act on; the wipe itself said the same
+      // sentence in both places.
       toast.success(t("setgDangerDone"));
       onCleared();
       setOpen(false);

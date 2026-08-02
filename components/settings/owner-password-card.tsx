@@ -39,7 +39,6 @@ export function OwnerPasswordCard() {
   const [again, setAgain] = React.useState("");
   const [busy, setBusy] = React.useState(false);
   const [dialogError, setDialogError] = React.useState<ToneMessage>(null);
-  const [message, setMessage] = React.useState<ToneMessage>(null);
 
   const reset = () => {
     setCurrent("");
@@ -69,7 +68,9 @@ export function OwnerPasswordCard() {
     setBusy(true);
     try {
       await setAppPassword(trimmed);
-      setMessage({ tone: "success", text: t("setgOwnerPwDone") });
+      // One channel per event: the change is done and needs no follow-up, so
+      // it is a toast. It used to also raise a banner carrying the very same
+      // sentence, so the owner read it twice.
       toast.success(t("setgOwnerPwDone"));
       setOpen(false);
       reset();
@@ -97,7 +98,6 @@ export function OwnerPasswordCard() {
         <KeyRound className="size-5" aria-hidden />
         {t("setgOwnerPwButton")}
       </Button>
-      <ToneAlert message={message} />
 
       <AlertDialog
         open={open}
