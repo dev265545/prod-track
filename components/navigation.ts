@@ -110,7 +110,12 @@ export const MODULES: NavModule[] = [
     href: "/production",
     items: [
       { href: "/production", labelKey: "navLinkDailyEntry", icon: ListChecks },
-      // Not `Package`: the inventory "box" category already owns that glyph.
+      // Real screen since the Items page was built: it is the only place an
+      // item's rate — the number pay is multiplied by — can be set. It used to
+      // redirect to Inventory, which has no rate box at all.
+      // `Shapes` is the "several different things you make" glyph. Not
+      // `Package`, `Box` or `Layers`: the inventory categories own those, and
+      // not `Tag`, which the inventory label category owns.
       { href: "/items", labelKey: "navLinkItems", icon: Shapes },
       { href: "/machine", labelKey: "navMachine", icon: Cog },
       { href: "/reports", labelKey: "navReports", icon: FileBarChart },
