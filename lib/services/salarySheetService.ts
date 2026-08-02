@@ -37,6 +37,7 @@ import {
   type AttendanceRecord,
   type DayPayCapReport,
   type SundayCategoryRule,
+  type SundayRatePremium,
 } from "@/lib/utils/attendanceStats";
 
 export interface SalarySheetRow {
@@ -130,6 +131,47 @@ export function resolveOperatorSundayRule(
       typeof empMultiplier === "number" && Number.isFinite(empMultiplier)
         ? empMultiplier
         : (premium?.multiplier ?? defaults.defaultSundayPremiumMultiplier),
+  };
+}
+
+/**
+ * The Sunday premium in force for one employee, or `undefined` for none.
+ *
+ * There is one chain, and everything that pays a Sunday reads it here — the
+ * payroll table, the single-employee row, and both printed sheets. It used to
+ * be resolved inside the Operator branch of the sheet builder alone, so a
+ * premium the owner set on a Sunday category was shown back to him in the
+ * category list, and then paid to nobody who was not an Operator, and never
+ * printed at all.
+ *
+ * - **Operators** keep the full chain they have always had: their own numbers,
+ *   then the category's premium, then the factory defaults in Settings. The
+ *   factory defaults mean an Operator always has a premium.
+ * - **Everyone else** gets the premium their Sunday category configures, and
+ *   nothing when it configures none. The factory defaults are deliberately not
+ *   reached for them: they are non-zero on every install, so falling back to
+ *   them would hand every salaried worker in the country a raise the owner
+ *   never asked for.
+ */
+export function resolveSundayPremiumForEmployee(
+  employee: Record<string, unknown>,
+  sundayCategoryRule: SundayCategoryRule,
+  defaults: {
+    defaultSundayPremiumRequiredDays: number;
+    defaultSundayPremiumMultiplier: number;
+  },
+): SundayRatePremium | undefined {
+  if ((employee.employeeType as string | undefined) === "operator") {
+    return resolveOperatorSundayRule(employee, sundayCategoryRule, defaults);
+  }
+  // Optional read: a category row that predates the rule shape resolves to a
+  // rule without one, and a missing premium must mean "no extra Sunday pay",
+  // never a thrown payroll run.
+  const premium = sundayCategoryRule?.sundayPremium;
+  if (!premium) return undefined;
+  return {
+    requiredPresentDays: premium.requiredPresentDays,
+    sundayMultiplier: premium.multiplier,
   };
 }
 
@@ -304,7 +346,7 @@ function buildOperatorSummaryForRange(input: {
   hoursPerDay: number;
   ratePerDay: number;
   sundayCategoryRule: SundayCategoryRule;
-  operatorSundayRule: { requiredPresentDays: number; sundayMultiplier: number };
+  sundayPremium: SundayRatePremium;
   maxDayPayFraction: DayPayCap;
 }): AttendanceSalarySummaryLike {
   const {
@@ -317,7 +359,7 @@ function buildOperatorSummaryForRange(input: {
     hoursPerDay,
     ratePerDay,
     sundayCategoryRule,
-    operatorSundayRule,
+    sundayPremium,
     maxDayPayFraction,
   } = input;
 
@@ -331,7 +373,7 @@ function buildOperatorSummaryForRange(input: {
     ratePerDay,
     includeProductionPay: false,
     sundayCategoryRule,
-    operatorSundayRule,
+    sundayPremium,
     maxDayPayFraction,
   });
 
@@ -542,6 +584,12 @@ function buildBaseSalarySheetRow(
   const isOperator = employeeType === "operator";
   const isProduction = employeeType === "production";
 
+  const sundayPremium = resolveSundayPremiumForEmployee(
+    emp,
+    sundayCategoryRule,
+    appSettings,
+  );
+
   const summary: AttendanceSalarySummaryLike = isOperator
     ? buildOperatorSummaryForRange({
         year,
@@ -555,11 +603,12 @@ function buildBaseSalarySheetRow(
         hoursPerDay,
         ratePerDay,
         sundayCategoryRule,
-        operatorSundayRule: resolveOperatorSundayRule(
-          emp,
-          sundayCategoryRule,
-          appSettings,
-        ),
+        // Always set for an Operator: the factory defaults are the last link of
+        // the chain, so `undefined` cannot come back here.
+        sundayPremium: sundayPremium ?? {
+          requiredPresentDays: appSettings.defaultSundayPremiumRequiredDays,
+          sundayMultiplier: appSettings.defaultSundayPremiumMultiplier,
+        },
         maxDayPayFraction,
       })
     : buildAttendanceSalarySummaryForRange({
@@ -571,6 +620,10 @@ function buildBaseSalarySheetRow(
         ratePerDay,
         sundayCategoryRule,
         maxDayPayFraction,
+        sundayPremium,
+        // Qualifying counts from day 1 of the month, so the premium is judged
+        // on everything we hold, not only on the half-month being paid.
+        premiumAttendance: attendanceForSheet,
       });
 
   const advanceDeduction = isProduction

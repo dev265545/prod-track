@@ -18,7 +18,11 @@ import {
   getRatePerDay,
   getRatePerHour,
 } from "@/lib/utils/salaryRates";
-import { getSalarySheetRowForEmployee } from "@/lib/services/salarySheetService";
+import {
+  getSalarySheetRowForEmployee,
+  resolveSundayPremiumForEmployee,
+} from "@/lib/services/salarySheetService";
+import { getAppSettings } from "@/lib/services/appSettingsService";
 import { buildMonthSalaryBreakdown } from "@/lib/utils/attendanceStats";
 import type {
   AttendanceSalarySummaryForRange,
@@ -406,13 +410,15 @@ export async function getPrintableMonthlyAttendanceSheetHtml(
   assertMonthIndex(monthIndex);
   const month = monthIndex;
   const { from, to } = getMonthRange(year, month);
-  const [employee, holidays, att, shifts, sundayCategories] = await Promise.all([
-    getEmployee(employeeId),
-    getHolidaysInRange(from, to),
-    getAttendanceByEmployeeInRange(employeeId, from, to),
-    getShifts(),
-    getSundayCategories(),
-  ]);
+  const [employee, holidays, att, shifts, sundayCategories, appSettings] =
+    await Promise.all([
+      getEmployee(employeeId),
+      getHolidaysInRange(from, to),
+      getAttendanceByEmployeeInRange(employeeId, from, to),
+      getShifts(),
+      getSundayCategories(),
+      getAppSettings(),
+    ]);
   const name = (employee?.name as string) || "Unknown";
   const printStyles = buildPrintStyles({
     tableFontSize: 10,
@@ -472,6 +478,13 @@ export async function getPrintableMonthlyAttendanceSheetHtml(
     ratePerDay,
     includeProductionPay: false,
     sundayCategoryRule,
+    // Without this the printed sheet paid every Sunday flat while the payroll
+    // table paid the premium — two documents, two answers, for one worker.
+    sundayPremium: resolveSundayPremiumForEmployee(
+      employee,
+      sundayCategoryRule,
+      appSettings,
+    ),
   });
 
   const salarySheetRow = await getSalarySheetRowForEmployee(
@@ -534,13 +547,15 @@ export async function getPrintableAttendanceSalaryRangeHtml(
 ): Promise<string> {
   assertMonthIndex(monthIndex);
   const month = monthIndex;
-  const [employee, holidays, att, shifts, sundayCategories] = await Promise.all([
-    getEmployee(employeeId),
-    getHolidaysInRange(fromDate, toDate),
-    getAttendanceByEmployeeInRange(employeeId, fromDate, toDate),
-    getShifts(),
-    getSundayCategories(),
-  ]);
+  const [employee, holidays, att, shifts, sundayCategories, appSettings] =
+    await Promise.all([
+      getEmployee(employeeId),
+      getHolidaysInRange(fromDate, toDate),
+      getAttendanceByEmployeeInRange(employeeId, fromDate, toDate),
+      getShifts(),
+      getSundayCategories(),
+      getAppSettings(),
+    ]);
   const name = (employee?.name as string) || "Unknown";
   const monthlySalary = (employee?.monthlySalary as number) ?? 0;
   const holidayDates = holidays.map((h) => h.date as string);
@@ -573,6 +588,12 @@ export async function getPrintableAttendanceSalaryRangeHtml(
     hoursExtra: a.hoursExtra as number | undefined,
   }));
 
+  const sundayPremium = resolveSundayPremiumForEmployee(
+    employee ?? {},
+    sundayCategoryRule,
+    appSettings,
+  );
+
   let summary = buildAttendanceSalarySummaryForRange({
     fromDate,
     toDate,
@@ -581,6 +602,7 @@ export async function getPrintableAttendanceSalaryRangeHtml(
     hoursPerDay,
     ratePerDay,
     sundayCategoryRule,
+    sundayPremium,
   });
 
   const monthBreakdown = buildMonthSalaryBreakdown({
@@ -593,6 +615,7 @@ export async function getPrintableAttendanceSalaryRangeHtml(
     ratePerDay,
     includeProductionPay: false,
     sundayCategoryRule,
+    sundayPremium,
   });
   let dayRows = monthBreakdown.days.filter(
     (row) => row.date >= fromDate && row.date <= toDate,
@@ -628,6 +651,16 @@ export async function getPrintableAttendanceSalaryRangeHtml(
 
   const { from: monthFrom } = getMonthRange(year, month);
   return buildPrintableAttendanceSalaryRangeHtml({
+    // With a premium in force, "Sundays worked" is no longer a flat count times
+    // the daily rate, so the figure is read off the day rows themselves rather
+    // than recomputed from a formula that cannot see the premium.
+    sundayMarkBonusPay: sundayPremium
+      ? Math.round(
+          dayRows
+            .filter((row) => row.rowKind === "sunday")
+            .reduce((sum, row) => sum + row.basePay, 0) * 100,
+        ) / 100
+      : undefined,
     employeeName: name,
     monthLabel: formatMonthYear(monthFrom),
     rangeLabel: `${dateDisplay(fromDate)} – ${dateDisplay(toDate)}`,
@@ -654,6 +687,12 @@ export function buildPrintableAttendanceSalaryRangeHtml(input: {
   summary: AttendanceSalarySummaryForRange;
   dayRows: MonthSalaryDayRow[];
   includesPayrollAdjustment?: boolean;
+  /**
+   * What the Sundays worked in this range actually paid. Defaults to the flat
+   * `sundayPresentBonusDays × ratePerDay`, which is right whenever no Sunday
+   * premium applies and wrong the moment one does.
+   */
+  sundayMarkBonusPay?: number;
 }): string {
   const {
     employeeName,
@@ -667,11 +706,12 @@ export function buildPrintableAttendanceSalaryRangeHtml(input: {
     summary,
     dayRows,
     includesPayrollAdjustment = false,
+    sundayMarkBonusPay = Math.round(
+      summary.sundayPresentBonusDays * ratePerDay * 100,
+    ) / 100,
   } = input;
   const earnedSundayPoolPay =
     Math.round(summary.earnedSundayPayDays * ratePerDay * 100) / 100;
-  const sundayMarkBonusPay =
-    Math.round(summary.sundayPresentBonusDays * ratePerDay * 100) / 100;
   const dayRowsHtml =
     dayRows.length === 0
       ? `<tr><td colspan="${DAY_TABLE_COLUMNS}" class="border" style="color:#71717a">No attendance rows in this range.</td></tr>`

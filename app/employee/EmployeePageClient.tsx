@@ -63,10 +63,14 @@ import {
 } from "@/lib/services/sundayCategoryService";
 import { getSalaryRecordsByEmployee } from "@/lib/services/salaryRecordService";
 import {
+  DEFAULT_REQUIRED_PRESENT_DAYS,
+  DEFAULT_SUNDAY_MULTIPLIER,
   getSalarySheetRowForEmployee,
+  resolveSundayPremiumForEmployee,
   salarySheetRowHasAdjustment,
   type SalarySheetRow,
 } from "@/lib/services/salarySheetService";
+import { getAppSettings } from "@/lib/services/appSettingsService";
 import {
   calculateSalary,
   getPrintableAttendanceSalaryRangeHtml,
@@ -174,6 +178,16 @@ export function EmployeePageClient() {
   const [sundayCategories, setSundayCategories] = useState<SundayCategory[]>(
     [],
   );
+  /**
+   * The factory-wide Sunday premium defaults. Read here rather than assumed,
+   * because this page shows the owner which number applies when a worker has
+   * none of their own — a hint that quoted a hardcoded 26 while Settings said
+   * something else would be a lie in the one place it matters.
+   */
+  const [sundayPremiumDefaults, setSundayPremiumDefaults] = useState({
+    defaultSundayPremiumRequiredDays: DEFAULT_REQUIRED_PRESENT_DAYS,
+    defaultSundayPremiumMultiplier: DEFAULT_SUNDAY_MULTIPLIER,
+  });
   const [storedSalaryRecords, setStoredSalaryRecords] = useState<Row[]>([]);
   const [missingDataDays, setMissingDataDays] = useState<{ date: string }[]>(
     [],
@@ -247,6 +261,7 @@ export function EmployeePageClient() {
         shiftList,
         deductionsList,
         sundayCategoryList,
+        appSettings,
       ] = await Promise.all([
         getProductionsByEmployee(id, "2000-01-01", "2100-12-31"),
         getAdvancesByEmployee(id, "2000-01-01", "2100-12-31"),
@@ -255,6 +270,7 @@ export function EmployeePageClient() {
         getShifts(),
         getDeductionsByEmployee(id),
         getSundayCategories(),
+        getAppSettings(),
       ]);
       if (cancelled) return;
       const initial = pickInitialPeriod(
@@ -266,6 +282,12 @@ export function EmployeePageClient() {
       setStoredSalaryRecords(salaryRecs);
       setShifts(shiftList);
       setSundayCategories(sundayCategoryList);
+      setSundayPremiumDefaults({
+        defaultSundayPremiumRequiredDays:
+          appSettings.defaultSundayPremiumRequiredDays,
+        defaultSundayPremiumMultiplier:
+          appSettings.defaultSundayPremiumMultiplier,
+      });
       setAllAdvances(allAdvs);
       setDeductions(deductionsList);
       setPeriods(initial.periods);
@@ -390,6 +412,12 @@ export function EmployeePageClient() {
       null)
     : null;
   const sundayCategoryRule = resolveSundayCategoryRule(selectedSundayCategory);
+  /** The extra Sunday pay in force for this worker; `undefined` when none is. */
+  const sundayPremium = resolveSundayPremiumForEmployee(
+    employee ?? {},
+    sundayCategoryRule,
+    sundayPremiumDefaults,
+  );
   const hoursPerDay = selectedShift
     ? ((selectedShift.hoursPerDay as number) ?? 8)
     : 8;
@@ -458,6 +486,7 @@ export function EmployeePageClient() {
     hoursPerDay,
     ratePerDay,
     sundayCategoryRule,
+    sundayPremium,
   });
   const calendarMonthTitle = formatMonthYear(
     `${calYear}-${String(calMonth + 1).padStart(2, "0")}-01`,
@@ -661,7 +690,13 @@ export function EmployeePageClient() {
     async (patch: Row) => {
       if (!employee) return;
       const previous = employee;
-      const updated = { ...employee, ...patch };
+      // `undefined` in a patch means "this worker has no value of their own" —
+      // the key is removed, not stored holding undefined, so an export and the
+      // row it came from say the same thing.
+      const updated: Row = { ...employee, ...patch };
+      for (const key of Object.keys(patch)) {
+        if (patch[key] === undefined) delete updated[key];
+      }
       setEmployee(updated);
       try {
         await saveEmployee(updated);
@@ -1009,8 +1044,24 @@ export function EmployeePageClient() {
 
         {sections.operatorSettings && (
           <OperatorSettingsCard
-            requiredPresentDays={(employee.requiredPresentDays as number) ?? 26}
-            sundayMultiplier={(employee.sundayMultiplier as number) ?? 1.2}
+            requiredPresentDays={
+              typeof employee.requiredPresentDays === "number"
+                ? employee.requiredPresentDays
+                : undefined
+            }
+            sundayMultiplier={
+              typeof employee.sundayMultiplier === "number"
+                ? employee.sundayMultiplier
+                : undefined
+            }
+            fallbackRequiredPresentDays={
+              sundayCategoryRule.sundayPremium?.requiredPresentDays ??
+              sundayPremiumDefaults.defaultSundayPremiumRequiredDays
+            }
+            fallbackSundayMultiplier={
+              sundayCategoryRule.sundayPremium?.multiplier ??
+              sundayPremiumDefaults.defaultSundayPremiumMultiplier
+            }
             onDraft={draftEmployee}
             onSave={updateEmployee}
           />

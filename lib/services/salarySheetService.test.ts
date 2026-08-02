@@ -13,7 +13,10 @@ import {
   type SalarySheetRow,
 } from "./salarySheetService";
 import type { SalarySheetOverrideRecord } from "./salarySheetOverrideService";
-import { DEFAULT_SUNDAY_CATEGORY_RULE } from "@/lib/utils/attendanceStats";
+import {
+  DEFAULT_SUNDAY_CATEGORY_RULE,
+  type SundayCategoryRule,
+} from "@/lib/utils/attendanceStats";
 import { DEFAULT_SUNDAY_MULTIPLIER } from "./salarySheetService";
 
 let mockMaxDayPayFraction: number | null | undefined;
@@ -96,9 +99,15 @@ vi.mock("./operatorHolidayService", () => ({
 vi.mock("./shiftService", () => ({
   getShifts: mockGetShifts,
 }));
+/**
+ * The Sunday rule every employee resolves to. A `let` so a test can hand the
+ * engine a category that configures extra Sunday pay; the default is the rule
+ * every existing install has, which configures none.
+ */
+let mockSundayRule: SundayCategoryRule = DEFAULT_SUNDAY_CATEGORY_RULE;
 vi.mock("./sundayCategoryService", () => ({
   getSundayCategories: mockGetSundayCategories,
-  resolveSundayCategoryRule: () => DEFAULT_SUNDAY_CATEGORY_RULE,
+  resolveSundayCategoryRule: () => mockSundayRule,
 }));
 vi.mock("./advanceDeductionService", () => ({
   getDeductionsByEmployee: mockGetDeductionsByEmployee,
@@ -282,6 +291,7 @@ describe("getSalarySheetForRange — advanceDeduction & Operator Sunday multipli
     mockGetSundayCategories.mockReset().mockResolvedValue([]);
     mockGetSalarySheetOverridesForMonth.mockReset().mockResolvedValue([]);
     mockGetDeductionsByEmployee.mockReset().mockResolvedValue([]);
+    mockSundayRule = DEFAULT_SUNDAY_CATEGORY_RULE;
   });
 
   it("subtracts an advance for a Salaried employee, leaving calculatedSalary untouched", async () => {
@@ -481,6 +491,7 @@ describe("getSalarySheetForRange — full calendar month (no overrides)", () => 
     mockGetSundayCategories.mockReset().mockResolvedValue([]);
     mockGetSalarySheetOverridesForMonth.mockReset().mockResolvedValue([]);
     mockGetDeductionsByEmployee.mockReset().mockResolvedValue([]);
+    mockSundayRule = DEFAULT_SUNDAY_CATEGORY_RULE;
   });
 
   // Bug 1: a deduction saved against the whole month matched neither half-month
@@ -719,6 +730,7 @@ describe("getSalarySheetRowForEmployee — identical to the whole-sheet row", ()
     mockGetSundayCategories.mockReset().mockResolvedValue([]);
     mockGetSalarySheetOverridesForMonth.mockReset().mockResolvedValue([]);
     mockGetDeductionsByEmployee.mockReset().mockResolvedValue([]);
+    mockSundayRule = DEFAULT_SUNDAY_CATEGORY_RULE;
   });
 
   const override = (
@@ -924,6 +936,7 @@ describe("getSalarySheetForRange — the per-day pay limit", () => {
     mockGetSundayCategories.mockReset().mockResolvedValue([]);
     mockGetSalarySheetOverridesForMonth.mockReset().mockResolvedValue([]);
     mockGetDeductionsByEmployee.mockReset().mockResolvedValue([]);
+    mockSundayRule = DEFAULT_SUNDAY_CATEGORY_RULE;
   });
 
   function seed() {
@@ -1021,5 +1034,159 @@ describe("getSalarySheetForRange — the per-day pay limit", () => {
         "totalPaidDays",
       ].sort(),
     );
+  });
+});
+
+/**
+ * The Sunday premium on a category applied to nobody but Operators: the sheet
+ * resolved it inside the Operator branch and the branch everyone else takes had
+ * no parameter for it at all. So an owner could configure "a Sunday pays 1.5×
+ * after 22 days", read that sentence back in the category list, and pay every
+ * salaried worker flat.
+ */
+describe("a Sunday premium set on a category reaches everyone in it", () => {
+  const YEAR = 2026;
+  const MONTH = 3;
+  const FROM = "2026-04-01";
+  const TO = "2026-04-30";
+
+  /** April 2026 Sundays: 5, 12, 19, 26. */
+  const wholeMonth = (employeeId: string) => {
+    const rows: Record<string, unknown>[] = [];
+    for (let d = 1; d <= 30; d += 1) {
+      rows.push(attRow(employeeId, `2026-04-${String(d).padStart(2, "0")}`));
+    }
+    return rows;
+  };
+
+  const withPremium = (
+    requiredPresentDays: number,
+    multiplier: number,
+  ): SundayCategoryRule => ({
+    ...DEFAULT_SUNDAY_CATEGORY_RULE,
+    sundayPremium: { requiredPresentDays, multiplier },
+  });
+
+  beforeEach(() => {
+    mockGetEmployees.mockReset();
+    mockGetEmployee.mockReset();
+    mockGetAttendanceInRange.mockReset().mockResolvedValue([]);
+    mockGetHolidaysInRange.mockReset().mockResolvedValue([]);
+    mockGetOperatorHolidaysInRange.mockReset().mockResolvedValue([]);
+    mockGetShifts.mockReset().mockResolvedValue([]);
+    mockGetSundayCategories.mockReset().mockResolvedValue([]);
+    mockGetSalarySheetOverridesForMonth.mockReset().mockResolvedValue([]);
+    mockGetDeductionsByEmployee.mockReset().mockResolvedValue([]);
+    mockSundayRule = DEFAULT_SUNDAY_CATEGORY_RULE;
+  });
+
+  const salariedPayFor = async (rule: SundayCategoryRule) => {
+    mockSundayRule = rule;
+    mockGetEmployees.mockResolvedValue([
+      { id: "s1", name: "Asha", monthlySalary: 30000, employeeType: "salaried" },
+    ]);
+    mockGetAttendanceInRange.mockResolvedValue(wholeMonth("s1"));
+    const { rows } = await getSalarySheetForRange(YEAR, MONTH, FROM, TO);
+    return rows.find((r) => r.id === "s1")!;
+  };
+
+  it("pays a salaried worker the extra Sunday pay their category configures", async () => {
+    const flat = await salariedPayFor(DEFAULT_SUNDAY_CATEGORY_RULE);
+    // Present every day of April: the 20th present working day is reached
+    // before the last Sunday (26 April) and after the 19th, so one Sunday is
+    // paid at one and a half days instead of one — half a day's pay, ₹500.
+    const premium = await salariedPayFor(withPremium(20, 1.5));
+
+    expect(premium.calculatedSalary).toBe(flat.calculatedSalary + 500);
+    // Nothing but the money moves: the day counts are the same facts as before.
+    expect(premium.totalPaidDays).toBe(flat.totalPaidDays);
+    expect(premium.presentDays).toBe(flat.presentDays);
+    expect(premium.sundayPresentBonusDays).toBe(flat.sundayPresentBonusDays);
+  });
+
+  it("changes nothing at all when no category configures a premium", async () => {
+    const before = await salariedPayFor(DEFAULT_SUNDAY_CATEGORY_RULE);
+    expect(before.calculatedSalary).toBe(
+      before.totalPaidDays * (30000 / 30),
+    );
+  });
+
+  it("changes nothing when the premium pays a Sunday at one day's pay", async () => {
+    const flat = await salariedPayFor(DEFAULT_SUNDAY_CATEGORY_RULE);
+    const neutral = await salariedPayFor(withPremium(0, 1));
+    expect(neutral.calculatedSalary).toBe(flat.calculatedSalary);
+  });
+
+  it("carries the premium into the second half of the month, where the count already stands", async () => {
+    mockSundayRule = withPremium(20, 1.5);
+    mockGetEmployees.mockResolvedValue([
+      { id: "s1", name: "Asha", monthlySalary: 30000, employeeType: "salaried" },
+    ]);
+    mockGetAttendanceInRange.mockResolvedValue(wholeMonth("s1"));
+
+    const { rows } = await getSalarySheetForRange(
+      YEAR,
+      MONTH,
+      "2026-04-16",
+      "2026-04-30",
+    );
+    const row = rows.find((r) => r.id === "s1")!;
+
+    mockSundayRule = DEFAULT_SUNDAY_CATEGORY_RULE;
+    const { rows: flatRows } = await getSalarySheetForRange(
+      YEAR,
+      MONTH,
+      "2026-04-16",
+      "2026-04-30",
+    );
+    const flatRow = flatRows.find((r) => r.id === "s1")!;
+
+    expect(row.calculatedSalary).toBe(flatRow.calculatedSalary + 500);
+  });
+
+  it("still pays an Operator through their own numbers first", async () => {
+    // The category says 1.5× after 20 days; this Operator's own record says
+    // 2× after 1 day, and the worker's own page has always won.
+    mockSundayRule = withPremium(20, 1.5);
+    mockGetEmployees.mockResolvedValue([
+      {
+        id: "o1",
+        name: "Om",
+        monthlySalary: 30000,
+        employeeType: "operator",
+        requiredPresentDays: 1,
+        sundayMultiplier: 2,
+      },
+    ]);
+    mockGetAttendanceInRange.mockResolvedValue([
+      attRow("o1", "2026-04-01"),
+      attRow("o1", "2026-04-02"),
+      attRow("o1", "2026-04-05"), // Sunday
+    ]);
+
+    const { rows } = await getSalarySheetForRange(YEAR, MONTH, FROM, TO);
+    const row = rows.find((r) => r.id === "o1")!;
+
+    // Two working days at ₹1000, plus a Sunday paid at twice a day's pay.
+    expect(row.calculatedSalary).toBe(2000 + 2000);
+  });
+
+  it("lets an Operator with no numbers of their own follow the category", async () => {
+    // This is what visiting an employee page used to make impossible: 26 and
+    // 1.2 were written onto the worker, and the category could never apply.
+    mockSundayRule = withPremium(1, 2);
+    mockGetEmployees.mockResolvedValue([
+      { id: "o2", name: "Nita", monthlySalary: 30000, employeeType: "operator" },
+    ]);
+    mockGetAttendanceInRange.mockResolvedValue([
+      attRow("o2", "2026-04-01"),
+      attRow("o2", "2026-04-02"),
+      attRow("o2", "2026-04-05"), // Sunday
+    ]);
+
+    const { rows } = await getSalarySheetForRange(YEAR, MONTH, FROM, TO);
+    const row = rows.find((r) => r.id === "o2")!;
+
+    expect(row.calculatedSalary).toBe(2000 + 2000);
   });
 });

@@ -482,7 +482,7 @@ describe("buildMonthSalaryBreakdown", () => {
         productionPayByDate: new Map(),
         hoursPerDay: 8,
         ratePerDay,
-        operatorSundayRule: { requiredPresentDays: 26, sundayMultiplier: 1.2 },
+        sundayPremium: { requiredPresentDays: 26, sundayMultiplier: 1.2 },
       });
       const sun8 = breakdown.days.find((d) => d.date === "2026-03-08");
       expect(sun8?.basePay).toBe(1000);
@@ -507,7 +507,7 @@ describe("buildMonthSalaryBreakdown", () => {
         productionPayByDate: new Map(),
         hoursPerDay: 8,
         ratePerDay,
-        operatorSundayRule: { requiredPresentDays: 26, sundayMultiplier: 1.2 },
+        sundayPremium: { requiredPresentDays: 26, sundayMultiplier: 1.2 },
       });
       // Threshold of 26 present working days is only reached at the very end of the
       // month (March has 26 non-Sunday days total), so no Sunday in-month can cross
@@ -533,7 +533,7 @@ describe("buildMonthSalaryBreakdown", () => {
         productionPayByDate: new Map(),
         hoursPerDay: 8,
         ratePerDay,
-        operatorSundayRule: { requiredPresentDays: 5, sundayMultiplier: 1.5 },
+        sundayPremium: { requiredPresentDays: 5, sundayMultiplier: 1.5 },
       });
       const sun1 = breakdown.days.find((d) => d.date === "2026-03-01");
       const sun8 = breakdown.days.find((d) => d.date === "2026-03-08");
@@ -557,7 +557,7 @@ describe("buildMonthSalaryBreakdown", () => {
         productionPayByDate: new Map(),
         hoursPerDay: 8,
         ratePerDay,
-        operatorSundayRule: { requiredPresentDays: 24, sundayMultiplier: 1.5 },
+        sundayPremium: { requiredPresentDays: 24, sundayMultiplier: 1.5 },
       });
       // By March 29, present working days accumulated = all non-Sunday days from 1..28,
       // which is 24 (March has Sundays on 1, 8, 15, 22 within that span).
@@ -641,5 +641,329 @@ describe("computeEarnedExtraPayDaysForCalendarScope — trailing partial blocks"
       8,
     );
     expect(earned).toBe(MAX_EXTRA_PAY_DAYS_PER_CYCLE);
+  });
+});
+
+/**
+ * The Sunday premium, swept against the algorithm it replaced.
+ *
+ * `buildAttendanceSalarySummaryForRange` used to pay `totalPaidDays × ratePerDay`
+ * and nothing else. That formula is kept verbatim below and swept against the
+ * live function over a wide spread of months, rates, shifts, ranges and
+ * attendance shapes: with no premium configured — which is every install that
+ * exists today — not one rupee may move.
+ */
+function legacyBuildAttendanceSalarySummaryForRange(input: {
+  fromDate: string;
+  toDate: string;
+  holidayDates: string[];
+  attendance: { date: string; status: string; hoursWorked?: number; hoursReduced?: number; hoursExtra?: number }[];
+  hoursPerDay?: number;
+  ratePerDay: number;
+  sundayCategoryRule?: SundayCategoryRule;
+}) {
+  const {
+    fromDate,
+    toDate,
+    holidayDates,
+    attendance,
+    hoursPerDay = 8,
+    ratePerDay,
+    sundayCategoryRule,
+  } = input;
+
+  const stats = computeAttendanceStatsForRange({
+    fromDate,
+    toDate,
+    holidayDates,
+    attendance,
+    hoursPerDay,
+    sundayCategoryRule,
+  });
+  const { hoursExtraSum, hoursReducedSum } = sumHoursAdjustmentsInRange(
+    attendance,
+    fromDate,
+    toDate,
+  );
+
+  return {
+    ...stats,
+    hoursExtraTotal: hoursExtraSum,
+    hoursReducedTotal: hoursReducedSum,
+    calculatedSalary: Math.round(stats.totalPaidDays * ratePerDay * 100) / 100,
+  };
+}
+
+/** Deterministic pseudo-random so a failing sweep case can be reproduced. */
+function makeRandom(seed: number): () => number {
+  let state = seed >>> 0;
+  return () => {
+    state = (state * 1664525 + 1013904223) >>> 0;
+    return state / 0x100000000;
+  };
+}
+
+function iso(year: number, month: number, day: number): string {
+  return `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+describe("Sunday premium — a premium-free factory's pay does not move", () => {
+  it("agrees with the previous algorithm across a swept range of months, rates and attendance", () => {
+    const random = makeRandom(20260802);
+    const rates = [0, 300, 322.58, 1000, 1234.56];
+    const shifts = [8, 9, 12];
+    let cases = 0;
+
+    for (let year = 2025; year <= 2026; year += 1) {
+      for (let month = 0; month < 12; month += 1) {
+        const lastDay = new Date(year, month + 1, 0).getDate();
+        for (const ratePerDay of rates) {
+          const hoursPerDay = shifts[Math.floor(random() * shifts.length)];
+          const attendance: {
+            date: string;
+            status: string;
+            hoursWorked?: number;
+            hoursExtra?: number;
+            hoursReduced?: number;
+          }[] = [];
+          const holidayDates: string[] = [];
+          for (let day = 1; day <= lastDay; day += 1) {
+            const roll = random();
+            if (roll < 0.1) {
+              holidayDates.push(iso(year, month, day));
+            }
+            if (roll < 0.15) continue;
+            const record: {
+              date: string;
+              status: string;
+              hoursWorked?: number;
+              hoursExtra?: number;
+              hoursReduced?: number;
+            } = {
+              date: iso(year, month, day),
+              status: roll < 0.3 ? "absent" : "present",
+            };
+            const shape = random();
+            if (shape < 0.2) record.hoursWorked = Math.round(random() * 20);
+            else if (shape < 0.4) record.hoursExtra = Math.round(random() * 6);
+            else if (shape < 0.6) record.hoursReduced = Math.round(random() * 6);
+            attendance.push(record);
+          }
+
+          const ranges: [string, string][] = [
+            [iso(year, month, 1), iso(year, month, lastDay)],
+            [iso(year, month, 1), iso(year, month, 15)],
+            [iso(year, month, 16), iso(year, month, lastDay)],
+            [iso(year, month, 7), iso(year, month, 22)],
+          ];
+          for (const [fromDate, toDate] of ranges) {
+            const args = {
+              fromDate,
+              toDate,
+              holidayDates,
+              attendance,
+              hoursPerDay,
+              ratePerDay,
+            };
+            const legacy = legacyBuildAttendanceSalarySummaryForRange(args);
+            // No premium at all: the field is simply not passed, exactly as
+            // every caller passed it before the premium existed.
+            const current = buildAttendanceSalarySummaryForRange(args);
+            // ...and an explicitly absent premium must be the same thing.
+            const explicitNone = buildAttendanceSalarySummaryForRange({
+              ...args,
+              sundayPremium: null,
+            });
+            // A multiplier of 1 is "a Sunday pays one day's pay" — configured,
+            // but worth nothing, so it must not move a paisa either.
+            const neutral = buildAttendanceSalarySummaryForRange({
+              ...args,
+              sundayPremium: { requiredPresentDays: 0, sundayMultiplier: 1 },
+            });
+
+            expect({ ...current, sundayPremiumExtraPay: undefined }).toEqual({
+              ...legacy,
+              sundayPremiumExtraPay: undefined,
+            });
+            expect(current.calculatedSalary).toBe(legacy.calculatedSalary);
+            expect(current.sundayPremiumExtraPay).toBe(0);
+            expect(explicitNone.calculatedSalary).toBe(legacy.calculatedSalary);
+            expect(neutral.calculatedSalary).toBe(legacy.calculatedSalary);
+            cases += 1;
+          }
+        }
+      }
+    }
+
+    expect(cases).toBe(2 * 12 * 5 * 4);
+  });
+});
+
+describe("Sunday premium — what it pays once it is configured", () => {
+  /** April 2026: Sundays fall on the 5th, 12th, 19th and 26th. */
+  const presentEveryDay = (from: number, to: number) =>
+    Array.from({ length: to - from + 1 }, (_, i) => ({
+      date: iso(2026, 3, from + i),
+      status: "present",
+    }));
+
+  it("pays a worked Sunday extra once the month's present days reach the number", () => {
+    const attendance = presentEveryDay(1, 30);
+    const withPremium = buildAttendanceSalarySummaryForRange({
+      fromDate: "2026-04-01",
+      toDate: "2026-04-30",
+      holidayDates: [],
+      attendance,
+      hoursPerDay: 8,
+      ratePerDay: 1000,
+      // 20 present working days, then a worked Sunday pays one and a half days.
+      sundayPremium: { requiredPresentDays: 20, sundayMultiplier: 1.5 },
+    });
+    const flat = buildAttendanceSalarySummaryForRange({
+      fromDate: "2026-04-01",
+      toDate: "2026-04-30",
+      holidayDates: [],
+      attendance,
+      hoursPerDay: 8,
+      ratePerDay: 1000,
+    });
+
+    // Present every working day: the 20th qualifying day falls before the last
+    // Sunday of the month (26 April) but after the 19th, so exactly one Sunday
+    // is paid at the higher rate — an extra half day's pay.
+    expect(withPremium.sundayPremiumExtraPay).toBe(500);
+    expect(withPremium.calculatedSalary).toBe(flat.calculatedSalary + 500);
+    // Day counts are untouched: the premium is money, not days.
+    expect(withPremium.totalPaidDays).toBe(flat.totalPaidDays);
+    expect(withPremium.sundayPresentBonusDays).toBe(
+      flat.sundayPresentBonusDays,
+    );
+  });
+
+  it("pays nothing extra when the worker never reaches the number", () => {
+    const summary = buildAttendanceSalarySummaryForRange({
+      fromDate: "2026-04-01",
+      toDate: "2026-04-30",
+      holidayDates: [],
+      attendance: presentEveryDay(1, 30),
+      hoursPerDay: 8,
+      ratePerDay: 1000,
+      sundayPremium: { requiredPresentDays: 31, sundayMultiplier: 2 },
+    });
+    expect(summary.sundayPremiumExtraPay).toBe(0);
+  });
+
+  it("pays every worked Sunday when the number is zero", () => {
+    const summary = buildAttendanceSalarySummaryForRange({
+      fromDate: "2026-04-01",
+      toDate: "2026-04-30",
+      holidayDates: [],
+      attendance: [
+        { date: "2026-04-05", status: "present" },
+        { date: "2026-04-12", status: "present" },
+      ],
+      hoursPerDay: 8,
+      ratePerDay: 1000,
+      sundayPremium: { requiredPresentDays: 0, sundayMultiplier: 1.2 },
+    });
+    // Two Sundays worked, each paying a fifth of a day extra.
+    expect(summary.sundayPremiumExtraPay).toBe(400);
+  });
+
+  it("counts qualifying days from the 1st, so the second half of a month is not restarted", () => {
+    const attendance = presentEveryDay(1, 30);
+    const rangeOnly = buildAttendanceSalarySummaryForRange({
+      fromDate: "2026-04-16",
+      toDate: "2026-04-30",
+      holidayDates: [],
+      attendance: attendance.filter((a) => a.date >= "2026-04-16"),
+      hoursPerDay: 8,
+      ratePerDay: 1000,
+      sundayPremium: { requiredPresentDays: 20, sundayMultiplier: 1.5 },
+    });
+    const wholeMonthKnown = buildAttendanceSalarySummaryForRange({
+      fromDate: "2026-04-16",
+      toDate: "2026-04-30",
+      holidayDates: [],
+      attendance: attendance.filter((a) => a.date >= "2026-04-16"),
+      hoursPerDay: 8,
+      ratePerDay: 1000,
+      sundayPremium: { requiredPresentDays: 20, sundayMultiplier: 1.5 },
+      premiumAttendance: attendance,
+    });
+
+    // Judged on the half alone, nobody reaches 20 days and the premium silently
+    // vanishes; judged on the month, the 26th qualifies.
+    expect(rangeOnly.sundayPremiumExtraPay).toBe(0);
+    expect(wholeMonthKnown.sundayPremiumExtraPay).toBe(500);
+  });
+
+  it("never pays for a Sunday outside the range being paid", () => {
+    const attendance = presentEveryDay(1, 30);
+    const firstHalf = buildAttendanceSalarySummaryForRange({
+      fromDate: "2026-04-01",
+      toDate: "2026-04-15",
+      holidayDates: [],
+      attendance,
+      hoursPerDay: 8,
+      ratePerDay: 1000,
+      sundayPremium: { requiredPresentDays: 0, sundayMultiplier: 2 },
+      premiumAttendance: attendance,
+    });
+    const secondHalf = buildAttendanceSalarySummaryForRange({
+      fromDate: "2026-04-16",
+      toDate: "2026-04-30",
+      holidayDates: [],
+      attendance,
+      hoursPerDay: 8,
+      ratePerDay: 1000,
+      sundayPremium: { requiredPresentDays: 0, sundayMultiplier: 2 },
+      premiumAttendance: attendance,
+    });
+    // Four Sundays in April, two in each half, each worth one extra day at 2×.
+    expect(firstHalf.sundayPremiumExtraPay).toBe(2000);
+    expect(secondHalf.sundayPremiumExtraPay).toBe(2000);
+  });
+
+  it("agrees, Sunday for Sunday, with the day-by-day sheet the worker is shown", () => {
+    const attendance = presentEveryDay(1, 30);
+    const premium = { requiredPresentDays: 20, sundayMultiplier: 1.5 };
+    const withPremium = buildMonthSalaryBreakdown({
+      year: 2026,
+      month: 3,
+      holidayDates: [],
+      attendance,
+      productionPayByDate: new Map(),
+      hoursPerDay: 8,
+      ratePerDay: 1000,
+      includeProductionPay: false,
+      sundayPremium: premium,
+    });
+    const flat = buildMonthSalaryBreakdown({
+      year: 2026,
+      month: 3,
+      holidayDates: [],
+      attendance,
+      productionPayByDate: new Map(),
+      hoursPerDay: 8,
+      ratePerDay: 1000,
+      includeProductionPay: false,
+    });
+
+    const summary = buildAttendanceSalarySummaryForRange({
+      fromDate: "2026-04-01",
+      toDate: "2026-04-30",
+      holidayDates: [],
+      attendance,
+      hoursPerDay: 8,
+      ratePerDay: 1000,
+      sundayPremium: premium,
+    });
+
+    expect(
+      Math.round(
+        (withPremium.sundayMarkBonusPay - flat.sundayMarkBonusPay) * 100,
+      ) / 100,
+    ).toBe(summary.sundayPremiumExtraPay);
   });
 });

@@ -16,6 +16,7 @@ import {
   isSunday,
   getSundayDatesInMonth,
   getMonthRange,
+  getCalendarDaysInMonth,
   DEFAULT_MAX_DAY_PAY_FRACTION,
   dayPayCapValue,
   type DayPayCap,
@@ -166,6 +167,78 @@ export function computeEarnedExtraPayDaysForCalendarScope(
   return total;
 }
 
+/**
+ * "Once someone has been present `requiredPresentDays` days this month, a
+ * Sunday they work pays `sundayMultiplier` times a day's pay."
+ *
+ * One shape for the two numbers a Sunday category configures, the day-by-day
+ * sheet applies and the period total adds up — so the sheet and the total
+ * cannot drift apart.
+ */
+export interface SundayRatePremium {
+  requiredPresentDays: number;
+  sundayMultiplier: number;
+}
+
+/**
+ * The *extra* rupees a Sunday premium adds over the flat rate, for the Sundays
+ * worked inside `[fromDate, toDate]`.
+ *
+ * Returned as an addition rather than a rebuilt total on purpose. The range
+ * summary pays `totalPaidDays × ratePerDay` in one multiplication; recomputing
+ * it day by day to slip the premium in would re-round every day and move a
+ * premium-free factory's pay by a paisa here and there. Adding zero changes
+ * nothing at all, which is exactly what a factory with no premium configured
+ * must see.
+ *
+ * `attendance` should cover each whole calendar month the range touches, not
+ * just the range: the qualifying count runs from day 1 of the month, so feeding
+ * it a half-month slice would restart the count and quietly withhold the
+ * premium from the second half. Sundays outside the range are counted for
+ * qualification but never paid here.
+ */
+export function computeSundayPremiumExtraPay(input: {
+  fromDate: string;
+  toDate: string;
+  attendance: AttendanceRecord[];
+  ratePerDay: number;
+  premium?: SundayRatePremium | null;
+}): number {
+  const { fromDate, toDate, attendance, ratePerDay, premium } = input;
+  if (!premium) return 0;
+  const { requiredPresentDays, sundayMultiplier } = premium;
+  if (!Number.isFinite(sundayMultiplier) || !Number.isFinite(requiredPresentDays)) {
+    return 0;
+  }
+  // Rounded exactly as `buildMonthSalaryBreakdown` rounds each Sunday row, so a
+  // person's total agrees with the day rows printed underneath it.
+  const flatPay = Math.round(ratePerDay * 100) / 100;
+  const premiumPay = Math.round(ratePerDay * sundayMultiplier * 100) / 100;
+  const perSunday = Math.round((premiumPay - flatPay) * 100) / 100;
+  if (perSunday === 0) return 0;
+
+  const statusByDate = new Map(attendance.map((a) => [a.date, a.status]));
+  let extra = 0;
+  forEachCalendarMonthOverlappingRange(fromDate, toDate, (year, monthIndex) => {
+    // Present working and holiday days count towards qualifying; Sundays never
+    // do. Same rule as `presentWorkingDayCountSoFar` in the day-by-day builder.
+    let presentSoFar = 0;
+    const lastDay = getCalendarDaysInMonth(year, monthIndex);
+    for (let d = 1; d <= lastDay; d += 1) {
+      const dateStr = `${year}-${pad2(monthIndex + 1)}-${pad2(d)}`;
+      const present = statusByDate.get(dateStr) === "present";
+      if (!isSunday(dateStr)) {
+        if (present) presentSoFar += 1;
+        continue;
+      }
+      if (!present) continue;
+      if (dateStr < fromDate || dateStr > toDate) continue;
+      if (presentSoFar >= requiredPresentDays) extra += perSunday;
+    }
+  });
+  return Math.round(extra * 100) / 100;
+}
+
 export interface AttendanceRecord {
   date: string;
   status: string;
@@ -207,6 +280,16 @@ export interface AttendanceStats {
 export interface AttendanceSalarySummaryForRange extends AttendanceStats {
   hoursExtraTotal: number;
   hoursReducedTotal: number;
+  /**
+   * Rupees the Sunday premium added on top of the flat daily rate. 0 whenever
+   * no premium applies, and carried so a caller can say where the money came
+   * from instead of the total simply being bigger than the days imply.
+   *
+   * Optional because callers outside this module hand-build this shape for
+   * display (`salarySheetRowToAttendanceSummary`, whose figures already include
+   * any premium); every function here always sets it.
+   */
+  sundayPremiumExtraPay?: number;
   calculatedSalary: number;
 }
 
@@ -482,15 +565,17 @@ export function buildMonthSalaryBreakdown(input: {
   includeProductionPay?: boolean;
   sundayCategoryRule?: SundayCategoryRule;
   /**
-   * Optional Operator-only rule: once the running count of present working/holiday
+   * Optional Sunday premium: once the running count of present working/holiday
    * days so far in the month reaches `requiredPresentDays`, a present Sunday is paid
    * `ratePerDay * sundayMultiplier` instead of the flat `ratePerDay`. Undefined
    * preserves today's behavior exactly (flat rate for every present Sunday).
+   *
+   * Was called `operatorSundayRule`, from when only Operators could have one.
+   * Any employee's Sunday category can configure it now, so a name that says
+   * "Operator" would send the next reader looking for a restriction that is not
+   * there.
    */
-  operatorSundayRule?: {
-    requiredPresentDays: number;
-    sundayMultiplier: number;
-  };
+  sundayPremium?: SundayRatePremium;
   /** Most one date may pay, in days. `null` = no limit. Default 2, as before. */
   maxDayPayFraction?: DayPayCap;
 }): MonthSalaryBreakdown {
@@ -504,7 +589,7 @@ export function buildMonthSalaryBreakdown(input: {
     ratePerDay,
     includeProductionPay = true,
     sundayCategoryRule = DEFAULT_SUNDAY_CATEGORY_RULE,
-    operatorSundayRule,
+    sundayPremium,
     maxDayPayFraction = DEFAULT_MAX_DAY_PAY_FRACTION,
   } = input;
 
@@ -531,7 +616,7 @@ export function buildMonthSalaryBreakdown(input: {
   let sumHoursReduced = 0;
   let sundayPresentBonusDays = 0;
   // Running count of present working/holiday days so far in the month, used only
-  // by the optional Operator Sunday-multiplier rule. Sundays never contribute to
+  // by the optional Sunday premium. Sundays never contribute to
   // this count since they are not "working days".
   let presentWorkingDayCountSoFar = 0;
 
@@ -548,12 +633,12 @@ export function buildMonthSalaryBreakdown(input: {
       if (sundayPresent) sundayPresentBonusDays += 1;
       const sundayMultiplierApplies =
         sundayPresent &&
-        operatorSundayRule != null &&
-        presentWorkingDayCountSoFar >= operatorSundayRule.requiredPresentDays;
+        sundayPremium != null &&
+        presentWorkingDayCountSoFar >= sundayPremium.requiredPresentDays;
       const bonusPay = sundayPresent
         ? sundayMultiplierApplies
           ? Math.round(
-              ratePerDay * operatorSundayRule!.sundayMultiplier * 100,
+              ratePerDay * sundayPremium!.sundayMultiplier * 100,
             ) / 100
           : Math.round(ratePerDay * 100) / 100
         : 0;
@@ -726,7 +811,7 @@ export function buildMonthSalaryBreakdown(input: {
   const earnedSundayPoolPay =
     Math.round(earnedSundayPayDays * ratePerDay * 100) / 100;
   // Sum actual per-row Sunday bonus pay rather than `sundayPresentBonusDays * ratePerDay`,
-  // since the operator Sunday-multiplier rule can make individual Sundays' bonusPay differ
+  // since the Sunday premium can make individual Sundays' bonusPay differ
   // from the flat rate within the same month.
   const sundayMarkBonusPay =
     Math.round(
@@ -878,6 +963,18 @@ export function buildAttendanceSalarySummaryForRange(input: {
   sundayCategoryRule?: SundayCategoryRule;
   /** Most one date may pay, in days. `null` = no limit. Default 2, as before. */
   maxDayPayFraction?: DayPayCap;
+  /**
+   * Extra pay for Sundays worked, once the month's present days reach a set
+   * number. Omitted or `null` pays every Sunday worked at the flat daily rate,
+   * which is what every caller did before this existed.
+   */
+  sundayPremium?: SundayRatePremium | null;
+  /**
+   * Attendance for the whole calendar month(s) the range touches, used only to
+   * decide which Sundays qualify for `sundayPremium` — see
+   * {@link computeSundayPremiumExtraPay}. Defaults to `attendance`.
+   */
+  premiumAttendance?: AttendanceRecord[];
 }): AttendanceSalarySummaryForRange {
   const {
     fromDate,
@@ -888,6 +985,8 @@ export function buildAttendanceSalarySummaryForRange(input: {
     ratePerDay,
     sundayCategoryRule = DEFAULT_SUNDAY_CATEGORY_RULE,
     maxDayPayFraction = DEFAULT_MAX_DAY_PAY_FRACTION,
+    sundayPremium = null,
+    premiumAttendance,
   } = input;
 
   const stats = computeAttendanceStatsForRange({
@@ -905,11 +1004,25 @@ export function buildAttendanceSalarySummaryForRange(input: {
     toDate,
   );
 
+  const sundayPremiumExtraPay = computeSundayPremiumExtraPay({
+    fromDate,
+    toDate,
+    attendance: premiumAttendance ?? attendance,
+    ratePerDay,
+    premium: sundayPremium,
+  });
+
   return {
     ...stats,
     hoursExtraTotal: hoursExtraSum,
     hoursReducedTotal: hoursReducedSum,
-    calculatedSalary: Math.round(stats.totalPaidDays * ratePerDay * 100) / 100,
+    sundayPremiumExtraPay,
+    calculatedSalary:
+      Math.round(
+        (Math.round(stats.totalPaidDays * ratePerDay * 100) / 100 +
+          sundayPremiumExtraPay) *
+          100,
+      ) / 100,
   };
 }
 
