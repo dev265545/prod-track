@@ -56,26 +56,26 @@ export function ItemTable({
 
   return (
     <div className="w-full min-w-0 overflow-x-auto rounded-xl border border-border bg-card shadow-sm">
-      <Table>
+      <Table aria-label={t("a11yStockTableLabel")}>
         <TableHeader>
           <TableRow>
-            <TableHead>{t("inventoryColCode")}</TableHead>
-            <TableHead>{t("inventoryColName")}</TableHead>
-            <TableHead>{t("inventoryColUnit")}</TableHead>
-            <TableHead className="text-right">
+            <TableHead scope="col">{t("inventoryColCode")}</TableHead>
+            <TableHead scope="col">{t("inventoryColName")}</TableHead>
+            <TableHead scope="col">{t("inventoryColUnit")}</TableHead>
+            <TableHead scope="col" className="text-right">
               {t("inventoryColOpening")}
             </TableHead>
-            <TableHead className="text-right">
+            <TableHead scope="col" className="text-right">
               {t("inventoryColInward")}
             </TableHead>
-            <TableHead className="text-right">
+            <TableHead scope="col" className="text-right">
               {t("inventoryColOutward")}
             </TableHead>
-            <TableHead className="text-right">
+            <TableHead scope="col" className="text-right">
               {t("inventoryColClosing")}
             </TableHead>
-            <TableHead>{t("inventoryColStatus")}</TableHead>
-            <TableHead className="text-right">
+            <TableHead scope="col">{t("inventoryColStatus")}</TableHead>
+            <TableHead scope="col" className="text-right">
               {t("invCatColActions")}
             </TableHead>
           </TableRow>
@@ -88,7 +88,15 @@ export function ItemTable({
 
             return (
               <TableRow key={item.id}>
-                <TableCell className="font-mono text-xs">{item.code}</TableCell>
+                {/* The code is what the operator matches against the label on
+                    the physical stock — it identifies the row, so it is the
+                    row header rather than the first of nine anonymous cells. */}
+                <TableHead
+                  scope="row"
+                  className="h-auto p-4 font-mono text-xs font-normal text-foreground"
+                >
+                  {item.code}
+                </TableHead>
                 <TableCell className="font-medium text-foreground">
                   {item.name}
                 </TableCell>

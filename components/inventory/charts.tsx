@@ -2,6 +2,8 @@
 
 import { useId, useState } from "react";
 import { cn } from "@/lib/utils";
+import { buildDonutArcs } from "@/lib/utils/donutArcs";
+import { useLanguage } from "@/components/language-provider";
 
 /**
  * Dependency-free, theme-aware inline SVG/CSS chart primitives for the
@@ -30,22 +32,21 @@ export function HealthDonut({
   centerLabel: string;
   centerValue: number | string;
 }) {
-  const total = segments.reduce((s, x) => s + x.value, 0);
   const size = 160;
   const stroke = 20;
   const r = (size - stroke) / 2;
   const circumference = 2 * Math.PI * r;
 
-  let offset = 0;
-  const arcs = segments.map((seg) => {
-    const frac = total > 0 ? seg.value / total : 0;
-    const len = frac * circumference;
-    const gap = total > 0 && frac > 0 ? 2 : 0; // 2px surface gap between segments
-    const dasharray = `${Math.max(len - gap, 0)} ${circumference - Math.max(len - gap, 0)}`;
-    const dashoffset = -offset;
-    offset += len;
-    return { ...seg, dasharray, dashoffset, frac };
-  });
+  // Geometry is a pure fold in `lib/utils/donutArcs` — see the note there on
+  // why it cannot be a running cursor inside a render-time `map`.
+  const geometry = buildDonutArcs(segments, circumference);
+  const arcs = segments.map((seg, i) => ({ ...seg, ...geometry[i] }));
+
+  // The ring is decorative: every slice is repeated as a word and a number in
+  // the list beside it, so the label only has to say what the whole is.
+  const summary = `${centerLabel}: ${centerValue}. ${segments
+    .map((s) => `${s.label} ${s.value}`)
+    .join(", ")}`;
 
   return (
     <div className="flex min-w-0 flex-col items-center gap-4 sm:flex-row sm:items-center sm:gap-6">
@@ -54,7 +55,7 @@ export function HealthDonut({
         height={size}
         viewBox={`0 0 ${size} ${size}`}
         role="img"
-        aria-label={`${centerLabel}: ${centerValue}`}
+        aria-label={summary}
         className="shrink-0 -rotate-90"
       >
         <circle
@@ -139,7 +140,9 @@ export function HorizontalBarChart({ data }: { data: HBarDatum[] }) {
           <span className="w-20 shrink-0 truncate text-sm text-muted-foreground sm:w-24">
             {d.label}
           </span>
-          <div className="relative h-6 min-w-0 flex-1 overflow-hidden rounded-md bg-muted/50">
+          {/* `bg-surface-2`, not `bg-muted/50` — semantic surfaces, per the
+              house rule, so the track needs no alpha at all. */}
+          <div className="relative h-6 min-w-0 flex-1 overflow-hidden rounded-md bg-surface-2">
             <div
               className={cn(
                 "h-full rounded-md transition-[width] duration-700 ease-out",
@@ -180,6 +183,7 @@ export function MovementTrendChart({
   inwardLabel: string;
   outwardLabel: string;
 }) {
+  const { t } = useLanguage();
   const gradId = useId();
   const [hover, setHover] = useState<number | null>(null);
   const max = Math.max(1, ...points.map((p) => Math.max(p.inward, p.outward)));
@@ -199,10 +203,7 @@ export function MovementTrendChart({
           {inwardLabel}
         </span>
         <span className="flex items-center gap-1.5">
-          <span
-            className="size-2.5 rounded-full bg-muted-foreground/50"
-            aria-hidden
-          />
+          <span className="size-2.5 rounded-full bg-surface-4" aria-hidden />
           {outwardLabel}
         </span>
       </div>
@@ -214,7 +215,7 @@ export function MovementTrendChart({
           preserveAspectRatio="none"
           style={{ minWidth: width }}
           role="img"
-          aria-label={`${inwardLabel} vs ${outwardLabel} trend`}
+          aria-label={`${inwardLabel} / ${outwardLabel}`}
         >
           <defs>
             <linearGradient id={`${gradId}-in`} x1="0" y1="0" x2="0" y2="1">
@@ -243,14 +244,18 @@ export function MovementTrendChart({
             const outH = (p.outward / max) * (plotH - 8);
             const isHover = hover === i;
             return (
+              // Not focusable, and deliberately so. These used to carry
+              // `tabIndex={0}` with no accessible name, inside a `role="img"`
+              // that prunes its own descendants — so a keyboard user tabbed
+              // through fourteen stops that announced nothing at all, with
+              // `outline-none` hiding where they were. Hover is a pointer
+              // nicety; the numbers themselves are in the list below, which
+              // every input method can reach.
               <g
                 key={p.date}
                 onMouseEnter={() => setHover(i)}
                 onMouseLeave={() => setHover((h) => (h === i ? null : h))}
-                tabIndex={0}
-                onFocus={() => setHover(i)}
-                onBlur={() => setHover((h) => (h === i ? null : h))}
-                className="cursor-pointer outline-none"
+                className="cursor-pointer"
               >
                 <rect
                   x={cx - barW - 1}
@@ -267,7 +272,11 @@ export function MovementTrendChart({
                   width={barW}
                   height={outH}
                   rx={2}
-                  className="fill-muted-foreground/50"
+                  // `fill-opacity` is an SVG attribute rather than a CSS
+                  // color function, which is how the rest of this folder does
+                  // a wash without an alpha modifier.
+                  className="fill-muted-foreground"
+                  fillOpacity={0.5}
                   opacity={isHover ? 1 : 0.85}
                 />
                 {isHover && (
@@ -276,7 +285,8 @@ export function MovementTrendChart({
                     y={0}
                     width={slot}
                     height={plotH}
-                    className="fill-foreground/5"
+                    className="fill-foreground"
+                    fillOpacity={0.05}
                   />
                 )}
                 {(i === 0 ||
@@ -296,6 +306,22 @@ export function MovementTrendChart({
           })}
         </svg>
       </div>
+      {/* The chart in words. A bar chart is a shape; this is the same fourteen
+          days as sentences, for a screen reader and for anyone who does not
+          read a plot. Off-screen only — it says nothing the picture does not. */}
+      <ul className="sr-only">
+        <li>{t("a11yChartDayList")}</li>
+        {points.map((p) => (
+          <li key={p.date}>
+            {t("a11yMovementDayItem", {
+              date: p.dayLabel,
+              inward: p.inward,
+              outward: p.outward,
+            })}
+          </li>
+        ))}
+      </ul>
+
       {hover !== null && points[hover] && (
         <div className="flex w-fit min-w-0 max-w-full flex-wrap items-center gap-3 rounded-lg border border-border bg-popover px-3 py-1.5 text-xs shadow-sm">
           <span className="font-semibold">{points[hover].dayLabel}</span>

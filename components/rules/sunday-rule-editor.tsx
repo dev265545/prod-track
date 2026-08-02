@@ -105,8 +105,16 @@ export function SundayRuleEditor({
   return (
     <div className="flex w-full min-w-0 flex-col gap-5">
       <div className="flex flex-col gap-2">
-        <Label>{t("ruleTypeLabel")}</Label>
-        <div className="flex flex-wrap gap-3">
+        {/* Was a bare `<Label>` with no `htmlFor` — a label pointing at
+            nothing, which named neither button. It names the group instead. */}
+        <p id="ruleTypeLabel" className="text-sm font-medium text-foreground">
+          {t("ruleTypeLabel")}
+        </p>
+        <div
+          role="group"
+          aria-labelledby="ruleTypeLabel"
+          className="flex flex-wrap gap-3"
+        >
           <Button
             type="button"
             variant={rule.kind === "table" ? "default" : "outline"}
@@ -390,21 +398,32 @@ export function SundayRuleEditor({
           </p>
         ) : null}
         <div className="w-full overflow-x-auto">
-          <table className="w-full min-w-[18rem] border-collapse text-base">
+          <table
+            className="w-full min-w-[18rem] border-collapse text-base"
+            aria-label={t("a11ySundayPreviewLabel")}
+          >
             <thead>
               <tr className="text-left text-muted-foreground">
-                <th className="py-2 pr-4 font-medium">{t("rulePreviewColDays")}</th>
-                <th className="py-2 font-medium">{t("rulePreviewColEarned")}</th>
+                <th scope="col" className="py-2 pr-4 font-medium">
+                  {t("rulePreviewColDays")}
+                </th>
+                <th scope="col" className="py-2 font-medium">
+                  {t("rulePreviewColEarned")}
+                </th>
               </tr>
             </thead>
             <tbody>
               {preview.map((row) => (
                 <tr key={row.from} className="border-t border-border">
-                  <td className="py-2 pr-4 tabular-nums text-foreground">
+                  {/* The day count identifies the row. */}
+                  <th
+                    scope="row"
+                    className="py-2 pr-4 text-left font-normal tabular-nums text-foreground"
+                  >
                     {row.from === row.to
                       ? num(row.from)
                       : `${num(row.from)}–${num(row.to)}`}
-                  </td>
+                  </th>
                   <td className="py-2 tabular-nums text-foreground">
                     {num(row.earned)}
                   </td>

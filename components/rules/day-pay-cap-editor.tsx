@@ -190,19 +190,30 @@ export function DayPayCapEditor({
           </p>
         )}
         <div className="w-full overflow-x-auto">
-          <table className="w-full min-w-[18rem] border-collapse text-base">
+          <table
+            className="w-full min-w-[18rem] border-collapse text-base"
+            aria-label={t("a11yCapPreviewLabel")}
+          >
             <thead>
               <tr className="text-left text-muted-foreground">
-                <th className="py-2 pr-4 font-medium">{t("capColExtra")}</th>
-                <th className="py-2 font-medium">{t("capColPaid")}</th>
+                <th scope="col" className="py-2 pr-4 font-medium">
+                  {t("capColExtra")}
+                </th>
+                <th scope="col" className="py-2 font-medium">
+                  {t("capColPaid")}
+                </th>
               </tr>
             </thead>
             <tbody>
               {preview.map((row) => (
                 <tr key={row.extraHours} className="border-t border-border">
-                  <td className="py-2 pr-4 tabular-nums text-foreground">
+                  {/* The extra-hours figure identifies the row. */}
+                  <th
+                    scope="row"
+                    className="py-2 pr-4 text-left font-normal tabular-nums text-foreground"
+                  >
                     {num(row.extraHours)}
-                  </td>
+                  </th>
                   <td className="py-2 tabular-nums text-foreground">
                     {row.capped
                       ? t("capColPaidClipped", {

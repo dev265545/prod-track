@@ -85,6 +85,12 @@ function PickerBody({
         />
       </div>
 
+      {/* The only feedback that typing did anything: it changes with no focus
+          moving to it, so it has to announce itself. */}
+      <p aria-live="polite" className="sr-only">
+        {t("a11yResultCount", { count: matches.length })}
+      </p>
+
       <div className="min-w-0 flex-1 overflow-y-auto">
         {matches.length === 0 ? (
           <Empty className="border p-8">

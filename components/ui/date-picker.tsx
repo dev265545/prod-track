@@ -7,6 +7,7 @@ import { CalendarIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
+import { useHydrated } from "@/lib/hooks/useClientValue";
 
 const DATE_FORMAT = "yyyy-MM-dd";
 
@@ -88,7 +89,10 @@ export function DatePicker({
   const [open, setOpen] = React.useState(false);
   const containerRef = React.useRef<HTMLDivElement>(null);
   const popupRef = React.useRef<HTMLDivElement>(null);
-  const [mounted, setMounted] = React.useState(false);
+  // The popup is portalled into document.body, which only exists on the
+  // client. This was state set from an effect, i.e. a whole extra render pass
+  // whose only job was to flip a boolean React can hand us directly.
+  const mounted = useHydrated();
   const [popupStyle, setPopupStyle] =
     React.useState<React.CSSProperties>(OFFSCREEN);
   const selected = toDate(value);
@@ -119,10 +123,6 @@ export function DatePicker({
       left,
       zIndex: 1000,
     });
-  }, []);
-
-  React.useEffect(() => {
-    setMounted(true);
   }, []);
 
   // Layout effect: the popup is measured and moved into place before the browser

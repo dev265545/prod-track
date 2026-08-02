@@ -47,6 +47,9 @@ import {
 import { getAppSettings } from "@/lib/services/appSettingsService";
 import { AlertTriangle } from "lucide-react";
 
+/** One shared empty array, so "no holidays" keeps a stable identity. */
+const EMPTY_DATES: string[] = [];
+
 /** The three drivers this dialog edits — also the three the period clamp bounds. */
 const DRIVER_FIELDS: Array<{
   key: "presentDays" | "earnedSundayPayDays" | "sundayPresentBonusDays";
@@ -94,7 +97,6 @@ export function SalarySheetAdjustDialog({
     useState<SalarySheetDraftDrivers | null>(null);
   const [draftNotes, setDraftNotes] = useState("");
   const [savingOverride, setSavingOverride] = useState(false);
-  const [periodHolidayDates, setPeriodHolidayDates] = useState<string[]>([]);
   // The per-day pay limit in force. Read here rather than assumed, because the
   // ceiling this dialog draws must be the very one the save applies — showing
   // one number and enforcing another is how the old hardcoded 2 stayed hidden.
@@ -115,11 +117,17 @@ export function SalarySheetAdjustDialog({
     };
   }, [open]);
 
+  // Clearing the list used to be a `setPeriodHolidayDates([])` in the effect's
+  // early-return branch — a synchronous setState whose only purpose was to
+  // undo a value we can simply decline to read. Derived instead, so a closed
+  // dialog or a half-typed range can never be computed against last period's
+  // holidays even for one render.
+  const [loadedHolidayDates, setPeriodHolidayDates] = useState<string[]>([]);
+  const holidayRangeUsable = Boolean(open && periodFrom && periodTo);
+  const periodHolidayDates = holidayRangeUsable ? loadedHolidayDates : EMPTY_DATES;
+
   useEffect(() => {
-    if (!open || !periodFrom || !periodTo) {
-      setPeriodHolidayDates([]);
-      return;
-    }
+    if (!open || !periodFrom || !periodTo) return;
     let cancelled = false;
     void getHolidaysInRange(periodFrom, periodTo).then((rows) => {
       if (!cancelled) {
@@ -201,19 +209,34 @@ export function SalarySheetAdjustDialog({
   );
 
 
-  useEffect(() => {
-    if (!open || !row) return;
-    setDraftNotes(row.overrideNotes);
-  }, [open, row]);
+  /**
+   * Seeding the boxes, during render rather than in an effect.
+   *
+   * These were two effects that fired *after* the dialog had already painted,
+   * so opening it showed one frame of the previous employee's notes and
+   * figures before they were replaced. Re-seeding here means the first frame
+   * is already correct: React discards the in-progress render and redoes it
+   * with the new state before anything reaches the screen.
+   *
+   * `seededFor` is the identity of what is currently in the boxes. Comparing
+   * it — rather than watching `row` in a dependency array — is what makes this
+   * a re-seed on a genuinely new subject, and not on every clamp recompute.
+   */
+  const [seededFor, setSeededFor] = useState<string | null>(null);
+  const seedKey = open && row ? `${row.id}|${periodFrom}|${periodTo}` : null;
+  if (seedKey !== null && seedKey !== seededFor) {
+    setSeededFor(seedKey);
+    setDraftNotes(row!.overrideNotes);
+    setDraftDrivers(clampDriverDraft(getSalarySheetDriverDefaults(row!)));
+  }
 
-  useEffect(() => {
-    if (!open || !row) return;
-    setDraftDrivers((prev) =>
-      prev
-        ? clampDriverDraft(prev)
-        : clampDriverDraft(getSalarySheetDriverDefaults(row)),
-    );
-  }, [open, row, periodFrom, periodTo, periodHolidayDates, clampDriverDraft]);
+  // The ceilings themselves can move after seeding — the holiday read lands a
+  // moment later — so a draft already on screen is pulled back within them.
+  const [clampedAgainst, setClampedAgainst] = useState<string[]>(EMPTY_DATES);
+  if (seedKey !== null && clampedAgainst !== periodHolidayDates) {
+    setClampedAgainst(periodHolidayDates);
+    setDraftDrivers((prev) => (prev ? clampDriverDraft(prev) : prev));
+  }
 
   const closeModal = (force = false) => {
     if (savingOverride && !force) return;
@@ -221,7 +244,9 @@ export function SalarySheetAdjustDialog({
     setDraftDrivers(null);
     setDraftNotes("");
     setTrimmedDriverKeys([]);
-    setPeriodHolidayDates([]);
+    // The boxes re-seed on the next open, keyed on who and which period, so
+    // there is nothing here to reset by hand.
+    setSeededFor(null);
   };
 
   const resetDraftField = (field: SalarySheetDriverField) => {

@@ -481,7 +481,11 @@ export default function InventoryPage() {
                 }}
                 className="flex min-h-[76px] w-full min-w-0 items-center gap-4 rounded-lg border border-border bg-card px-5 py-4 text-left shadow-sm hover:bg-surface-3"
               >
-                <span className="flex size-12 shrink-0 items-center justify-center rounded-lg bg-destructive/10 text-destructive">
+                {/* Solid surface token plus a border, not
+                    `bg-destructive/10`: the house rule is semantic surfaces,
+                    and the border keeps the chip legible without relying on a
+                    tint being distinguishable. */}
+                <span className="flex size-12 shrink-0 items-center justify-center rounded-lg border border-destructive bg-surface-2 text-destructive">
                   <AlertTriangle className="size-6" aria-hidden />
                 </span>
                 <span className="flex min-w-0 flex-col">
@@ -495,7 +499,7 @@ export default function InventoryPage() {
               </button>
             ) : (
               <div className="flex min-h-[76px] w-full min-w-0 items-center gap-4 rounded-lg border border-border bg-card px-5 py-4 shadow-sm">
-                <span className="flex size-12 shrink-0 items-center justify-center rounded-lg bg-success/15 text-success">
+                <span className="flex size-12 shrink-0 items-center justify-center rounded-lg border border-success bg-surface-2 text-success">
                   <CheckCircle2 className="size-6" aria-hidden />
                 </span>
                 <span className="flex min-w-0 flex-col">
@@ -695,7 +699,7 @@ export default function InventoryPage() {
             </Button>
             <Button
               variant="outline"
-              className="min-h-[44px] justify-start border-destructive/50 text-destructive hover:bg-destructive/10"
+              className="min-h-[44px] justify-start border-destructive text-destructive hover:bg-surface-3"
               onClick={() => {
                 setImportModeDialogOpen(false);
                 setReplaceConfirmOpen(true);

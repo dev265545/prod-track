@@ -202,6 +202,7 @@ export function RosterRowCard({
             type="button"
             onClick={() => setHoursOpen((open) => !open)}
             aria-expanded={hoursOpen}
+            aria-controls={`hours-${row.employeeId}`}
             className="inline-flex min-h-[36px] items-center justify-center gap-1.5 self-start rounded-lg px-2 text-xs font-medium text-muted-foreground hover:bg-surface-3 hover:text-foreground focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
           >
             <MinusCircle className="size-3.5 shrink-0" aria-hidden />
@@ -211,7 +212,10 @@ export function RosterRowCard({
       </div>
 
       {canEditHours && hoursOpen && !disabled ? (
-        <div className="min-w-0 rounded-xl border border-border bg-surface-2 p-3 sm:order-last sm:w-full">
+        <div
+          id={`hours-${row.employeeId}`}
+          className="min-w-0 rounded-xl border border-border bg-surface-2 p-3 sm:order-last sm:w-full"
+        >
           <p className="text-sm font-medium text-foreground">
             {t("rostHoursTitle")}
           </p>

@@ -53,7 +53,6 @@ export function useAuthGuard(options?: UseAuthGuardOptions): UseAuthGuardResult 
         console.error(e);
         setReady(true);
       });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router, options?.requireAdmin]);
 
   // Refresh the 30-minute idle timer on real user activity, and re-check the

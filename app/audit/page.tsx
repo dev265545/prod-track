@@ -117,7 +117,11 @@ export default function AuditPage() {
             same file as the data it describes, and the role it stamps is a
             browser value. An owner who is about to lean on it in an argument
             about wages deserves to know that before he does. */}
-        <section className="flex w-full min-w-0 items-start gap-3 rounded-xl border border-border bg-warning/10 p-4">
+        {/* Surface token plus a warning border, not `bg-warning/10`. The
+            house rule is semantic surfaces rather than alpha modifiers; the
+            tint here also carried the panel's whole meaning, and a border
+            says "warning" to somebody who cannot see the wash. */}
+        <section className="flex w-full min-w-0 items-start gap-3 rounded-xl border border-warning bg-surface-2 p-4">
           <ShieldAlert className="mt-0.5 size-6 shrink-0 text-warning" aria-hidden />
           <div className="flex min-w-0 flex-col gap-1">
             <h2 className="font-heading text-base font-semibold text-foreground">
@@ -208,7 +212,9 @@ export default function AuditPage() {
               })}
               className="flex flex-col items-center gap-3 sm:flex-row sm:justify-between"
             >
-              <p className="text-sm text-muted-foreground">
+              {/* Live: typing in the filter box changes this count with no
+                  focus moving to it, so it is otherwise silent. */}
+              <p className="text-sm text-muted-foreground" aria-live="polite">
                 {t("auditShowing", {
                   first: view.firstIndex,
                   last: view.lastIndex,

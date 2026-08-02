@@ -98,9 +98,13 @@ export function BigItemCard({
         <div className="flex min-w-0 flex-1 flex-col">
           <div className="flex min-w-0 items-center gap-1.5">
             {item.isFavorite && (
+              // `role="img"` is load-bearing: a bare `aria-label` on an <svg>
+              // is not reliably exposed, so the star silently said nothing and
+              // "starred" was carried by colour and shape alone.
               <Star
+                role="img"
                 className="size-4 shrink-0 fill-current text-warning"
-                aria-label={t("invCatScopeFavourites")}
+                aria-label={t("a11yFavouriteMark")}
               />
             )}
             <h3 className="min-w-0 truncate text-base font-semibold leading-snug text-foreground">

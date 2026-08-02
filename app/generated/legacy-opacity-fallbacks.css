@@ -126,12 +126,6 @@
   .dark .bg-foreground\/20 {
     background-color: rgba(236, 232, 225, 0.2) !important;
   }
-  .bg-muted-foreground\/50 {
-    background-color: rgba(95, 89, 81, 0.5) !important;
-  }
-  .dark .bg-muted-foreground\/50 {
-    background-color: rgba(160, 152, 137, 0.5) !important;
-  }
   .bg-muted\/30 {
     background-color: rgba(241, 238, 234, 0.3) !important;
   }
@@ -246,12 +240,6 @@
   .dark .border-chart-2\/35 {
     border-color: rgba(3, 136, 255, 0.35) !important;
   }
-  .border-destructive\/50 {
-    border-color: rgba(163, 43, 33, 0.5) !important;
-  }
-  .dark .border-destructive\/50 {
-    border-color: rgba(240, 119, 106, 0.5) !important;
-  }
   .border-primary\/25 {
     border-color: rgba(31, 29, 26, 0.25) !important;
   }
@@ -293,18 +281,6 @@
   }
   .dark .dark\:hover\:bg-muted\/50:hover {
     background-color: rgba(41, 38, 32, 0.5) !important;
-  }
-  .fill-foreground\/5 {
-    fill: rgba(28, 26, 23, 0.05) !important;
-  }
-  .dark .fill-foreground\/5 {
-    fill: rgba(236, 232, 225, 0.05) !important;
-  }
-  .fill-muted-foreground\/50 {
-    fill: rgba(95, 89, 81, 0.5) !important;
-  }
-  .dark .fill-muted-foreground\/50 {
-    fill: rgba(160, 152, 137, 0.5) !important;
   }
   .focus-visible\:border-destructive\/40:focus-visible {
     border-color: rgba(163, 43, 33, 0.4) !important;

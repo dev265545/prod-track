@@ -67,6 +67,7 @@ export function RosterSummaryBar({ summary }: { summary: RosterSummary }) {
       <div
         className="h-2 w-full overflow-hidden rounded-full bg-surface-3"
         role="progressbar"
+        aria-label={t("a11yProgressLabel")}
         aria-valuenow={summary.marked}
         aria-valuemin={0}
         aria-valuemax={summary.total}

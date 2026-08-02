@@ -58,7 +58,10 @@ export default function SettingsPage() {
 
         <Tabs defaultValue="general" className="w-full min-w-0 gap-8">
           <div className="-mx-1 w-full min-w-0 overflow-x-auto px-1 pb-1">
-            <TabsList className="h-auto w-max gap-1 rounded-xl bg-surface-3 p-1.5">
+            <TabsList
+              aria-label={t("a11ySettingsTabsLabel")}
+              className="h-auto w-max gap-1 rounded-xl bg-surface-3 p-1.5"
+            >
               {TABS.map(({ value, labelKey, icon: Icon }) => (
                 <TabsTrigger
                   key={value}

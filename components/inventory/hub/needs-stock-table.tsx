@@ -55,19 +55,25 @@ export function NeedsStockTable({
 
   return (
     <div className="min-w-0 overflow-x-auto">
-      <table className="w-full min-w-[40rem] border-collapse text-sm">
+      <table
+        className="w-full min-w-[40rem] border-collapse text-sm"
+        aria-label={t("a11yNeedsStockTableLabel")}
+      >
         <thead>
           <tr className="border-b border-border text-left">
-            <th className="px-3 py-2 font-medium text-muted-foreground">
+            <th scope="col" className="px-3 py-2 font-medium text-muted-foreground">
               {t("invHubColItem")}
             </th>
-            <th className="px-3 py-2 font-medium text-muted-foreground">
+            <th scope="col" className="px-3 py-2 font-medium text-muted-foreground">
               {t("invHubColCategory")}
             </th>
-            <th className="px-3 py-2 font-medium text-muted-foreground">
+            <th scope="col" className="px-3 py-2 font-medium text-muted-foreground">
               {t("invHubColStock")}
             </th>
-            <th className="px-3 py-2 text-right font-medium text-muted-foreground">
+            <th
+              scope="col"
+              className="px-3 py-2 text-right font-medium text-muted-foreground"
+            >
               {t("invHubColActions")}
             </th>
           </tr>
@@ -77,7 +83,8 @@ export function NeedsStockTable({
             const isOut = row.currentStock <= 0;
             return (
               <tr key={row.id} className="border-b border-border last:border-0">
-                <td className="px-3 py-3">
+                {/* The name identifies the row, so it is a row header. */}
+                <th scope="row" className="px-3 py-3 text-left font-normal">
                   <div className="flex min-w-0 flex-col">
                     <span className="font-semibold text-foreground">
                       {row.name}
@@ -86,7 +93,7 @@ export function NeedsStockTable({
                       {row.code}
                     </span>
                   </div>
-                </td>
+                </th>
                 <td className="px-3 py-3 text-muted-foreground">
                   {t(CATEGORY_LABEL_KEY[row.category])}
                 </td>

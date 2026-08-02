@@ -11,6 +11,7 @@ import {
   isAppLocale,
   type AppLocale,
 } from "@/lib/i18n/locale";
+import { useHydrated } from "@/lib/hooks/useClientValue";
 
 type LanguageContextValue = {
   locale: AppLocale;
@@ -24,31 +25,73 @@ const LanguageContext = React.createContext<LanguageContextValue | null>(
   null,
 );
 
+/**
+ * The chosen language lives in `localStorage`, which is an external store, so
+ * it is read as one.
+ *
+ * It used to be `useState("en")` corrected by an effect: every visitor got a
+ * guaranteed second render, and a Hindi-speaking operator saw one frame of
+ * English on every single navigation. `useSyncExternalStore` renders "en" on
+ * the server (matching the markup Next.js produced) and the stored answer from
+ * hydration onward, with nothing in between.
+ *
+ * `localStorage` throws in a locked-down browser and returns a fresh string
+ * each read, so the snapshot is cached: `useSyncExternalStore` compares by
+ * identity and would loop for ever on a new value every call.
+ */
+const localeListeners = new Set<() => void>();
+let cachedLocale: AppLocale = "en";
+
+function subscribeLocale(onChange: () => void): () => void {
+  localeListeners.add(onChange);
+  // A change made in another tab.
+  const onStorage = () => onChange();
+  if (typeof window !== "undefined") {
+    window.addEventListener("storage", onStorage);
+  }
+  return () => {
+    localeListeners.delete(onChange);
+    if (typeof window !== "undefined") {
+      window.removeEventListener("storage", onStorage);
+    }
+  };
+}
+
+function readLocale(): AppLocale {
+  try {
+    const raw = localStorage.getItem(LOCALE_STORAGE_KEY);
+    if (isAppLocale(raw)) cachedLocale = raw;
+    else cachedLocale = "en";
+  } catch {
+    /* a browser with storage switched off keeps whatever we last had */
+  }
+  return cachedLocale;
+}
+
+function writeLocale(next: AppLocale): void {
+  cachedLocale = next;
+  try {
+    localStorage.setItem(LOCALE_STORAGE_KEY, next);
+  } catch {
+    /* ignore */
+  }
+  for (const listener of localeListeners) listener();
+}
+
 export function LanguageProvider({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const [locale, setLocaleState] = React.useState<AppLocale>("en");
-  const [mounted, setMounted] = React.useState(false);
-
-  React.useEffect(() => {
-    try {
-      const raw = localStorage.getItem(LOCALE_STORAGE_KEY);
-      if (isAppLocale(raw)) setLocaleState(raw);
-    } catch {
-      /* ignore */
-    }
-    setMounted(true);
-  }, []);
+  const locale = React.useSyncExternalStore(
+    subscribeLocale,
+    readLocale,
+    () => "en" as AppLocale,
+  );
+  const mounted = useHydrated();
 
   const setLocale = React.useCallback((next: AppLocale) => {
-    setLocaleState(next);
-    try {
-      localStorage.setItem(LOCALE_STORAGE_KEY, next);
-    } catch {
-      /* ignore */
-    }
+    writeLocale(next);
   }, []);
 
   const toggleLocale = React.useCallback(() => {

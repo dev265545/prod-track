@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -67,7 +66,6 @@ const HEADING_CLASS =
   "text-lg sm:text-xl font-semibold text-foreground font-heading";
 
 export default function EmployeesPage() {
-  const router = useRouter();
   const { t } = useLanguage();
   const { ready: guardReady } = useAuthGuard();
   const [dataLoaded, setDataLoaded] = useState(false);
@@ -194,36 +192,32 @@ export default function EmployeesPage() {
                 </TableHeader>
                 <TableBody>
                   {employees.map((e) => (
+                    // The whole row used to be `role="button"` with a Select
+                    // and a delete dialog nested inside it — invalid
+                    // nested-interactive markup that destroyed the row/cell
+                    // semantics (a screen reader read six cells as one button
+                    // label) and needed stopPropagation on every cell to stop
+                    // changing a pay type from navigating away. The link now
+                    // lives in the one cell that names the person.
                     <TableRow
                       key={e.id as string}
-                      className="cursor-pointer hover:bg-muted/50 transition-colors"
-                      tabIndex={0}
-                      role="button"
-                      aria-label={t("employeesViewAria", {
-                        name: String(e.name),
-                      })}
-                      onClick={() =>
-                        router.push(
-                          `/employee?id=${encodeURIComponent(String(e.id))}`,
-                        )
-                      }
-                      onKeyDown={(ev) => {
-                        if (ev.key === "Enter" || ev.key === " ") {
-                          ev.preventDefault();
-                          router.push(
-                            `/employee?id=${encodeURIComponent(String(e.id))}`,
-                          );
-                        }
-                      }}
+                      className="transition-colors hover:bg-surface-2"
                     >
-                      <TableCell className="font-medium">
-                        {e.name as string}
-                      </TableCell>
-                      <TableCell
-                        className="text-muted-foreground"
-                        onClick={(ev) => ev.stopPropagation()}
-                        onKeyDown={(ev) => ev.stopPropagation()}
+                      <TableHead
+                        scope="row"
+                        className="h-auto p-4 font-medium text-foreground"
                       >
+                        <Link
+                          href={`/employee?id=${encodeURIComponent(String(e.id))}`}
+                          aria-label={t("employeesViewAria", {
+                            name: String(e.name),
+                          })}
+                          className="flex min-h-[44px] items-center rounded-md underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        >
+                          {e.name as string}
+                        </Link>
+                      </TableHead>
+                      <TableCell className="text-muted-foreground">
                         <Select
                           value={(e.employeeType as string) ?? "salaried"}
                           onValueChange={async (v) => {
@@ -269,11 +263,7 @@ export default function EmployeesPage() {
                           ? t("employeesStatusActive")
                           : t("employeesStatusInactive")}
                       </TableCell>
-                      <TableCell
-                        className="w-[64px]"
-                        onClick={(ev) => ev.stopPropagation()}
-                        onKeyDown={(ev) => ev.stopPropagation()}
-                      >
+                      <TableCell className="w-[64px]">
                         <AlertDialog>
                           <AlertDialogTrigger asChild>
                             <Button
@@ -304,8 +294,7 @@ export default function EmployeesPage() {
                               </AlertDialogCancel>
                               <AlertDialogAction
                                 className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                                onClick={async (ev) => {
-                                  ev.stopPropagation();
+                                onClick={async () => {
                                   try {
                                     await deleteEmployee(e.id as string);
                                     await load();

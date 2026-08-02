@@ -152,7 +152,14 @@ export function HomeProductionTrendCard({
           />
 
           {/* Hit targets: one full-height band per day, so a fingertip lands
-              on the day rather than having to find the line itself. */}
+              on the day rather than having to find the line itself.
+
+              Pointer only, on purpose. These carried `role="button"` and
+              `tabIndex={0}` inside a `role="img"`, which prunes its own
+              subtree — so the buttons were invisible to a screen reader while
+              still taking fourteen tab stops with `outline-none` hiding the
+              focus. The per-day figures now live in the list below the plot,
+              which needs no pointer to read. */}
           {geo.coords.map((_c, i) => {
             const bandW = VIEW_W / Math.max(1, geo.coords.length);
             return (
@@ -164,14 +171,9 @@ export function HomeProductionTrendCard({
                 height={VIEW_H}
                 fill={hover === i ? "var(--muted)" : "transparent"}
                 fillOpacity={hover === i ? 0.7 : 0}
-                tabIndex={0}
-                role="button"
-                aria-label={`${shortDay(trend.points[i].date, locale)}: ${number(values[i])}`}
-                className="cursor-pointer outline-none"
+                className="cursor-pointer"
                 onMouseEnter={() => setHover(i)}
                 onMouseLeave={() => setHover((h) => (h === i ? null : h))}
-                onFocus={() => setHover(i)}
-                onBlur={() => setHover((h) => (h === i ? null : h))}
               />
             );
           })}
@@ -214,6 +216,20 @@ export function HomeProductionTrendCard({
         <p>{totalText}</p>
         {bestText ? <p>{bestText}</p> : null}
       </div>
+
+      {/* …and the points themselves, off-screen, so nothing is reachable only
+          by hovering a plot. */}
+      <ul className="sr-only">
+        <li>{t("a11yChartDayList")}</li>
+        {trend.points.map((p, i) => (
+          <li key={p.date}>
+            {t("a11yTrendDayItem", {
+              date: shortDay(p.date, locale),
+              count: number(values[i]),
+            })}
+          </li>
+        ))}
+      </ul>
     </HomeCard>
   );
 }

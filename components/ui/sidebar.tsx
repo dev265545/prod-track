@@ -36,6 +36,50 @@ const SIDEBAR_WIDTH_MOBILE = "18rem";
 const SIDEBAR_WIDTH_ICON = "3.25rem";
 const SIDEBAR_KEYBOARD_SHORTCUT = "b";
 
+/**
+ * The collapsed/expanded preference stored in a cookie, read as an external
+ * store so the very first render already knows it. `null` on the server, where
+ * there is no cookie to read and the markup must match what Next.js emitted.
+ *
+ * The snapshot is cached because `useSyncExternalStore` compares by identity;
+ * `document.cookie` is a fresh string each read, but this returns a boolean,
+ * so identity is stable by construction.
+ */
+function subscribeToNothing(): () => void {
+  return () => {};
+}
+
+function readSidebarCookie(): boolean | null {
+  if (typeof document === "undefined") return null;
+  const cookie = document.cookie
+    .split(";")
+    .find((c) => c.trim().startsWith(`${SIDEBAR_COOKIE_NAME}=`));
+  const value = cookie?.split("=")[1]?.trim();
+  if (value === "false") return false;
+  if (value === "true") return true;
+  return null;
+}
+
+function useSidebarCookie(): boolean | null {
+  return React.useSyncExternalStore(
+    subscribeToNothing,
+    readSidebarCookie,
+    () => null,
+  );
+}
+
+/**
+ * A small stable number from a string, so a skeleton's placeholder width is
+ * varied but identical on the server and the client.
+ */
+function hashToRange(value: string): number {
+  let hash = 0;
+  for (let i = 0; i < value.length; i += 1) {
+    hash = (hash * 31 + value.charCodeAt(i)) | 0;
+  }
+  return Math.abs(hash);
+}
+
 type SidebarContext = {
   state: "expanded" | "collapsed";
   open: boolean;
@@ -79,8 +123,15 @@ const SidebarProvider = React.forwardRef<
     const isMobile = useIsMobile();
     const [openMobile, setOpenMobile] = React.useState(false);
 
-    const [_open, _setOpen] = React.useState(defaultOpen);
-    const open = openProp ?? _open;
+    // The stored preference is a cookie, so it is read as an external store.
+    // It used to be an effect that called `setOpen(false)` after mount: an
+    // extra render pass in which the sidebar was visibly open before snapping
+    // shut, on every single page load for anyone who had collapsed it.
+    // `null` means "not yet overridden by this session", so the cookie still
+    // wins until the operator touches the control.
+    const cookieOpen = useSidebarCookie();
+    const [_open, _setOpen] = React.useState<boolean | null>(null);
+    const open = openProp ?? _open ?? cookieOpen ?? defaultOpen;
     const setOpen = React.useCallback(
       (value: boolean | ((value: boolean) => boolean)) => {
         const openState =
@@ -102,16 +153,6 @@ const SidebarProvider = React.forwardRef<
         ? setOpenMobile((open) => !open)
         : setOpen((open) => !open);
     }, [isMobile, setOpen, setOpenMobile]);
-
-    React.useEffect(() => {
-      if (openProp === undefined && typeof document !== "undefined") {
-        const cookie = document.cookie
-          .split(";")
-          .find((c) => c.trim().startsWith(`${SIDEBAR_COOKIE_NAME}=`));
-        const val = cookie?.split("=")[1]?.trim();
-        if (val === "false") setOpen(false);
-      }
-    }, [openProp]);
 
     React.useEffect(() => {
       const handleKeyDown = (event: KeyboardEvent) => {
@@ -661,10 +702,11 @@ const SidebarMenuSkeleton = React.forwardRef<
   HTMLDivElement,
   React.ComponentProps<"div"> & { showIcon?: boolean }
 >(({ className, showIcon = false, ...props }, ref) => {
-  const width = React.useMemo(
-    () => `${Math.floor(Math.random() * 40) + 50}%`,
-    []
-  );
+  // Was `Math.random()` during render — impure, and on a Next.js page it
+  // produced a different width on the server and the client, so React threw a
+  // hydration mismatch on every skeleton. `useId` is stable across both.
+  const id = React.useId();
+  const width = `${50 + (hashToRange(id) % 40)}%`;
   return (
     <div
       ref={ref}

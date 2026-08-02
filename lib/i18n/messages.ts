@@ -530,6 +530,14 @@ const en = {
   prepLoadFailed: "Could not load the production work record.",
   prepLoadFailedDesc: "Check the dates you chose and try again.",
 
+  // Work that could not be priced, and money owed back. Both are figures the
+  // owner must be told about rather than left to infer from a zero.
+  payFixNotPriced: "Not priced",
+  payFixUnpricedNote:
+    "{count} line(s) have no rate, so that work is not counted in the money above. Set a rate on the Items page.",
+  payFixOwedNote:
+    "Advance is more than the work. Nothing to pay now; {amount} is still owed.",
+
   empNotFound: "Employee not found.",
   empPayrollToastSelectDate:
     "Select a date on the calendar to choose a payroll period.",
@@ -2467,6 +2475,12 @@ const hi: Record<MessageKey, string> = {
   prepNoWorkAtAll: "इन तारीखों में किसी का काम नहीं लिखा गया।",
   prepLoadFailed: "उत्पादन का काम लोड नहीं हो पाया।",
   prepLoadFailedDesc: "चुनी हुई तारीखें देखकर दोबारा कोशिश करें।",
+
+  payFixNotPriced: "रेट नहीं है",
+  payFixUnpricedNote:
+    "{count} लाइन का रेट नहीं है, इसलिए वह काम ऊपर के पैसों में नहीं जुड़ा है। आइटम पेज पर रेट डालें।",
+  payFixOwedNote:
+    "एडवांस काम से ज़्यादा है। अभी कुछ नहीं देना है; {amount} अब भी बाकी है।",
 
   empNotFound: "कर्मचारी नहीं मिला।",
   empPayrollToastSelectDate:

@@ -16,7 +16,7 @@ import {
   SidebarTrigger,
 } from "@/components/ui/sidebar";
 import { useLanguage } from "@/components/language-provider";
-import { isAdmin } from "@/lib/auth";
+import { useIsAdmin } from "@/lib/hooks/useClientValue";
 import {
   activeItemHref,
   moduleForPath,
@@ -27,13 +27,12 @@ export function AppSidebar() {
   const pathname = usePathname();
   const { t } = useLanguage();
 
-  // Role is read after mount, never during render: `isAdmin()` touches
-  // localStorage, so calling it while rendering makes the server/first-paint
-  // markup disagree with the client and hydrate the wrong menu.
-  const [admin, setAdmin] = React.useState(false);
-  React.useEffect(() => {
-    setAdmin(isAdmin());
-  }, [pathname]);
+  // `isAdmin()` touches localStorage, so it cannot simply be called during
+  // render — the server markup would disagree with the client and hydrate the
+  // wrong menu. `useIsAdmin` gets that right without an effect: React renders
+  // `false` on the server and swaps to the real answer during hydration, with
+  // no extra render pass and no frame showing the admin menu to a worker.
+  const admin = useIsAdmin();
 
   const modules = visibleModules(admin);
   const currentModule = moduleForPath(pathname);

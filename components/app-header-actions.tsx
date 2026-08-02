@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
 import { LogOut, Moon, Sun } from "lucide-react";
 import { useLanguage } from "@/components/language-provider";
-import { logout, getCurrentRole, type AppRole } from "@/lib/auth";
+import { logout } from "@/lib/auth";
+import { useCurrentRole, useHydrated } from "@/lib/hooks/useClientValue";
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
@@ -17,13 +18,12 @@ export function AppHeaderActions({ showLogout = true }: { showLogout?: boolean }
   const router = useRouter();
   const { theme, setTheme } = useTheme();
   const { locale, toggleLocale, t, mounted: langMounted } = useLanguage();
-  const [mounted, setMounted] = React.useState(false);
-  const [role, setRole] = React.useState<AppRole | null>(null);
-
-  React.useEffect(() => {
-    setMounted(true);
-    setRole(getCurrentRole());
-  }, []);
+  // Both used to be state filled in by an effect, costing an extra render on
+  // every page and leaving one frame in which the role badge was absent and
+  // the theme icon was wrong. Read as external stores instead — see
+  // `lib/hooks/useClientValue.ts`.
+  const mounted = useHydrated();
+  const role = useCurrentRole();
 
   const handleLogout = () => {
     logout();
@@ -51,7 +51,7 @@ export function AppHeaderActions({ showLogout = true }: { showLogout?: boolean }
           className={
             "rounded-full px-2.5 py-1 text-xs font-semibold leading-none " +
             (role === "admin"
-              ? "bg-primary/15 text-primary"
+              ? "border border-primary bg-surface-2 text-primary"
               : "bg-muted text-muted-foreground")
           }
         >

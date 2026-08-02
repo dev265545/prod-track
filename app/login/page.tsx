@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,17 +20,19 @@ import { AppHeaderActions } from "@/components/app-header-actions";
 export default function LoginPage() {
   const router = useRouter();
   const { t } = useLanguage();
-  const [welcomeBack, setWelcomeBack] = useState(false);
+  // The URL is an external value: reading it during render would disagree
+  // with the server markup, and filling state from an effect cost an extra
+  // render in which the wrong greeting was on screen. Read as a store, with
+  // "not a returning visitor" as the server answer.
+  const welcomeBack = useSyncExternalStore(
+    () => () => {},
+    () =>
+      new URLSearchParams(window.location.search).get("welcome") === "1",
+    () => false,
+  );
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    setWelcomeBack(
-      new URLSearchParams(window.location.search).get("welcome") === "1",
-    );
-  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

@@ -94,7 +94,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { isAdmin } from "@/lib/auth";
+import { useIsAdmin } from "@/lib/hooks/useClientValue";
 import { useLanguage } from "@/components/language-provider";
 
 function getYearMonth(dateStr: string): { year: number; month: number } {
@@ -152,14 +152,12 @@ export function Dashboard() {
   const [reorderMode, setReorderMode] = useState(false);
   const [savingOrder, setSavingOrder] = useState(false);
 
-  // Role is read after mount, never during render: `isAdmin()` touches
-  // localStorage, so calling it while rendering makes the first-paint markup
-  // disagree with the client and hydrate the wrong controls. Mirrors
-  // components/app-sidebar.tsx.
-  const [admin, setAdmin] = useState(false);
-  useEffect(() => {
-    setAdmin(isAdmin());
-  }, []);
+  // `isAdmin()` touches localStorage, so it cannot be called plainly during
+  // render — the first-paint markup would disagree with the client and
+  // hydrate the wrong controls. `useIsAdmin` reads it as an external store:
+  // `false` on the server, the real answer from hydration onward, and no
+  // effect and no cascading render in between. Mirrors app-sidebar.tsx.
+  const admin = useIsAdmin();
 
   const load = useCallback(async () => {
     // Give people who were added before pay types existed a starting guess, so
@@ -257,11 +255,6 @@ export function Dashboard() {
     loadCalendar();
   }, [loadCalendar]);
 
-  useEffect(() => {
-    const { year, month } = getYearMonth(date);
-    setCalYear(year);
-    setCalMonth(month);
-  }, [date]);
 
   /**
    * The single entry point for changing the day. A new day is a fresh decision
@@ -272,14 +265,16 @@ export function Dashboard() {
     if (!next) return;
     setHolidayUnlocked(false);
     setDate(next);
-  }, []);
-
-  const handleCalendarDateClick = useCallback((dateStr: string) => {
-    changeDate(dateStr);
-    const { year, month } = getYearMonth(dateStr);
+    // Bringing the calendar to the chosen day used to be an effect watching
+    // `date` — a second render pass whose only job was to catch up with a
+    // change this function had just made. It belongs here, in the one place a
+    // day is chosen, where it happens in the same render as the change.
+    const { year, month } = getYearMonth(next);
     setCalYear(year);
     setCalMonth(month);
-  }, [changeDate]);
+  }, []);
+
+  const handleCalendarDateClick = changeDate;
 
   const handleCalendarMonthChange = useCallback((year: number, month: number) => {
     setCalYear(year);
@@ -484,7 +479,7 @@ export function Dashboard() {
             </h1>
             {(() => {
               const entries = Array.from(missingData.entries()).filter(
-                ([_, days]) => days.length > 0
+                ([, days]) => days.length > 0
               );
               const totalMissing = entries.reduce((s, [, d]) => s + d.length, 0);
               if (totalMissing === 0) return null;

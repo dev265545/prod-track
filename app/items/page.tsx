@@ -371,20 +371,24 @@ export default function ItemsPage() {
           </Empty>
         ) : (
           <>
+            {/* Live: the count is the only thing that answers "did my typing
+                do anything?", and it changes with no focus moving to it. */}
             {showSearch ? (
-              <p className="text-base text-muted-foreground">
+              <p className="text-base text-muted-foreground" aria-live="polite">
                 {t("itmCountShown", { shown: shown.length, total: items.length })}
               </p>
             ) : null}
             {/* Its own scroller: the page itself must never scroll sideways. */}
             <div className="w-full overflow-x-auto rounded-xl border border-border">
-              <Table>
+              <Table aria-label={t("a11yItemsTableLabel")}>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>{t("itmColName")}</TableHead>
-                    <TableHead>{t("itmColCode")}</TableHead>
-                    <TableHead>{t("itmColRate")}</TableHead>
-                    <TableHead className="w-40">{t("itmColActions")}</TableHead>
+                    <TableHead scope="col">{t("itmColName")}</TableHead>
+                    <TableHead scope="col">{t("itmColCode")}</TableHead>
+                    <TableHead scope="col">{t("itmColRate")}</TableHead>
+                    <TableHead className="w-40" scope="col">
+                      {t("itmColActions")}
+                    </TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -393,7 +397,13 @@ export default function ItemsPage() {
                       key={item.id}
                       className="transition-colors hover:bg-surface-2"
                     >
-                      <TableCell className="font-medium text-base">
+                      {/* The row IS the item, so its name is the row's header
+                          cell — a screen reader then reads "Bolt, rate ₹4"
+                          instead of a bare "₹4" three cells in. */}
+                      <TableHead
+                        scope="row"
+                        className="h-auto p-4 font-medium text-base text-foreground"
+                      >
                         <div className="flex flex-col items-start gap-2">
                           <span>{item.name}</span>
                           {isStockRow(item) ? (
@@ -406,7 +416,7 @@ export default function ItemsPage() {
                             </Badge>
                           ) : null}
                         </div>
-                      </TableCell>
+                      </TableHead>
                       <TableCell className="text-base text-muted-foreground">
                         {item.code ?? "—"}
                       </TableCell>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { ArrowDown, ArrowUp, FileSpreadsheet, GripVertical, Printer } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
@@ -103,7 +103,6 @@ const CATEGORY_TABS: { value: SalarySheetCategory; labelKey: MessageKey }[] = [
 ];
 
 export default function SalarySheetPage() {
-  const router = useRouter();
   const { t: tr, locale } = useLanguage();
   const { ready } = useAuthGuard({ requireAdmin: true });
   const [loading, setLoading] = useState(true);
@@ -121,8 +120,10 @@ export default function SalarySheetPage() {
   const [rows, setRows] = useState<SalarySheetRow[]>([]);
   const [productionSheet, setProductionSheet] =
     useState<ProductionPaySheet | null>(null);
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
+  // Only the setters are read: the loaded range is echoed back into state so
+  // a later print uses exactly what the sheet on screen was built from.
+  const [, setFrom] = useState("");
+  const [, setTo] = useState("");
   const [reorderMode, setReorderMode] = useState(false);
   const [savingOrder, setSavingOrder] = useState(false);
   const [category, setCategory] = useState<SalarySheetCategory>("all");
@@ -520,15 +521,18 @@ export default function SalarySheetPage() {
               </Empty>
             ) : (
               <div className="min-w-0 overflow-x-auto">
-                <Table>
+                <Table aria-label={tr("navSalarySheet")}>
                   <TableHeader>
                     <TableRow>
                       {reorderMode && (
-                        <TableHead className="w-[104px]">{tr("salarySheetColOrder")}</TableHead>
+                        <TableHead scope="col" className="w-[104px]">
+                          {tr("salarySheetColOrder")}
+                        </TableHead>
                       )}
                       {SALARY_SHEET_COLUMNS.map((col) => (
                         <TableHead
                           key={col.key}
+                          scope="col"
                           className={cn(
                             col.align === "right" && "text-right tabular-nums",
                             col.nowrap && "whitespace-nowrap",
@@ -541,28 +545,17 @@ export default function SalarySheetPage() {
                   </TableHeader>
                   <TableBody>
                     {visibleRows.map((r) => (
+                      // Not `role="button"` on the row: with the reorder arrows
+                      // and the name link inside it, that was
+                      // nested-interactive markup which flattened every cell
+                      // into one unreadable button label. The link is in the
+                      // name cell, which is also the row's header.
                       <TableRow
                         key={r.id}
-                        className="cursor-pointer hover:bg-muted/50 transition-colors"
-                        onClick={() =>
-                          router.push(`/employee?id=${encodeURIComponent(String(r.id))}`)
-                        }
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" || e.key === " ") {
-                            e.preventDefault();
-                            router.push(`/employee?id=${encodeURIComponent(String(r.id))}`);
-                          }
-                        }}
-                        tabIndex={0}
-                        role="button"
-                        aria-label={tr("viewEmployeeAria", { name: r.name })}
+                        className="transition-colors hover:bg-surface-2"
                       >
                         {reorderMode && (
-                          <TableCell
-                            className="w-[104px]"
-                            onClick={(event) => event.stopPropagation()}
-                            onKeyDown={(event) => event.stopPropagation()}
-                          >
+                          <TableCell className="w-[104px]">
                             <div className="flex items-center gap-1">
                               <Button
                                 type="button"
@@ -589,24 +582,52 @@ export default function SalarySheetPage() {
                             </div>
                           </TableCell>
                         )}
-                        {SALARY_SHEET_COLUMNS.map((col) => (
-                          <TableCell
-                            key={col.key}
-                            className={cn(
-                              col.align === "right" && "text-right tabular-nums",
-                              col.muted && "text-muted-foreground",
-                              col.emphasis && "font-semibold",
-                              col.isName && "font-medium",
-                            )}
-                          >
-                            {col.format(r)}
-                            {col.isName && salarySheetRowHasAdjustment(r) ? (
-                              <span className="ml-2 text-xs font-normal text-warning">
-                                ({tr("salarySheetAdjustedBadge")})
-                              </span>
-                            ) : null}
-                          </TableCell>
-                        ))}
+                        {SALARY_SHEET_COLUMNS.map((col) => {
+                          const body = (
+                            <>
+                              {col.isName ? (
+                                <Link
+                                  href={`/employee?id=${encodeURIComponent(String(r.id))}`}
+                                  aria-label={tr("viewEmployeeAria", {
+                                    name: r.name,
+                                  })}
+                                  className="inline-flex min-h-[44px] items-center rounded-md underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                >
+                                  {col.format(r)}
+                                </Link>
+                              ) : (
+                                col.format(r)
+                              )}
+                              {col.isName && salarySheetRowHasAdjustment(r) ? (
+                                <span className="ml-2 text-xs font-normal text-warning">
+                                  ({tr("salarySheetAdjustedBadge")})
+                                </span>
+                              ) : null}
+                            </>
+                          );
+                          const className = cn(
+                            col.align === "right" && "text-right tabular-nums",
+                            col.muted && "text-muted-foreground",
+                            col.emphasis && "font-semibold",
+                            col.isName && "font-medium",
+                          );
+                          // The name identifies the row, so it is the row's
+                          // header cell — otherwise a screen reader reading
+                          // "₹8,240" ten columns in cannot say whose it is.
+                          return col.isName ? (
+                            <TableHead
+                              key={col.key}
+                              scope="row"
+                              className={cn("h-auto p-4 text-foreground", className)}
+                            >
+                              {body}
+                            </TableHead>
+                          ) : (
+                            <TableCell key={col.key} className={className}>
+                              {body}
+                            </TableCell>
+                          );
+                        })}
                       </TableRow>
                     ))}
                   </TableBody>
