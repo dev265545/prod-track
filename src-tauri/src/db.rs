@@ -8,7 +8,7 @@ use tauri::{AppHandle, State};
 use tauri_plugin_dialog::DialogExt;
 
 /// Must match lib/db/schema.ts DB_VERSION. Bump when adding migrations.
-const CURRENT_SCHEMA_VERSION: u32 = 8;
+const CURRENT_SCHEMA_VERSION: u32 = 10;
 
 const TABLES: &[&str] = &[
     "_metadata",
@@ -26,6 +26,9 @@ const TABLES: &[&str] = &[
     "operator_national_holidays",
     "machines",
     "item_combos",
+    "inventory_items",
+    "inventory_movements",
+    "audit_log",
 ];
 
 fn get_schema_version(conn: &Connection) -> Result<u32, String> {
@@ -67,6 +70,13 @@ fn run_migration(_conn: &Connection, to_version: u32) -> Result<(), String> {
         }
         8 => {
             // Reserved: operator_national_holidays, machines, item_combos auto-created via TABLES list, no ALTER needed (schema-less JSON blob tables)
+        }
+        9 => {
+            // Reserved: inventory_items, inventory_movements auto-created via TABLES list, no ALTER needed (schema-less JSON blob tables)
+        }
+        10 => {
+            // Reserved: audit_log auto-created via TABLES list, no ALTER needed
+            // (schema-less id/data JSON blob table, same shape as every other store).
         }
         _ => {}
     }

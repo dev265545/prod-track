@@ -70,6 +70,18 @@ function createSchema(db: IDBDatabase) {
   if (!db.objectStoreNames.contains(STORES.ITEM_COMBOS)) {
     db.createObjectStore(STORES.ITEM_COMBOS, { keyPath: "id" });
   }
+  if (!db.objectStoreNames.contains(STORES.INVENTORY_ITEMS)) {
+    db.createObjectStore(STORES.INVENTORY_ITEMS, { keyPath: "id" });
+  }
+  if (!db.objectStoreNames.contains(STORES.INVENTORY_MOVEMENTS)) {
+    const invMoveStore = db.createObjectStore(STORES.INVENTORY_MOVEMENTS, {
+      keyPath: "id",
+    });
+    invMoveStore.createIndex("by_item", "itemId", { unique: false });
+  }
+  if (!db.objectStoreNames.contains(STORES.AUDIT_LOG)) {
+    db.createObjectStore(STORES.AUDIT_LOG, { keyPath: "id" });
+  }
 }
 
 function getStore(

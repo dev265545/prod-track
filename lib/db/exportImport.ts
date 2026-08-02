@@ -2,8 +2,14 @@
  * ProdTrack Lite - Export / Import database
  */
 
-import { getAll, clear, put, remove, STORES } from "./adapter";
-import { DB_VERSION, METADATA_STORE } from "./schema";
+import { getAll, clear, put, STORES } from "./adapter";
+import { DB_VERSION } from "./schema";
+import { record as auditRecord } from "../services/auditService";
+import {
+  exportAppSettings,
+  importAppSettings,
+  type AppSettings,
+} from "../services/appSettingsService";
 
 const EXPORT_VERSION = 1;
 export const AUTO_IMPORT_PATH = "data/prodtrack-export.json";
@@ -13,6 +19,16 @@ export interface ExportData {
   schemaVersion: number;
   exportedAt: string;
   stores: Record<string, Record<string, unknown>[]>;
+  /**
+   * The `app_settings` row from `_metadata`, carried as its own field because
+   * the store loop below covers `STORES` only.
+   *
+   * Configuration travels with the backup on purpose: a restored workspace
+   * that quietly lost, say, the production/stock connection would behave
+   * differently from the one that was backed up, and nobody would know why.
+   * Credentials are a different matter and are still never exported.
+   */
+  appSettings?: AppSettings;
 }
 
 export async function exportDatabase(): Promise<ExportData> {
@@ -20,11 +36,19 @@ export async function exportDatabase(): Promise<ExportData> {
   for (const name of Object.values(STORES)) {
     stores[name] = await getAll(name);
   }
+  const rowCount = Object.values(stores).reduce((n, r) => n + r.length, 0);
+  void auditRecord(
+    "data.export",
+    "database",
+    null,
+    `Exported ${rowCount} rows across ${Object.keys(stores).length} stores`,
+  );
   return {
     version: EXPORT_VERSION,
     schemaVersion: DB_VERSION,
     exportedAt: new Date().toISOString(),
     stores,
+    appSettings: await exportAppSettings(),
   };
 }
 
@@ -70,37 +94,106 @@ export function validateExportData(data: unknown): {
   return { valid: true };
 }
 
+async function writeRows(
+  name: string,
+  rows: Record<string, unknown>[],
+): Promise<void> {
+  await clear(name);
+  for (const record of rows) {
+    if (record && typeof record === "object" && "id" in record) {
+      await put(name, record);
+    }
+  }
+}
+
+/**
+ * Replace the contents of every store present in `data`.
+ *
+ * The backends expose no cross-store transaction, so this snapshots the
+ * affected stores first and restores them if any write throws: a failed import
+ * leaves the database exactly as it was rather than half-wiped.
+ *
+ * The `_app` row in `_metadata` — admin password hash and session nonce — is
+ * never touched: importing a backup must not reset or downgrade this install's
+ * credentials. The `app_settings` row in the same store IS restored, by id, so
+ * neither row can overwrite the other.
+ */
 export async function importDatabase(data: ExportData): Promise<void> {
   const { valid, error } = validateExportData(data);
   if (!valid) {
     throw new Error(error || "Invalid export format");
   }
-  try {
-    await remove(METADATA_STORE, "_app");
-  } catch {
-    /* store may not exist on very old backends */
+
+  const targets = Object.values(STORES).filter((name) =>
+    Array.isArray(data.stores[name]),
+  );
+
+  const snapshot = new Map<string, Record<string, unknown>[]>();
+  for (const name of targets) {
+    snapshot.set(name, await getAll(name));
   }
-  const storeNames = Object.values(STORES);
-  for (const name of storeNames) {
-    const rows = data.stores[name];
-    if (!Array.isArray(rows)) continue;
-    await clear(name);
-    for (const record of rows) {
-      if (record && typeof record === "object" && "id" in record) {
-        await put(name, record as Record<string, unknown>);
+
+  try {
+    for (const name of targets) {
+      await writeRows(name, data.stores[name]);
+    }
+  } catch (e) {
+    // Restore every target, not just the ones that completed: the store that
+    // threw was already cleared before the failing write.
+    for (const name of targets) {
+      try {
+        await writeRows(name, snapshot.get(name) ?? []);
+      } catch {
+        /* best effort: keep restoring the remaining stores */
       }
     }
+    void auditRecord(
+      "data.import",
+      "database",
+      null,
+      `Import failed and was rolled back: ${
+        e instanceof Error ? e.message : String(e)
+      }`,
+    );
+    throw e;
   }
+
+  // After the stores, and by id: a settings write cannot disturb `_app`.
+  // A backup made before settings existed has no field here and is skipped,
+  // leaving this install's configuration alone.
+  try {
+    await importAppSettings(data.appSettings);
+  } catch (e) {
+    // Business data is already in. Losing one configuration row is not worth
+    // rolling all of it back.
+    console.error("[import] app settings could not be restored", e);
+  }
+
+  const rowCount = targets.reduce((n, name) => n + data.stores[name].length, 0);
+  void auditRecord(
+    "data.import",
+    "database",
+    null,
+    `Imported ${rowCount} rows across ${targets.length} stores`,
+    { exportedAt: data.exportedAt, schemaVersion: data.schemaVersion },
+  );
 }
 
+/**
+ * Wipe all business data. The `audit_log` store is deliberately excluded —
+ * otherwise the record of the wipe dies with the data — and `_metadata` is
+ * left alone so the admin password survives.
+ */
 export async function clearAllData(): Promise<void> {
+  void auditRecord(
+    "data.clear",
+    "database",
+    null,
+    "All business data deleted (audit log and credentials preserved)",
+  );
   for (const name of Object.values(STORES)) {
+    if (name === STORES.AUDIT_LOG) continue;
     await clear(name);
-  }
-  try {
-    await remove(METADATA_STORE, "_app");
-  } catch {
-    /* optional */
   }
 }
 

@@ -3,7 +3,15 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { openDB } from "@/lib/db/adapter";
-import { isLoggedIn, checkExpiry, isAdmin, getCurrentRole, type AppRole } from "@/lib/auth";
+import {
+  isLoggedIn,
+  checkExpiry,
+  isAdmin,
+  getCurrentRole,
+  touchSession,
+  syncSessionNonceFromDb,
+  type AppRole,
+} from "@/lib/auth";
 
 export interface UseAuthGuardOptions {
   requireAdmin?: boolean;
@@ -28,6 +36,7 @@ export function useAuthGuard(options?: UseAuthGuardOptions): UseAuthGuardResult 
 
   useEffect(() => {
     openDB()
+      .then(() => syncSessionNonceFromDb())
       .then(() => {
         if (!isLoggedIn() || checkExpiry()) {
           router.replace("/login");
@@ -46,6 +55,28 @@ export function useAuthGuard(options?: UseAuthGuardOptions): UseAuthGuardResult 
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router, options?.requireAdmin]);
+
+  // Refresh the 30-minute idle timer on real user activity, and re-check the
+  // session periodically so an idle/expired/invalidated session is evicted
+  // without waiting for a navigation.
+  useEffect(() => {
+    if (!ready) return;
+    const onActivity = () => touchSession();
+    const events = ["click", "keydown", "pointerdown", "scroll"] as const;
+    for (const e of events) {
+      window.addEventListener(e, onActivity, { passive: true });
+    }
+    const interval = window.setInterval(() => {
+      if (!isLoggedIn()) {
+        checkExpiry();
+        router.replace("/login");
+      }
+    }, 60_000);
+    return () => {
+      for (const e of events) window.removeEventListener(e, onActivity);
+      window.clearInterval(interval);
+    };
+  }, [ready, router]);
 
   return { ready, role };
 }
