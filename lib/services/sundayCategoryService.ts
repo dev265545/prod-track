@@ -1,18 +1,31 @@
 import { getAll, get, put, remove, STORES } from "@/lib/db/adapter";
-import {
-  DEFAULT_SUNDAY_CATEGORY_RULE,
-  type SundayCategoryRule,
-} from "@/lib/utils/attendanceStats";
+import { type SundayCategoryRule } from "@/lib/utils/attendanceStats";
+import { normalizeSundayRule, type SundayRule } from "@/lib/utils/sundayRule";
 
 const STORE = STORES.SUNDAY_CATEGORIES;
 
+/**
+ * A named pay rule an employee can be assigned to.
+ *
+ * `rule` is the current, fully configurable form. The `mode` / `requiredPresent`
+ * / `earnedSundays` / `everyPresentDays` / `earnedPerStep` fields are what
+ * installs written by older builds carry instead; they are still read (see
+ * {@link resolveSundayCategoryRule}) and are left untouched on rows that have
+ * them, so a downgrade does not lose anyone's rule.
+ */
 export interface SundayCategory {
   id: string;
   name: string;
-  mode: "threshold" | "step";
+  rule?: SundayRule;
+  /** @deprecated legacy shape — read for migration, never written for new rows. */
+  mode?: "threshold" | "step";
+  /** @deprecated legacy shape */
   requiredPresent?: number;
+  /** @deprecated legacy shape */
   earnedSundays?: number;
+  /** @deprecated legacy shape */
   everyPresentDays?: number;
+  /** @deprecated legacy shape */
   earnedPerStep?: number;
   createdAt?: string;
 }
@@ -47,48 +60,22 @@ export async function deleteSundayCategory(id: string): Promise<void> {
 }
 
 /**
- * A configured non-negative number, or `null` when the field is genuinely unset
- * (undefined / null / empty / non-numeric). An explicit `0` is a *configuration*,
- * not an absence — see resolveSundayCategoryRule.
- */
-function configuredNonNegative(value: unknown): number | null {
-  if (value === undefined || value === null || value === "") return null;
-  const n = Number(value);
-  if (!Number.isFinite(n)) return null;
-  return Math.max(0, n);
-}
-
-/**
  * Turn a stored Sunday category into the rule the payroll engine consumes.
  *
- * The default rule is substituted only when a field is genuinely **unset**.
- * A field explicitly configured as `0` is honoured, so a category can express
- * "this group earns no Sundays" (`earnedSundays: 0` / `earnedPerStep: 0`) —
- * previously that was silently replaced by the default and quietly paid people.
- * `everyPresentDays: 0` is the one exception: it is not a rule but a division by
- * zero, so it still falls back to the default.
+ * A row saved by the current build carries `rule` and is used directly. A row
+ * from an older install carries only the legacy `mode` fields and is migrated
+ * on read into the equivalent general rule — same cycle length, same caps, same
+ * numbers, so nobody's pay moves when a factory updates.
+ *
+ * The default rule is substituted only when a field is genuinely **unset**. A
+ * field explicitly configured as `0` is honoured, so a category can express
+ * "this group earns no Sundays" — see `configuredNonNegative` in
+ * `lib/utils/sundayRule.ts`.
  */
 export function resolveSundayCategoryRule(
-  category?: Pick<
-    SundayCategory,
-    "mode" | "requiredPresent" | "earnedSundays" | "everyPresentDays" | "earnedPerStep"
-  > | null,
+  category?: Partial<SundayCategory> | null,
 ): SundayCategoryRule {
-  if (!category) return DEFAULT_SUNDAY_CATEGORY_RULE;
-
-  if (category.mode === "threshold") {
-    const requiredPresent = configuredNonNegative(category.requiredPresent);
-    const earnedSundays = configuredNonNegative(category.earnedSundays);
-    if (requiredPresent === null || earnedSundays === null) {
-      return DEFAULT_SUNDAY_CATEGORY_RULE;
-    }
-    return { mode: "threshold", requiredPresent, earnedSundays };
-  }
-
-  const everyPresentDays = configuredNonNegative(category.everyPresentDays);
-  const earnedPerStep = configuredNonNegative(category.earnedPerStep);
-  if (!everyPresentDays || earnedPerStep === null) {
-    return DEFAULT_SUNDAY_CATEGORY_RULE;
-  }
-  return { mode: "step", everyPresentDays, earnedPerStep };
+  if (!category) return normalizeSundayRule(null);
+  if (category.rule) return normalizeSundayRule(category.rule);
+  return normalizeSundayRule(category);
 }

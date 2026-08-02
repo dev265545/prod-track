@@ -1533,6 +1533,159 @@ const en = {
   homeTodayIs: "Today is {date}",
   homeOverviewTitle: "How things are going",
   homeAllSections: "All sections",
+
+  /* Activity log — the admin-only record of everything the app did. */
+  auditNavLog: "Activity log",
+  auditPageTitle: "Activity log",
+  auditPageIntro:
+    "Everything done in this app, newest first — who signed in, what was written down, and what was changed.",
+
+  auditWarningTitle: "Read this before you rely on it",
+  auditWarningBody:
+    "This log is a record of what this app did on this computer. It is stored in the same file as the rest of your data, so anyone who can open that file can change it. Keep a regular export outside the app, and do not treat it on its own as proof in a wage dispute.",
+
+  auditFiltersTitle: "Find an entry",
+  auditFilterFrom: "From date",
+  auditFilterTo: "To date",
+  auditFilterKind: "Kind of work",
+  auditFilterWho: "Done by",
+  auditFilterSearch: "Search",
+  auditFilterSearchHint: "Type a name or a word, e.g. Rakesh",
+  auditFilterAll: "All",
+  auditFilterClear: "Clear filters",
+
+  auditCatAuth: "Sign in and passwords",
+  auditCatAttendance: "Attendance",
+  auditCatProduction: "Work and items",
+  auditCatMoney: "Money and salary",
+  auditCatPeople: "People",
+  auditCatStock: "Stock",
+  auditCatSettings: "Settings and calendars",
+  auditCatData: "Backup and data",
+  auditCatOther: "Other",
+
+  auditRoleAdmin: "The owner",
+  auditRoleWorker: "The worker account",
+  auditRoleUnknown: "Nobody signed in",
+
+  auditColWhen: "When",
+  auditColWhat: "What happened",
+  auditColWho: "Done by",
+  auditColKind: "Kind",
+  auditShowChanges: "Show what changed",
+  auditHideChanges: "Hide what changed",
+  auditChangeWas: "Was",
+  auditChangeNow: "Now",
+  auditValueEmpty: "nothing",
+  auditValueYes: "Yes",
+  auditValueNo: "No",
+  auditRecordRef: "Record: {entity}",
+  auditSummaryUnclear:
+    "This entry was written by an older version and does not read as a sentence.",
+
+  auditShowing: "Showing {first} to {last} of {total}",
+  auditPageOf: "Page {page} of {pages}",
+  auditPrev: "Previous",
+  auditNext: "Next",
+
+  auditLoading: "Opening the activity log…",
+  auditEmptyTitle: "Nothing has been recorded yet",
+  auditEmptyBody:
+    "As soon as somebody signs in or writes something down, it will appear here.",
+  auditNoMatchTitle: "Nothing matches what you asked for",
+  auditNoMatchBody: "Try a wider date range, or clear the filters.",
+  auditErrorTitle: "The activity log could not be opened",
+  auditErrorBody:
+    "The database did not answer. Close the app, open it again, and try once more.",
+  auditRetry: "Try again",
+
+  auditExportTitle: "Keep a copy outside the app",
+  auditExportBody:
+    "Save what you are looking at now as a file. Do this before you delete anything.",
+  auditExportCsv: "Save as spreadsheet",
+  auditExportJson: "Save as data file",
+  auditExportDone: "Saved {count} entries to {file}",
+  auditExportFailed: "The file could not be saved.",
+
+  auditCsvWhen: "When",
+  auditCsvWhat: "What happened",
+  auditCsvWho: "Done by",
+  auditCsvKind: "Kind",
+  auditCsvAction: "Action code",
+  auditCsvRecordType: "Record type",
+  auditCsvRecordId: "Record number",
+  auditCsvChanges: "What changed",
+
+  auditRetentionTitle: "Old entries",
+  auditRetentionBody:
+    "The log keeps everything until you remove it. Nothing is ever thrown away on its own.",
+  auditRetentionCount: "{count} entries are stored right now.",
+  auditRetentionOldest: "The oldest one is from {date}.",
+  auditRetentionHeavy:
+    "This log is getting large and pages may open slowly. Save a copy, then remove the oldest entries.",
+  auditRetentionCutoff: "Remove entries recorded before",
+  auditRetentionCheck: "Check how many",
+  auditRetentionWillDelete: "{count} entries are older than that date.",
+  auditRetentionNone: "Nothing is older than that date.",
+  auditRetentionDelete: "Remove them",
+  auditRetentionConfirmTitle: "Remove {count} old entries?",
+  auditRetentionConfirmBody:
+    "This cannot be undone. The removal itself will be written into the log, so it will always be clear that entries were removed.",
+  auditRetentionCancel: "Keep them",
+  auditRetentionDone: "{count} old entries were removed.",
+  auditRetentionFailed: "The entries could not be removed.",
+
+  /* Step 2 · Sunday rules — the fully configurable earning rule and its editor. */
+  ruleTypeLabel: "Rule type",
+  ruleTypeTable: "Table of steps",
+  ruleTypeRepeat: "Every few days",
+  ruleTypeTableHint:
+    "Write one line for each level. The highest line the worker reaches is the one that is paid.",
+  ruleTypeRepeatHint:
+    "Pay the same amount again and again — once for every so many days present.",
+  ruleTableWhen: "Present at least (days)",
+  ruleTableGive: "Give (days' pay)",
+  ruleTableAddRow: "Add a line",
+  ruleTableRemoveRow: "Remove",
+  ruleTableEmpty: "No lines yet. Nobody earns extra days until you add one.",
+  ruleRepeatEvery: "Every (days present)",
+  ruleRepeatGive: "Give (days' pay)",
+  ruleLimitsTitle: "Windows and limits",
+  ruleCycleDays: "Window length (days)",
+  ruleMaxPerCycle: "Most per window",
+  ruleMaxPerMonth: "Most per month",
+  ruleNoLimit: "No limit",
+  ruleNoLimitSet: "No limit",
+  ruleSetLimit: "Set a limit",
+  ruleCycleExplain:
+    "The month is cut into windows of {n} days. Days present are counted in each window on its own.",
+  ruleCapWarning:
+    "At {days} days present your rule gives {uncapped} days, but the limit pays only {earned}. Raise the limit or lower the rule.",
+  rulePremiumTitle: "Extra pay for Sundays worked",
+  rulePremiumHint: "Off. Every Sunday worked is paid one day's pay.",
+  rulePremiumOn: "Add Sunday extra pay",
+  rulePremiumOff: "Remove",
+  rulePremiumAfter: "After (present days)",
+  rulePremiumTimes: "Pay Sunday at (times)",
+  rulePremiumPrecedence:
+    "A number set on one worker's own page wins over this. If neither is set, the factory default in Settings is used.",
+  rulePreviewTitle: "What this pays",
+  rulePreviewColDays: "Days present in a window",
+  rulePreviewColEarned: "Extra days' pay earned",
+  rulePreviewSentence:
+    "Someone present {days} days in a window earns {earned} extra days' pay.",
+  rulePreviewNothing: "This rule earns nobody any extra days.",
+  ruleSummaryBracket: "{days} days \u2192 {give}",
+  ruleSummaryRepeat: "every {every} days \u2192 {give}",
+  ruleSummaryNothing: "earns nothing",
+  ruleSummaryCycle: "window {n} days",
+  ruleSummaryLimits: "most {cycle} per window, {month} per month",
+  ruleSummaryNoLimits: "no limits",
+  ruleSummaryPremium: "Sunday at {times}\u00d7 after {days} days",
+  ruleEdit: "Edit",
+  ruleSaveEdit: "Save changes",
+  ruleCancelEdit: "Cancel",
+  ruleSaveSuccess: "Rule saved",
 } as const;
 
 export type MessageKey = keyof typeof en;
@@ -3049,6 +3202,164 @@ const hi: Record<MessageKey, string> = {
   homeTodayIs: "\u0906\u091c {date} \u0939\u0948",
   homeOverviewTitle: "\u0915\u093e\u0930\u0916\u093e\u0928\u093e \u0915\u0948\u0938\u093e \u091a\u0932 \u0930\u0939\u093e \u0939\u0948",
   homeAllSections: "\u0938\u092d\u0940 \u0935\u093f\u092d\u093e\u0917",
+
+  /* \u0917\u0924\u093f\u0935\u093f\u0927\u093f \u0932\u0949\u0917 */
+  auditNavLog: "\u0917\u0924\u093f\u0935\u093f\u0927\u093f \u0932\u0949\u0917",
+  auditPageTitle: "\u0917\u0924\u093f\u0935\u093f\u0927\u093f \u0932\u0949\u0917",
+  auditPageIntro:
+    "\u0907\u0938 \u0910\u092a \u092e\u0947\u0902 \u0939\u0941\u0906 \u0939\u0930 \u0915\u093e\u092e, \u0928\u092f\u093e \u0938\u092c\u0938\u0947 \u090a\u092a\u0930 \u2014 \u0915\u094c\u0928 \u0932\u0949\u0917\u093f\u0928 \u0939\u0941\u0906, \u0915\u094d\u092f\u093e \u0932\u093f\u0916\u093e \u0917\u092f\u093e, \u0914\u0930 \u0915\u094d\u092f\u093e \u092c\u0926\u0932\u093e \u0917\u092f\u093e\u0964",
+
+  auditWarningTitle: "\u092d\u0930\u094b\u0938\u093e \u0915\u0930\u0928\u0947 \u0938\u0947 \u092a\u0939\u0932\u0947 \u092f\u0939 \u092a\u0922\u093c\u0947\u0902",
+  auditWarningBody:
+    "\u092f\u0939 \u0932\u0949\u0917 \u092c\u0924\u093e\u0924\u093e \u0939\u0948 \u0915\u093f \u0907\u0938 \u0915\u0902\u092a\u094d\u092f\u0942\u091f\u0930 \u092a\u0930 \u0910\u092a \u0928\u0947 \u0915\u094d\u092f\u093e \u0915\u093f\u092f\u093e\u0964 \u092f\u0939 \u0906\u092a\u0915\u0947 \u092c\u093e\u0915\u0940 \u0921\u0947\u091f\u093e \u0935\u093e\u0932\u0940 \u092b\u093c\u093e\u0907\u0932 \u092e\u0947\u0902 \u0939\u0940 \u0930\u0916\u093e \u0939\u0948, \u0907\u0938\u0932\u093f\u090f \u091c\u094b \u0909\u0938 \u092b\u093c\u093e\u0907\u0932 \u0915\u094b \u0916\u094b\u0932 \u0938\u0915\u0924\u093e \u0939\u0948 \u0935\u0939 \u0907\u0938\u0947 \u092c\u0926\u0932 \u092d\u0940 \u0938\u0915\u0924\u093e \u0939\u0948\u0964 \u0938\u092e\u092f-\u0938\u092e\u092f \u092a\u0930 \u092c\u093e\u0939\u0930 \u0915\u0949\u092a\u0940 \u0938\u0947\u0935 \u0915\u0930\u0947\u0902, \u0914\u0930 \u0905\u0915\u0947\u0932\u0947 \u0907\u0938\u0940 \u0915\u094b \u092e\u091c\u093c\u0926\u0942\u0930\u0940 \u0915\u0947 \u091d\u0917\u0921\u093c\u0947 \u0915\u093e \u0938\u092c\u0942\u0924 \u0928 \u092e\u093e\u0928\u0947\u0902\u0964",
+
+  auditFiltersTitle: "\u090f\u0902\u091f\u094d\u0930\u0940 \u0922\u0942\u0901\u0922\u0947\u0902",
+  auditFilterFrom: "\u0907\u0938 \u0924\u093e\u0930\u0940\u0916\u093c \u0938\u0947",
+  auditFilterTo: "\u0907\u0938 \u0924\u093e\u0930\u0940\u0916\u093c \u0924\u0915",
+  auditFilterKind: "\u0915\u093f\u0938 \u0924\u0930\u0939 \u0915\u093e \u0915\u093e\u092e",
+  auditFilterWho: "\u0915\u093f\u0938\u0928\u0947 \u0915\u093f\u092f\u093e",
+  auditFilterSearch: "\u0916\u094b\u091c\u0947\u0902",
+  auditFilterSearchHint: "\u0915\u094b\u0908 \u0928\u093e\u092e \u092f\u093e \u0936\u092c\u094d\u0926 \u0932\u093f\u0916\u0947\u0902, \u091c\u0948\u0938\u0947 \u0930\u093e\u0915\u0947\u0936",
+  auditFilterAll: "\u0938\u092d\u0940",
+  auditFilterClear: "\u092b\u093c\u093f\u0932\u094d\u091f\u0930 \u0939\u091f\u093e\u090f\u0901",
+
+  auditCatAuth: "\u0932\u0949\u0917\u093f\u0928 \u0914\u0930 \u092a\u093e\u0938\u0935\u0930\u094d\u0921",
+  auditCatAttendance: "\u0939\u093e\u091c\u093c\u093f\u0930\u0940",
+  auditCatProduction: "\u0915\u093e\u092e \u0914\u0930 \u0906\u0907\u091f\u092e",
+  auditCatMoney: "\u092a\u0948\u0938\u093e \u0914\u0930 \u0938\u0948\u0932\u0930\u0940",
+  auditCatPeople: "\u0932\u094b\u0917",
+  auditCatStock: "\u0938\u094d\u091f\u0949\u0915",
+  auditCatSettings: "\u0938\u0947\u091f\u093f\u0902\u0917 \u0914\u0930 \u0915\u0948\u0932\u0947\u0902\u0921\u0930",
+  auditCatData: "\u092c\u0948\u0915\u0905\u092a \u0914\u0930 \u0921\u0947\u091f\u093e",
+  auditCatOther: "\u0905\u0928\u094d\u092f",
+
+  auditRoleAdmin: "\u092e\u093e\u0932\u093f\u0915",
+  auditRoleWorker: "\u0935\u0930\u094d\u0915\u0930 \u0916\u093e\u0924\u093e",
+  auditRoleUnknown: "\u0915\u094b\u0908 \u0932\u0949\u0917\u093f\u0928 \u0928\u0939\u0940\u0902 \u0925\u093e",
+
+  auditColWhen: "\u0915\u092c",
+  auditColWhat: "\u0915\u094d\u092f\u093e \u0939\u0941\u0906",
+  auditColWho: "\u0915\u093f\u0938\u0928\u0947 \u0915\u093f\u092f\u093e",
+  auditColKind: "\u0924\u0930\u0939",
+  auditShowChanges: "\u0915\u094d\u092f\u093e \u092c\u0926\u0932\u093e, \u0926\u093f\u0916\u093e\u090f\u0901",
+  auditHideChanges: "\u0915\u094d\u092f\u093e \u092c\u0926\u0932\u093e, \u091b\u093f\u092a\u093e\u090f\u0901",
+  auditChangeWas: "\u092a\u0939\u0932\u0947",
+  auditChangeNow: "\u0905\u092c",
+  auditValueEmpty: "\u0915\u0941\u091b \u0928\u0939\u0940\u0902",
+  auditValueYes: "\u0939\u093e\u0901",
+  auditValueNo: "\u0928\u0939\u0940\u0902",
+  auditRecordRef: "\u0930\u093f\u0915\u0949\u0930\u094d\u0921: {entity}",
+  auditSummaryUnclear:
+    "\u092f\u0939 \u090f\u0902\u091f\u094d\u0930\u0940 \u092a\u0941\u0930\u093e\u0928\u0947 \u0935\u0930\u094d\u091c\u093c\u0928 \u0928\u0947 \u0932\u093f\u0916\u0940 \u0925\u0940 \u0914\u0930 \u092a\u0942\u0930\u0940 \u092c\u093e\u0924 \u0928\u0939\u0940\u0902 \u092c\u0924\u093e\u0924\u0940\u0964",
+
+  auditShowing: "{total} \u092e\u0947\u0902 \u0938\u0947 {first} \u0938\u0947 {last} \u0924\u0915",
+  auditPageOf: "\u092a\u0947\u091c {page} / {pages}",
+  auditPrev: "\u092a\u093f\u091b\u0932\u093e",
+  auditNext: "\u0905\u0917\u0932\u093e",
+
+  auditLoading: "\u0917\u0924\u093f\u0935\u093f\u0927\u093f \u0932\u0949\u0917 \u0916\u0941\u0932 \u0930\u0939\u093e \u0939\u0948\u2026",
+  auditEmptyTitle: "\u0905\u092d\u0940 \u0915\u0941\u091b \u092d\u0940 \u0926\u0930\u094d\u091c \u0928\u0939\u0940\u0902 \u0939\u0941\u0906",
+  auditEmptyBody:
+    "\u091c\u0948\u0938\u0947 \u0939\u0940 \u0915\u094b\u0908 \u0932\u0949\u0917\u093f\u0928 \u0915\u0930\u0947\u0917\u093e \u092f\u093e \u0915\u0941\u091b \u0932\u093f\u0916\u0947\u0917\u093e, \u0935\u0939 \u092f\u0939\u093e\u0901 \u0926\u093f\u0916\u0928\u0947 \u0932\u0917\u0947\u0917\u093e\u0964",
+  auditNoMatchTitle: "\u0906\u092a\u0915\u0940 \u0916\u094b\u091c \u0938\u0947 \u0915\u0941\u091b \u0928\u0939\u0940\u0902 \u092e\u093f\u0932\u093e",
+  auditNoMatchBody: "\u0924\u093e\u0930\u0940\u0916\u093c \u0915\u093e \u0926\u093e\u092f\u0930\u093e \u092c\u0921\u093c\u093e \u0915\u0930\u0947\u0902, \u092f\u093e \u092b\u093c\u093f\u0932\u094d\u091f\u0930 \u0939\u091f\u093e \u0926\u0947\u0902\u0964",
+  auditErrorTitle: "\u0917\u0924\u093f\u0935\u093f\u0927\u093f \u0932\u0949\u0917 \u0928\u0939\u0940\u0902 \u0916\u0941\u0932 \u0938\u0915\u093e",
+  auditErrorBody:
+    "\u0921\u0947\u091f\u093e\u092c\u0947\u0938 \u0928\u0947 \u091c\u0935\u093e\u092c \u0928\u0939\u0940\u0902 \u0926\u093f\u092f\u093e\u0964 \u0910\u092a \u092c\u0902\u0926 \u0915\u0930\u0915\u0947 \u0926\u094b\u092c\u093e\u0930\u093e \u0916\u094b\u0932\u0947\u0902 \u0914\u0930 \u092b\u093f\u0930 \u0915\u094b\u0936\u093f\u0936 \u0915\u0930\u0947\u0902\u0964",
+  auditRetry: "\u0926\u094b\u092c\u093e\u0930\u093e \u0915\u094b\u0936\u093f\u0936 \u0915\u0930\u0947\u0902",
+
+  auditExportTitle: "\u0910\u092a \u0915\u0947 \u092c\u093e\u0939\u0930 \u090f\u0915 \u0915\u0949\u092a\u0940 \u0930\u0916\u0947\u0902",
+  auditExportBody:
+    "\u0905\u092d\u0940 \u091c\u094b \u0926\u093f\u0916 \u0930\u0939\u093e \u0939\u0948 \u0909\u0938\u0947 \u092b\u093c\u093e\u0907\u0932 \u092e\u0947\u0902 \u0938\u0947\u0935 \u0915\u0930\u0947\u0902\u0964 \u0915\u0941\u091b \u092d\u0940 \u0939\u091f\u093e\u0928\u0947 \u0938\u0947 \u092a\u0939\u0932\u0947 \u092f\u0939 \u091c\u093c\u0930\u0942\u0930 \u0915\u0930\u0947\u0902\u0964",
+  auditExportCsv: "\u090f\u0915\u094d\u0938\u0947\u0932 \u092b\u093c\u093e\u0907\u0932 \u092e\u0947\u0902 \u0938\u0947\u0935 \u0915\u0930\u0947\u0902",
+  auditExportJson: "\u0921\u0947\u091f\u093e \u092b\u093c\u093e\u0907\u0932 \u092e\u0947\u0902 \u0938\u0947\u0935 \u0915\u0930\u0947\u0902",
+  auditExportDone: "{count} \u090f\u0902\u091f\u094d\u0930\u0940 {file} \u092e\u0947\u0902 \u0938\u0947\u0935 \u0939\u094b \u0917\u0908\u0902",
+  auditExportFailed: "\u092b\u093c\u093e\u0907\u0932 \u0938\u0947\u0935 \u0928\u0939\u0940\u0902 \u0939\u094b \u0938\u0915\u0940\u0964",
+
+  auditCsvWhen: "\u0915\u092c",
+  auditCsvWhat: "\u0915\u094d\u092f\u093e \u0939\u0941\u0906",
+  auditCsvWho: "\u0915\u093f\u0938\u0928\u0947 \u0915\u093f\u092f\u093e",
+  auditCsvKind: "\u0924\u0930\u0939",
+  auditCsvAction: "\u090f\u0915\u094d\u0936\u0928 \u0915\u094b\u0921",
+  auditCsvRecordType: "\u0930\u093f\u0915\u0949\u0930\u094d\u0921 \u0915\u093e \u092a\u094d\u0930\u0915\u093e\u0930",
+  auditCsvRecordId: "\u0930\u093f\u0915\u0949\u0930\u094d\u0921 \u0928\u0902\u092c\u0930",
+  auditCsvChanges: "\u0915\u094d\u092f\u093e \u092c\u0926\u0932\u093e",
+
+  auditRetentionTitle: "\u092a\u0941\u0930\u093e\u0928\u0940 \u090f\u0902\u091f\u094d\u0930\u0940",
+  auditRetentionBody:
+    "\u091c\u092c \u0924\u0915 \u0906\u092a \u0916\u093c\u0941\u0926 \u0928 \u0939\u091f\u093e\u090f\u0901, \u0932\u0949\u0917 \u0938\u092c \u0915\u0941\u091b \u0930\u0916\u0924\u093e \u0939\u0948\u0964 \u0905\u092a\u0928\u0947 \u0906\u092a \u0915\u0941\u091b \u092d\u0940 \u0928\u0939\u0940\u0902 \u092e\u093f\u091f\u0924\u093e\u0964",
+  auditRetentionCount: "\u0905\u092d\u0940 {count} \u090f\u0902\u091f\u094d\u0930\u0940 \u0930\u0916\u0940 \u0939\u0948\u0902\u0964",
+  auditRetentionOldest: "\u0938\u092c\u0938\u0947 \u092a\u0941\u0930\u093e\u0928\u0940 {date} \u0915\u0940 \u0939\u0948\u0964",
+  auditRetentionHeavy:
+    "\u0932\u0949\u0917 \u092c\u0921\u093c\u093e \u0939\u094b \u0930\u0939\u093e \u0939\u0948 \u0914\u0930 \u092a\u0947\u091c \u0927\u0940\u0930\u0947 \u0916\u0941\u0932 \u0938\u0915\u0924\u0947 \u0939\u0948\u0902\u0964 \u092a\u0939\u0932\u0947 \u0915\u0949\u092a\u0940 \u0938\u0947\u0935 \u0915\u0930\u0947\u0902, \u092b\u093f\u0930 \u0938\u092c\u0938\u0947 \u092a\u0941\u0930\u093e\u0928\u0940 \u090f\u0902\u091f\u094d\u0930\u0940 \u0939\u091f\u093e\u090f\u0901\u0964",
+  auditRetentionCutoff: "\u0907\u0938 \u0924\u093e\u0930\u0940\u0916\u093c \u0938\u0947 \u092a\u0939\u0932\u0947 \u0915\u0940 \u090f\u0902\u091f\u094d\u0930\u0940 \u0939\u091f\u093e\u090f\u0901",
+  auditRetentionCheck: "\u0917\u093f\u0928\u0915\u0930 \u0926\u0947\u0916\u0947\u0902",
+  auditRetentionWillDelete: "\u0909\u0938 \u0924\u093e\u0930\u0940\u0916\u093c \u0938\u0947 \u092a\u0941\u0930\u093e\u0928\u0940 {count} \u090f\u0902\u091f\u094d\u0930\u0940 \u0939\u0948\u0902\u0964",
+  auditRetentionNone: "\u0909\u0938 \u0924\u093e\u0930\u0940\u0916\u093c \u0938\u0947 \u092a\u0941\u0930\u093e\u0928\u0940 \u0915\u094b\u0908 \u090f\u0902\u091f\u094d\u0930\u0940 \u0928\u0939\u0940\u0902 \u0939\u0948\u0964",
+  auditRetentionDelete: "\u0939\u091f\u093e \u0926\u0947\u0902",
+  auditRetentionConfirmTitle: "{count} \u092a\u0941\u0930\u093e\u0928\u0940 \u090f\u0902\u091f\u094d\u0930\u0940 \u0939\u091f\u093e\u0928\u0940 \u0939\u0948\u0902?",
+  auditRetentionConfirmBody:
+    "\u092f\u0939 \u0935\u093e\u092a\u0938 \u0928\u0939\u0940\u0902 \u0939\u094b \u0938\u0915\u0924\u093e\u0964 \u0939\u091f\u093e\u0928\u0947 \u0915\u0940 \u092c\u093e\u0924 \u092d\u0940 \u0932\u0949\u0917 \u092e\u0947\u0902 \u0932\u093f\u0916 \u0926\u0940 \u091c\u093e\u090f\u0917\u0940, \u0924\u093e\u0915\u093f \u0939\u092e\u0947\u0936\u093e \u092a\u0924\u093e \u0930\u0939\u0947 \u0915\u093f \u090f\u0902\u091f\u094d\u0930\u0940 \u0939\u091f\u093e\u0908 \u0917\u0908 \u0925\u0940\u0902\u0964",
+  auditRetentionCancel: "\u0930\u0939\u0928\u0947 \u0926\u0947\u0902",
+  auditRetentionDone: "{count} \u092a\u0941\u0930\u093e\u0928\u0940 \u090f\u0902\u091f\u094d\u0930\u0940 \u0939\u091f\u093e \u0926\u0940 \u0917\u0908\u0902\u0964",
+  auditRetentionFailed: "\u090f\u0902\u091f\u094d\u0930\u0940 \u0939\u091f\u093e\u0908 \u0928\u0939\u0940\u0902 \u091c\u093e \u0938\u0915\u0940\u0902\u0964",
+
+  /* Step 2 · Sunday rules */
+  ruleTypeLabel: "\u0928\u093f\u092f\u092e \u0915\u093e \u092a\u094d\u0930\u0915\u093e\u0930",
+  ruleTypeTable: "\u0938\u0940\u0922\u093c\u0940 \u0935\u093e\u0932\u0940 \u0924\u093e\u0932\u093f\u0915\u093e",
+  ruleTypeRepeat: "\u0939\u0930 \u0915\u0941\u091b \u0926\u093f\u0928 \u092a\u0930",
+  ruleTypeTableHint:
+    "\u0939\u0930 \u0938\u094d\u0924\u0930 \u0915\u0947 \u0932\u093f\u090f \u090f\u0915 \u0932\u093e\u0907\u0928 \u0932\u093f\u0916\u0947\u0902\u0964 \u092e\u091c\u093c\u0926\u0942\u0930 \u091c\u093f\u0938 \u0938\u092c\u0938\u0947 \u090a\u092a\u0930 \u0915\u0940 \u0932\u093e\u0907\u0928 \u0924\u0915 \u092a\u0939\u0941\u0901\u091a\u0947, \u0935\u0939\u0940 \u092e\u093f\u0932\u0947\u0917\u0940\u0964",
+  ruleTypeRepeatHint:
+    "\u090f\u0915 \u0939\u0940 \u0930\u0915\u092e \u092c\u093e\u0930-\u092c\u093e\u0930 \u2014 \u0939\u0930 \u0907\u0924\u0928\u0947 \u0939\u093e\u091c\u093c\u093f\u0930 \u0926\u093f\u0928 \u092a\u0930 \u090f\u0915 \u092c\u093e\u0930\u0964",
+  ruleTableWhen: "\u0915\u092e \u0938\u0947 \u0915\u092e \u0939\u093e\u091c\u093c\u093f\u0930 (\u0926\u093f\u0928)",
+  ruleTableGive: "\u0926\u0947\u0902 (\u0926\u093f\u0928 \u0915\u0940 \u0924\u0928\u0916\u094d\u0935\u093e\u0939)",
+  ruleTableAddRow: "\u0932\u093e\u0907\u0928 \u091c\u094b\u0921\u093c\u0947\u0902",
+  ruleTableRemoveRow: "\u0939\u091f\u093e\u090f\u0901",
+  ruleTableEmpty:
+    "\u0905\u092d\u0940 \u0915\u094b\u0908 \u0932\u093e\u0907\u0928 \u0928\u0939\u0940\u0902\u0964 \u091c\u092c \u0924\u0915 \u091c\u094b\u0921\u093c\u0947\u0902\u0917\u0947 \u0928\u0939\u0940\u0902, \u0915\u093f\u0938\u0940 \u0915\u094b \u0905\u0924\u093f\u0930\u093f\u0915\u094d\u0924 \u0926\u093f\u0928 \u0928\u0939\u0940\u0902 \u092e\u093f\u0932\u0947\u0917\u093e\u0964",
+  ruleRepeatEvery: "\u0939\u0930 (\u0939\u093e\u091c\u093c\u093f\u0930 \u0926\u093f\u0928)",
+  ruleRepeatGive: "\u0926\u0947\u0902 (\u0926\u093f\u0928 \u0915\u0940 \u0924\u0928\u0916\u094d\u0935\u093e\u0939)",
+  ruleLimitsTitle: "\u0916\u093f\u0921\u093c\u0915\u0940 \u0914\u0930 \u0938\u0940\u092e\u093e",
+  ruleCycleDays: "\u0916\u093f\u0921\u093c\u0915\u0940 \u0915\u0940 \u0932\u0902\u092c\u093e\u0908 (\u0926\u093f\u0928)",
+  ruleMaxPerCycle: "\u090f\u0915 \u0916\u093f\u0921\u093c\u0915\u0940 \u092e\u0947\u0902 \u0905\u0927\u093f\u0915\u0924\u092e",
+  ruleMaxPerMonth: "\u092e\u0939\u0940\u0928\u0947 \u092e\u0947\u0902 \u0905\u0927\u093f\u0915\u0924\u092e",
+  ruleNoLimit: "\u0915\u094b\u0908 \u0938\u0940\u092e\u093e \u0928\u0939\u0940\u0902",
+  ruleNoLimitSet: "\u0915\u094b\u0908 \u0938\u0940\u092e\u093e \u0928\u0939\u0940\u0902",
+  ruleSetLimit: "\u0938\u0940\u092e\u093e \u0932\u0917\u093e\u090f\u0901",
+  ruleCycleExplain:
+    "\u092e\u0939\u0940\u0928\u093e {n} \u0926\u093f\u0928 \u0915\u0940 \u0916\u093f\u0921\u093c\u0915\u093f\u092f\u094b\u0902 \u092e\u0947\u0902 \u092c\u0901\u091f\u0924\u093e \u0939\u0948\u0964 \u0939\u0930 \u0916\u093f\u0921\u093c\u0915\u0940 \u0915\u0947 \u0939\u093e\u091c\u093c\u093f\u0930 \u0926\u093f\u0928 \u0905\u0932\u0917-\u0905\u0932\u0917 \u0917\u093f\u0928\u0947 \u091c\u093e\u0924\u0947 \u0939\u0948\u0902\u0964",
+  ruleCapWarning:
+    "{days} \u0939\u093e\u091c\u093c\u093f\u0930 \u0926\u093f\u0928 \u092a\u0930 \u0906\u092a\u0915\u093e \u0928\u093f\u092f\u092e {uncapped} \u0926\u093f\u0928 \u0926\u0947\u0924\u093e \u0939\u0948, \u092a\u0930 \u0938\u0940\u092e\u093e \u0938\u093f\u0930\u094d\u092b\u093c {earned} \u0926\u0947\u0917\u0940\u0964 \u0938\u0940\u092e\u093e \u092c\u0922\u093c\u093e\u090f\u0901 \u092f\u093e \u0928\u093f\u092f\u092e \u0918\u091f\u093e\u090f\u0901\u0964",
+  rulePremiumTitle: "\u0930\u0935\u093f\u0935\u093e\u0930 \u0915\u0947 \u0915\u093e\u092e \u092a\u0930 \u091c\u093c\u094d\u092f\u093e\u0926\u093e \u092a\u0948\u0938\u093e",
+  rulePremiumHint:
+    "\u092c\u0902\u0926 \u0939\u0948\u0964 \u0939\u0930 \u0915\u093e\u092e \u0935\u093e\u0932\u0947 \u0930\u0935\u093f\u0935\u093e\u0930 \u0915\u093e \u090f\u0915 \u0926\u093f\u0928 \u0915\u093e \u092a\u0948\u0938\u093e \u092e\u093f\u0932\u0924\u093e \u0939\u0948\u0964",
+  rulePremiumOn: "\u0930\u0935\u093f\u0935\u093e\u0930 \u0915\u093e \u090f\u0915\u094d\u0938\u091f\u094d\u0930\u093e \u091c\u094b\u0921\u093c\u0947\u0902",
+  rulePremiumOff: "\u0939\u091f\u093e\u090f\u0901",
+  rulePremiumAfter: "\u0907\u0924\u0928\u0947 \u0939\u093e\u091c\u093c\u093f\u0930 \u0926\u093f\u0928 \u0915\u0947 \u092c\u093e\u0926",
+  rulePremiumTimes: "\u0930\u0935\u093f\u0935\u093e\u0930 \u0915\u093e \u092d\u0941\u0917\u0924\u093e\u0928 (\u0917\u0941\u0928\u093e)",
+  rulePremiumPrecedence:
+    "\u0915\u093f\u0938\u0940 \u090f\u0915 \u092e\u091c\u093c\u0926\u0942\u0930 \u0915\u0947 \u092a\u0928\u094d\u0928\u0947 \u092a\u0930 \u0932\u093f\u0916\u093e \u0928\u0902\u092c\u0930 \u0907\u0938\u0938\u0947 \u090a\u092a\u0930 \u0939\u0948\u0964 \u0926\u094b\u0928\u094b\u0902 \u0928 \u0939\u094b\u0902 \u0924\u094b \u0938\u0947\u091f\u093f\u0902\u0917 \u0915\u093e \u0921\u093f\u092b\u093c\u0949\u0932\u094d\u091f \u091a\u0932\u0924\u093e \u0939\u0948\u0964",
+  rulePreviewTitle: "\u0907\u0938\u0938\u0947 \u0915\u093f\u0924\u0928\u093e \u092e\u093f\u0932\u0947\u0917\u093e",
+  rulePreviewColDays: "\u0916\u093f\u0921\u093c\u0915\u0940 \u092e\u0947\u0902 \u0939\u093e\u091c\u093c\u093f\u0930 \u0926\u093f\u0928",
+  rulePreviewColEarned: "\u092e\u093f\u0932\u0928\u0947 \u0935\u093e\u0932\u0947 \u0905\u0924\u093f\u0930\u093f\u0915\u094d\u0924 \u0926\u093f\u0928",
+  rulePreviewSentence:
+    "\u091c\u094b \u0916\u093f\u0921\u093c\u0915\u0940 \u092e\u0947\u0902 {days} \u0926\u093f\u0928 \u0939\u093e\u091c\u093c\u093f\u0930 \u0930\u0939\u093e, \u0909\u0938\u0947 {earned} \u0926\u093f\u0928 \u0915\u093e \u0905\u0924\u093f\u0930\u093f\u0915\u094d\u0924 \u092a\u0948\u0938\u093e \u092e\u093f\u0932\u0947\u0917\u093e\u0964",
+  rulePreviewNothing:
+    "\u0907\u0938 \u0928\u093f\u092f\u092e \u0938\u0947 \u0915\u093f\u0938\u0940 \u0915\u094b \u0905\u0924\u093f\u0930\u093f\u0915\u094d\u0924 \u0926\u093f\u0928 \u0928\u0939\u0940\u0902 \u092e\u093f\u0932\u0924\u0947\u0964",
+  ruleSummaryBracket: "{days} \u0926\u093f\u0928 \u2192 {give}",
+  ruleSummaryRepeat: "\u0939\u0930 {every} \u0926\u093f\u0928 \u2192 {give}",
+  ruleSummaryNothing: "\u0915\u0941\u091b \u0928\u0939\u0940\u0902 \u092e\u093f\u0932\u0924\u093e",
+  ruleSummaryCycle: "\u0916\u093f\u0921\u093c\u0915\u0940 {n} \u0926\u093f\u0928",
+  ruleSummaryLimits:
+    "\u0905\u0927\u093f\u0915\u0924\u092e {cycle} \u092a\u094d\u0930\u0924\u093f \u0916\u093f\u0921\u093c\u0915\u0940, {month} \u092a\u094d\u0930\u0924\u093f \u092e\u0939\u0940\u0928\u093e",
+  ruleSummaryNoLimits: "\u0915\u094b\u0908 \u0938\u0940\u092e\u093e \u0928\u0939\u0940\u0902",
+  ruleSummaryPremium:
+    "{days} \u0926\u093f\u0928 \u0915\u0947 \u092c\u093e\u0926 \u0930\u0935\u093f\u0935\u093e\u0930 {times}\u00d7",
+  ruleEdit: "\u092c\u0926\u0932\u0947\u0902",
+  ruleSaveEdit: "\u092c\u0926\u0932\u093e\u0935 \u0938\u0939\u0947\u091c\u0947\u0902",
+  ruleCancelEdit: "\u0930\u0939\u0928\u0947 \u0926\u0947\u0902",
+  ruleSaveSuccess: "\u0928\u093f\u092f\u092e \u0938\u0939\u0947\u091c\u093e \u0917\u092f\u093e",
 };
 
 export const messages: Record<AppLocale, Record<MessageKey, string>> = {

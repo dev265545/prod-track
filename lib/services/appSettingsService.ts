@@ -32,6 +32,14 @@ export interface AppSettings {
   inventoryBomDeductionsEnabled: boolean;
   stickerMultiplier: number;
   lowStockWarningsEnabled: boolean;
+  /**
+   * Fallback for the Sunday rate premium when neither the employee nor their
+   * Sunday category configures one. These were hardcoded in
+   * `salarySheetService` (26 days / 1.2×); the defaults below are those exact
+   * values, so an install that never opens Settings pays what it paid before.
+   */
+  defaultSundayPremiumRequiredDays: number;
+  defaultSundayPremiumMultiplier: number;
 }
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
@@ -47,7 +55,20 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   inventoryBomDeductionsEnabled: true,
   stickerMultiplier: 2,
   lowStockWarningsEnabled: true,
+  defaultSundayPremiumRequiredDays: 26,
+  defaultSundayPremiumMultiplier: 1.2,
 };
+
+/** A finite number in `[min, max]`, else the default. NaN never survives. */
+function numberInRange(
+  value: unknown,
+  min: number,
+  max: number,
+  fallback: number,
+): number {
+  const n = Number(value);
+  return Number.isFinite(n) && n >= min && n <= max ? n : fallback;
+}
 
 function boolOr(value: unknown, fallback: boolean): boolean {
   return typeof value === "boolean" ? value : fallback;
@@ -91,6 +112,18 @@ export function normalizeAppSettings(raw: unknown): AppSettings {
         ? multiplier
         : DEFAULT_APP_SETTINGS.stickerMultiplier,
     lowStockWarningsEnabled: boolOr(row.lowStockWarningsEnabled, true),
+    defaultSundayPremiumRequiredDays: numberInRange(
+      row.defaultSundayPremiumRequiredDays,
+      0,
+      31,
+      DEFAULT_APP_SETTINGS.defaultSundayPremiumRequiredDays,
+    ),
+    defaultSundayPremiumMultiplier: numberInRange(
+      row.defaultSundayPremiumMultiplier,
+      0,
+      10,
+      DEFAULT_APP_SETTINGS.defaultSundayPremiumMultiplier,
+    ),
   };
 }
 

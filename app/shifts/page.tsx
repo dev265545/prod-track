@@ -16,14 +16,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { CalendarDays, Clock, Info, Trash2 } from "lucide-react";
+import { CalendarDays, Clock, Info, Pencil, Plus, Save, Trash2, X } from "lucide-react";
 import { useAuthGuard } from "@/lib/hooks/useAuthGuard";
 import { getShifts, saveShift, deleteShift } from "@/lib/services/shiftService";
 import {
@@ -46,6 +39,16 @@ import {
 } from "@/components/ui/alert-dialog";
 import { AppLoadingScreen } from "@/components/app-loading-screen";
 import { useLanguage } from "@/components/language-provider";
+import {
+  SundayRuleEditor,
+  describeSundayRule,
+} from "@/components/rules/sunday-rule-editor";
+import {
+  DEFAULT_SUNDAY_RULE,
+  normalizeSundayRule,
+  type SundayRule,
+} from "@/lib/utils/sundayRule";
+import { resolveSundayCategoryRule } from "@/lib/services/sundayCategoryService";
 
 type PayRules = {
   shifts: Record<string, unknown>[];
@@ -76,15 +79,16 @@ export default function ShiftsPage() {
   const [shiftHours, setShiftHours] = useState("8");
 
   const [categoryName, setCategoryName] = useState("");
-  const [categoryMode, setCategoryMode] = useState<"threshold" | "step">(
-    "threshold",
-  );
-  // Text for the same reason as shiftHours; `Math.max(1, ...)` on submit keeps
-  // the "at least 1" guarantee the browser used to give us.
-  const [requiredPresent, setRequiredPresent] = useState("12");
-  const [earnedSundays, setEarnedSundays] = useState("2");
-  const [everyPresentDays, setEveryPresentDays] = useState("6");
-  const [earnedPerStep, setEarnedPerStep] = useState("1");
+  // `null` means "adding a new category"; an id means the form is editing that
+  // one. Rules are rich enough now that add-only would strand every mistake.
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [categoryRule, setCategoryRule] = useState<SundayRule>(DEFAULT_SUNDAY_RULE);
+
+  const resetCategoryForm = () => {
+    setCategoryName("");
+    setEditingId(null);
+    setCategoryRule(DEFAULT_SUNDAY_RULE);
+  };
 
   const load = useCallback(async () => {
     setData(await fetchPayRules());
@@ -303,18 +307,24 @@ export default function ShiftsPage() {
                       <TableCell className="font-medium">
                         {c.name as string}
                       </TableCell>
-                      <TableCell>
-                        {(c.mode as string) === "step"
-                          ? t("shiftsSundayRuleStep", {
-                              every: c.everyPresentDays as number,
-                              earned: c.earnedPerStep as number,
-                            })
-                          : t("shiftsSundayRuleThreshold", {
-                              required: c.requiredPresent as number,
-                              earned: c.earnedSundays as number,
-                            })}
+                      <TableCell className="text-base leading-relaxed">
+                        {describeSundayRule(resolveSundayCategoryRule(c), t)}
                       </TableCell>
                       <TableCell>
+                        <div className="flex flex-wrap gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="min-h-[44px] px-4 py-3 text-base"
+                          onClick={() => {
+                            setEditingId(c.id);
+                            setCategoryName(c.name);
+                            setCategoryRule(resolveSundayCategoryRule(c));
+                          }}
+                        >
+                          <Pencil data-icon="inline-start" aria-hidden />
+                          {t("ruleEdit")}
+                        </Button>
                         <AlertDialog>
                           <AlertDialogTrigger asChild>
                             <Button
@@ -361,6 +371,7 @@ export default function ShiftsPage() {
                             </AlertDialogFooter>
                           </AlertDialogContent>
                         </AlertDialog>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))
@@ -369,34 +380,30 @@ export default function ShiftsPage() {
             </Table>
           </div>
           <form
-            className="flex flex-wrap gap-4 items-end rounded-xl border border-border bg-surface-2 p-4"
+            className="flex w-full min-w-0 flex-col gap-5 rounded-xl border border-border bg-surface-2 p-4"
             onSubmit={async (e) => {
               e.preventDefault();
               if (!categoryName.trim()) return;
               try {
-                if (categoryMode === "threshold") {
-                  await saveSundayCategory({
-                    name: categoryName.trim(),
-                    mode: "threshold",
-                    requiredPresent: readNumericInput(requiredPresent, 12, { min: 1 }),
-                    earnedSundays: readNumericInput(earnedSundays, 2, { min: 1 }),
-                  });
-                } else {
-                  await saveSundayCategory({
-                    name: categoryName.trim(),
-                    mode: "step",
-                    everyPresentDays: readNumericInput(everyPresentDays, 6, { min: 1 }),
-                    earnedPerStep: readNumericInput(earnedPerStep, 1, { min: 1 }),
-                  });
-                }
-                setCategoryName("");
-                setCategoryMode("threshold");
-                setRequiredPresent("12");
-                setEarnedSundays("2");
-                setEveryPresentDays("6");
-                setEarnedPerStep("1");
+                // The rule is stored whole. Legacy `mode` fields are never
+                // written for a row saved here — an edited legacy category
+                // keeps them alongside so an older build can still read it.
+                const existing = editingId
+                  ? sundayCategories.find((c) => c.id === editingId)
+                  : undefined;
+                await saveSundayCategory({
+                  ...(existing ?? {}),
+                  id: editingId ?? undefined,
+                  name: categoryName.trim(),
+                  rule: normalizeSundayRule(categoryRule),
+                });
+                resetCategoryForm();
                 await load();
-                toast.success(t("shiftsSundayAddSuccess"));
+                toast.success(
+                  editingId
+                    ? t("ruleSaveSuccess")
+                    : t("shiftsSundayAddSuccess"),
+                );
               } catch {
                 toast.error(t("shiftsSundayAddFail"));
               }
@@ -410,91 +417,34 @@ export default function ShiftsPage() {
                 value={categoryName}
                 onChange={(e) => setCategoryName(e.target.value)}
                 placeholder={t("shiftsSundayFormNamePlaceholder")}
-                className="w-64 min-h-[44px]"
+                className="w-full max-w-sm min-h-[44px]"
                 required
               />
             </div>
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="catMode">{t("shiftsSundayFormModeLabel")}</Label>
-              <Select
-                value={categoryMode}
-                onValueChange={(v) =>
-                  setCategoryMode(v as "threshold" | "step")
-                }
-              >
-                <SelectTrigger id="catMode" className="w-48 min-h-[44px]">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="threshold">
-                    {t("shiftsSundayModeThreshold")}
-                  </SelectItem>
-                  <SelectItem value="step">
-                    {t("shiftsSundayModeStep")}
-                  </SelectItem>
-                </SelectContent>
-              </Select>
+
+            <SundayRuleEditor value={categoryRule} onChange={setCategoryRule} t={t} />
+
+            <div className="flex flex-wrap gap-3">
+              <Button type="submit" className={btnPrimaryClass}>
+                {editingId ? (
+                  <Save data-icon="inline-start" aria-hidden />
+                ) : (
+                  <Plus data-icon="inline-start" aria-hidden />
+                )}
+                {editingId ? t("ruleSaveEdit") : t("shiftsSundayFormSubmit")}
+              </Button>
+              {editingId ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={btnPrimaryClass}
+                  onClick={resetCategoryForm}
+                >
+                  <X data-icon="inline-start" aria-hidden />
+                  {t("ruleCancelEdit")}
+                </Button>
+              ) : null}
             </div>
-
-            {categoryMode === "threshold" ? (
-              <>
-                <div className="flex flex-col gap-2">
-                  <Label htmlFor="requiredPresent">
-                    {t("shiftsSundayPresentNeeded")}
-                  </Label>
-                  <NumberInput
-                    id="requiredPresent"
-                    min={1}
-                    value={requiredPresent}
-                    onChange={(e) => setRequiredPresent(e.target.value)}
-                    className="w-40 min-h-[44px]"
-                  />
-                </div>
-                <div className="flex flex-col gap-2">
-                  <Label htmlFor="earnedSundays">
-                    {t("shiftsSundayEarnedLabel")}
-                  </Label>
-                  <NumberInput
-                    id="earnedSundays"
-                    min={1}
-                    value={earnedSundays}
-                    onChange={(e) => setEarnedSundays(e.target.value)}
-                    className="w-32 min-h-[44px]"
-                  />
-                </div>
-              </>
-            ) : (
-              <>
-                <div className="flex flex-col gap-2">
-                  <Label htmlFor="everyPresentDays">
-                    {t("shiftsSundayEveryPresent")}
-                  </Label>
-                  <NumberInput
-                    id="everyPresentDays"
-                    min={1}
-                    value={everyPresentDays}
-                    onChange={(e) => setEveryPresentDays(e.target.value)}
-                    className="w-40 min-h-[44px]"
-                  />
-                </div>
-                <div className="flex flex-col gap-2">
-                  <Label htmlFor="earnedPerStep">
-                    {t("shiftsSundayPerStep")}
-                  </Label>
-                  <NumberInput
-                    id="earnedPerStep"
-                    min={1}
-                    value={earnedPerStep}
-                    onChange={(e) => setEarnedPerStep(e.target.value)}
-                    className="w-32 min-h-[44px]"
-                  />
-                </div>
-              </>
-            )}
-
-            <Button type="submit" className={btnPrimaryClass}>
-              {t("shiftsSundayFormSubmit")}
-            </Button>
           </form>
         </SettingsSection>
       </main>

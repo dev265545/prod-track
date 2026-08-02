@@ -13,6 +13,7 @@ import {
   sumHoursAdjustmentsInRange,
 } from "./attendanceStats";
 import { getSundayDatesInMonth } from "./date";
+import { normalizeSundayRule } from "./sundayRule";
 
 describe("computeEarnedExtraPayDaysForCalendarScope", () => {
   it("grants 2 per qualifying 15-day block (≥12 working presents), max 4 per month", () => {
@@ -100,11 +101,11 @@ describe("computeEarnedExtraPayDaysForCalendarScope", () => {
     const att = new Map(
       nonSunDates.map((date) => [date, { status: "present" as const }]),
     );
-    const rule: SundayCategoryRule = {
+    const rule: SundayCategoryRule = normalizeSundayRule({
       mode: "threshold",
       requiredPresent: 12,
       earnedSundays: 2,
-    };
+    });
     expect(
       computeEarnedExtraPayDaysForCalendarScope(
         "2026-03-01",
@@ -127,11 +128,11 @@ describe("computeEarnedExtraPayDaysForCalendarScope", () => {
     const att = new Map(
       nonSunDates.map((date) => [date, { status: "present" as const }]),
     );
-    const rule: SundayCategoryRule = {
+    const rule: SundayCategoryRule = normalizeSundayRule({
       mode: "step",
       everyPresentDays: 6,
       earnedPerStep: 1,
-    };
+    });
     expect(
       computeEarnedExtraPayDaysForCalendarScope(
         "2026-03-01",

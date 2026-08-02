@@ -13,6 +13,7 @@ import {
 } from "./salarySheetOverrideService";
 import { resolveEffectiveSalarySheetRow } from "./salarySheetComposite";
 import { getDeductionsByEmployee } from "./advanceDeductionService";
+import { getAppSettings } from "./appSettingsService";
 import { getOperatorHolidaysInRange } from "./operatorHolidayService";
 import {
   getCalendarDaysInMonth,
@@ -75,6 +76,46 @@ export const DEFAULT_SUNDAY_MULTIPLIER = 1.2;
 
 /** Default number of present working days an Operator needs before the multiplier applies. */
 export const DEFAULT_REQUIRED_PRESENT_DAYS = 26;
+
+/**
+ * Where an employee's Sunday rate premium comes from, most specific first.
+ *
+ * The premium used to live only on the employee record, in parallel with the
+ * Sunday category — two mechanisms for "how do we reward showing up", with no
+ * stated precedence between them. They are now one chain, and this is it:
+ *
+ * 1. the employee's own `requiredPresentDays` / `sundayMultiplier`, if set;
+ * 2. the `sundayPremium` on the employee's Sunday category, if it has one;
+ * 3. the factory-wide defaults in Settings (26 days, 1.2×).
+ *
+ * Each of the two numbers resolves independently, so a category can set the
+ * multiplier while an employee still overrides only the day count. Existing
+ * installs have no category premium, so this resolves to exactly what step 1
+ * and the old hardcoded constants produced — no pay moves.
+ */
+export function resolveOperatorSundayRule(
+  employee: Record<string, unknown>,
+  sundayCategoryRule: SundayCategoryRule,
+  defaults: {
+    defaultSundayPremiumRequiredDays: number;
+    defaultSundayPremiumMultiplier: number;
+  },
+): { requiredPresentDays: number; sundayMultiplier: number } {
+  const premium = sundayCategoryRule.sundayPremium;
+  const empRequired = employee.requiredPresentDays;
+  const empMultiplier = employee.sundayMultiplier;
+  return {
+    requiredPresentDays:
+      typeof empRequired === "number" && Number.isFinite(empRequired)
+        ? empRequired
+        : (premium?.requiredPresentDays ??
+          defaults.defaultSundayPremiumRequiredDays),
+    sundayMultiplier:
+      typeof empMultiplier === "number" && Number.isFinite(empMultiplier)
+        ? empMultiplier
+        : (premium?.multiplier ?? defaults.defaultSundayPremiumMultiplier),
+  };
+}
 
 /**
  * Override fields that can actually move an employee's pay. `absentDays` and
@@ -392,7 +433,7 @@ export async function getSalarySheetForRange(
   holidayDates: string[];
   calendarDaysInMonth: number;
 }> {
-  const [allEmployees, attendance, holidays, operatorHolidays, shifts, sundayCategories, monthOverrides] =
+  const [allEmployees, attendance, holidays, operatorHolidays, shifts, sundayCategories, monthOverrides, appSettings] =
     await Promise.all([
       getEmployees(true),
       getAttendanceInRange(from, to),
@@ -401,6 +442,7 @@ export async function getSalarySheetForRange(
       getShifts(),
       getSundayCategories(),
       getSalarySheetOverridesForMonth(year, month),
+      getAppSettings(),
     ]);
 
   // Production workers are paid for what they make, not for the days they
@@ -504,13 +546,11 @@ export async function getSalarySheetForRange(
           hoursPerDay,
           ratePerDay,
           sundayCategoryRule,
-          operatorSundayRule: {
-            requiredPresentDays:
-              (emp.requiredPresentDays as number) ??
-              DEFAULT_REQUIRED_PRESENT_DAYS,
-            sundayMultiplier:
-              (emp.sundayMultiplier as number) ?? DEFAULT_SUNDAY_MULTIPLIER,
-          },
+          operatorSundayRule: resolveOperatorSundayRule(
+            emp,
+            sundayCategoryRule,
+            appSettings,
+          ),
         })
       : buildAttendanceSalarySummaryForRange({
           fromDate: rangeFrom,
@@ -610,7 +650,7 @@ export async function getSalarySheetRowForEmployee(
   const employee = await getEmployee(employeeId);
   if (!employee) return null;
 
-  const [attendance, holidays, operatorHolidays, shifts, sundayCategories, monthOverrides, deductions] =
+  const [attendance, holidays, operatorHolidays, shifts, sundayCategories, monthOverrides, deductions, appSettings] =
     await Promise.all([
       getAttendanceInRange(from, to).then((rows) =>
         rows.filter((a) => (a.employeeId as string) === employeeId),
@@ -621,6 +661,7 @@ export async function getSalarySheetRowForEmployee(
       getSundayCategories(),
       getSalarySheetOverridesForMonth(year, month),
       getDeductionsByEmployee(employeeId),
+      getAppSettings(),
     ]);
 
   const holidayDates = holidays.map((h) => h.date as string);
@@ -653,12 +694,11 @@ export async function getSalarySheetRowForEmployee(
   const employeeType = employee.employeeType as string | undefined;
   const isOperator = employeeType === "operator";
   const isProduction = employeeType === "production";
-  const operatorSundayRule = {
-    requiredPresentDays:
-      (employee.requiredPresentDays as number) ?? DEFAULT_REQUIRED_PRESENT_DAYS,
-    sundayMultiplier:
-      (employee.sundayMultiplier as number) ?? DEFAULT_SUNDAY_MULTIPLIER,
-  };
+  const operatorSundayRule = resolveOperatorSundayRule(
+    employee,
+    sundayCategoryRule,
+    appSettings,
+  );
   const unionHolidayDates = isOperator
     ? Array.from(new Set([...holidayDates, ...operatorHolidayDates]))
     : holidayDates;

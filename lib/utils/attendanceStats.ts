@@ -3,10 +3,11 @@
  * Logic: no entry = absent on working days. Production is tracked separately and does
  * not affect attendance salary.
  * Daily rate = monthly salary ÷ calendar days in the month.
- * Extra pay days (earned pool): each **full 15 calendar days** of the month starting at day 1
- * (1–15, 16–30, …) counts **working-day** present dates. If that count is **≥12**,
- * the block earns **+2** extra pay days. **At most 4** such extra days apply **per calendar month**
- * (range logic sums each overlapped month). Sunday marked present still adds separately.
+ * Extra pay days (earned pool): the month is split into cycle windows (1–15, 16–end by
+ * default) and each window counts its **working-day** present dates. What that count earns
+ * is entirely the configured {@link SundayCategoryRule} — a bracket table or a repeating
+ * rule — clamped by that rule's own per-cycle and per-month caps (`null` = no cap).
+ * Range logic sums each overlapped month. Sunday marked present still adds separately.
  * Hours: hoursReduced (-) and hoursExtra (+) adjust salary via rate per hour.
  */
 import {
@@ -15,38 +16,41 @@ import {
   isSunday,
   getSundayDatesInMonth,
   getMonthRange,
-  getCalendarDaysInMonth,
   MAX_DAY_PAY_FRACTION,
 } from "./date";
+import {
+  DEFAULT_SUNDAY_RULE,
+  evaluateSundayRuleForCycle,
+  getSundayRuleCycleBlocks,
+  LEGACY_CYCLE_DAYS,
+  LEGACY_EARNED_SUNDAYS,
+  LEGACY_MAX_PER_CYCLE,
+  LEGACY_MAX_PER_MONTH,
+  LEGACY_REQUIRED_PRESENT,
+  type SundayRule,
+} from "./sundayRule";
 
-/** Length of each pay cycle window (calendar days within a month). */
-export const EXTRA_PAY_CYCLE_DAYS = 15;
-/** Hard cap on earned Sunday pay days per 15-day cycle, regardless of category. */
-export const MAX_EXTRA_PAY_DAYS_PER_CYCLE = 2;
-/** Minimum working-day present dates in a cycle to qualify. */
-export const EXTRA_PAY_CYCLE_PRESENT_THRESHOLD = 12;
-/** Extra pay days granted per qualifying cycle (before monthly cap). */
-export const EXTRA_PAY_DAYS_PER_QUALIFIED_CYCLE = 2;
-/** Hard cap on cycle-based extra pay days per calendar month. */
-export const MAX_EXTRA_PAY_DAYS_PER_MONTH = 4;
+/** Default cycle window length, when a rule does not configure its own. */
+export const EXTRA_PAY_CYCLE_DAYS = LEGACY_CYCLE_DAYS;
+/** Default cap on earned Sunday pay days per cycle. */
+export const MAX_EXTRA_PAY_DAYS_PER_CYCLE = LEGACY_MAX_PER_CYCLE;
+/** Default minimum working-day present dates in a cycle to qualify. */
+export const EXTRA_PAY_CYCLE_PRESENT_THRESHOLD = LEGACY_REQUIRED_PRESENT;
+/** Default extra pay days granted per qualifying cycle. */
+export const EXTRA_PAY_DAYS_PER_QUALIFIED_CYCLE = LEGACY_EARNED_SUNDAYS;
+/** Default cap on cycle-based extra pay days per calendar month. */
+export const MAX_EXTRA_PAY_DAYS_PER_MONTH = LEGACY_MAX_PER_MONTH;
 
-export type SundayCategoryRule =
-  | {
-      mode: "threshold";
-      requiredPresent: number;
-      earnedSundays: number;
-    }
-  | {
-      mode: "step";
-      everyPresentDays: number;
-      earnedPerStep: number;
-    };
+/**
+ * The rule the payroll engine consumes. Now the fully configurable
+ * {@link SundayRule} — the two hardcoded `threshold` / `step` modes it replaced
+ * are migrated on read by `normalizeSundayRule`, so callers that simply pass a
+ * resolved rule through are unaffected.
+ */
+export type SundayCategoryRule = SundayRule;
 
-export const DEFAULT_SUNDAY_CATEGORY_RULE: SundayCategoryRule = {
-  mode: "threshold",
-  requiredPresent: EXTRA_PAY_CYCLE_PRESENT_THRESHOLD,
-  earnedSundays: EXTRA_PAY_DAYS_PER_QUALIFIED_CYCLE,
-};
+export const DEFAULT_SUNDAY_CATEGORY_RULE: SundayCategoryRule =
+  DEFAULT_SUNDAY_RULE;
 
 function pad2(n: number): string {
   return String(n).padStart(2, "0");
@@ -103,51 +107,26 @@ function forEachCalendarMonthOverlappingRange(
 /**
  * Split a calendar month into its extra-pay cycle blocks.
  *
- * Rule: a month has as many blocks as its cap allows
- * ({@link MAX_EXTRA_PAY_DAYS_PER_MONTH} ÷ {@link MAX_EXTRA_PAY_DAYS_PER_CYCLE} = 2).
- * Each block is {@link EXTRA_PAY_CYCLE_DAYS} days long, except the last, which
- * absorbs whatever is left of the month. So every month — 28, 29, 30 or 31 days
- * — yields exactly `1–15` and `16–end of month`.
- *
- * This is deliberate. The old rule evaluated only *whole* 15-day blocks, which
- * meant February (whose second block is 13–14 days) could never earn more than
- * one block's worth while every other month earned two, and day 31 of a 31-day
- * month fell outside every block and was never counted. Absorbing the tail keeps
- * {@link MAX_EXTRA_PAY_DAYS_PER_MONTH} (= 2 blocks × {@link MAX_EXTRA_PAY_DAYS_PER_CYCLE})
- * reachable in every month and makes the blocks line up exactly with the
- * first-half / second-half correction periods used by the salary sheet.
+ * Thin wrapper over {@link getSundayRuleCycleBlocks} for callers that still
+ * assume the default cycle length; see that function for why the last block
+ * absorbs the tail of the month.
  */
 export function getExtraPayCycleBlocks(
   year: number,
   monthIndex: number,
+  cycleDays: number = EXTRA_PAY_CYCLE_DAYS,
 ): { start: number; end: number }[] {
-  const lastDay = getCalendarDaysInMonth(year, monthIndex);
-  const blockCount = Math.max(
-    1,
-    Math.floor(MAX_EXTRA_PAY_DAYS_PER_MONTH / MAX_EXTRA_PAY_DAYS_PER_CYCLE),
-  );
-  const blocks: { start: number; end: number }[] = [];
-  for (let i = 0; i < blockCount; i += 1) {
-    const start = 1 + i * EXTRA_PAY_CYCLE_DAYS;
-    if (start > lastDay) break;
-    const isLast = i === blockCount - 1;
-    blocks.push({
-      start,
-      end: isLast
-        ? lastDay
-        : Math.min(start + EXTRA_PAY_CYCLE_DAYS - 1, lastDay),
-    });
-  }
-  return blocks;
+  return getSundayRuleCycleBlocks(year, monthIndex, cycleDays);
 }
 
 /**
  * Cycle-based extra pay days for every calendar month that overlaps `[fromDate, toDate]`.
  * Only blocks (see {@link getExtraPayCycleBlocks}) that lie entirely inside the
  * range are evaluated — that containment check is what lets a half-month slice
- * and its sibling add up to the full month without double counting. Each
- * qualifying block adds {@link EXTRA_PAY_DAYS_PER_QUALIFIED_CYCLE}; each month’s
- * total is capped at {@link MAX_EXTRA_PAY_DAYS_PER_MONTH}.
+ * and its sibling add up to the full month without double counting. Each block
+ * earns whatever the rule says, clamped by the rule's own `maxPerCycle`, and
+ * each month's total by its `maxPerMonth`. Both caps are configuration now, and
+ * `null` means "no cap" — nothing here clamps behind the owner's back.
  */
 export function computeEarnedExtraPayDaysForCalendarScope(
   fromDate: string,
@@ -160,7 +139,11 @@ export function computeEarnedExtraPayDaysForCalendarScope(
   let total = 0;
   forEachCalendarMonthOverlappingRange(fromDate, toDate, (year, monthIndex) => {
     let monthRaw = 0;
-    for (const { start, end } of getExtraPayCycleBlocks(year, monthIndex)) {
+    for (const { start, end } of getExtraPayCycleBlocks(
+      year,
+      monthIndex,
+      categoryRule.cycleDays,
+    )) {
       const windowStart = `${year}-${pad2(monthIndex + 1)}-${pad2(start)}`;
       const windowEnd = `${year}-${pad2(monthIndex + 1)}-${pad2(end)}`;
       if (windowStart < fromDate || windowEnd > toDate) continue;
@@ -171,19 +154,12 @@ export function computeEarnedExtraPayDaysForCalendarScope(
         end,
         attByDate,
       );
-      let earnedForCycle = 0;
-      if (categoryRule.mode === "threshold") {
-        if (presentCount >= categoryRule.requiredPresent) {
-          earnedForCycle = categoryRule.earnedSundays;
-        }
-      } else if (categoryRule.everyPresentDays > 0) {
-        earnedForCycle =
-          Math.floor(presentCount / categoryRule.everyPresentDays) *
-          categoryRule.earnedPerStep;
-      }
-      monthRaw += Math.min(MAX_EXTRA_PAY_DAYS_PER_CYCLE, earnedForCycle);
+      monthRaw += evaluateSundayRuleForCycle(categoryRule, presentCount).earned;
     }
-    total += Math.min(MAX_EXTRA_PAY_DAYS_PER_MONTH, monthRaw);
+    total +=
+      categoryRule.maxPerMonth === null
+        ? monthRaw
+        : Math.min(categoryRule.maxPerMonth, monthRaw);
   });
   return total;
 }
