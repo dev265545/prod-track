@@ -13,7 +13,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { ArrowRightLeft, PackageOpen, ShieldCheck, Upload } from "lucide-react";
-import { getAll, STORES } from "@/lib/db/adapter";
+import { countByIndex, getAll, STORES } from "@/lib/db/adapter";
 import {
   fetchAutoImportData,
   importDatabase,
@@ -60,6 +60,29 @@ const PREVIEW_GROUPS: { labelKey: MessageKey; stores: string[] }[] = [
   },
 ];
 
+/**
+ * The index to count a store through, where one exists over a field every row
+ * carries. The small configuration stores have no index and are small by
+ * definition, so they are still read whole.
+ */
+const COUNT_INDEX: Record<string, string> = {
+  [STORES.PRODUCTIONS]: "by_date",
+  [STORES.ADVANCES]: "by_date",
+  [STORES.ADVANCE_DEDUCTIONS]: "by_employee",
+  [STORES.ATTENDANCE]: "by_date",
+  [STORES.SALARY_RECORDS]: "by_month",
+  [STORES.INVENTORY_MOVEMENTS]: "by_item",
+};
+
+const MIN_KEY = "";
+const MAX_KEY = "￿";
+
+async function countRows(store: string): Promise<number> {
+  const index = COUNT_INDEX[store];
+  if (!index) return (await getAll(store)).length;
+  return countByIndex(store, index, MIN_KEY, MAX_KEY);
+}
+
 type PreviewRow = { labelKey: MessageKey; now: number; next: number };
 
 type PendingRestore = {
@@ -69,13 +92,26 @@ type PendingRestore = {
   doneKey: MessageKey;
 };
 
+/**
+ * Every store in the preview, counted concurrently and without reading a row.
+ * Reading each store in turn just to take `.length` made opening the confirm
+ * dialog cost the whole database, serially.
+ */
 async function buildPreview(data: ExportData): Promise<PreviewRow[]> {
+  const counts = new Map<string, number>();
+  await Promise.all(
+    Array.from(new Set(PREVIEW_GROUPS.flatMap((g) => g.stores))).map(
+      async (store) => {
+        counts.set(store, await countRows(store));
+      },
+    ),
+  );
   const rows: PreviewRow[] = [];
   for (const group of PREVIEW_GROUPS) {
     let now = 0;
     let next = 0;
     for (const store of group.stores) {
-      now += (await getAll(store)).length;
+      now += counts.get(store) ?? 0;
       next += data.stores[store]?.length ?? 0;
     }
     if (now === 0 && next === 0) continue;

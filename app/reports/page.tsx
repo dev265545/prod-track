@@ -28,12 +28,13 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useAuthGuard } from "@/lib/hooks/useAuthGuard";
-import {
-  getProductionsInRange,
-  getProductions,
-} from "@/lib/services/productionService";
+import { getProductionsInRange } from "@/lib/services/productionService";
 import { getItems } from "@/lib/services/itemService";
-import { getPeriodForDate, getPeriodsWithData } from "@/lib/utils/date";
+import {
+  getPeriodForDate,
+  getPeriods,
+  getPeriodsWithData,
+} from "@/lib/utils/date";
 import { number, dateDisplay } from "@/lib/utils/formatter";
 import { printHtml } from "@/lib/utils/print";
 import {
@@ -46,6 +47,9 @@ import { toast } from "sonner";
 import { useLanguage } from "@/components/language-provider";
 
 type PrintScope = "both" | "day" | "night";
+
+/** How many half-month periods the picker offers. */
+const PERIOD_COUNT = 24;
 
 interface CumulativeRow {
   itemId: string;
@@ -71,10 +75,17 @@ export default function ReportsPage() {
   const ready = guardReady && periodsLoaded;
 
   const loadPeriods = useCallback(
-    () =>
-      getProductions()
+    () => {
+      // Only the window the picker can actually offer. `getPeriodsWithData`
+      // keeps nothing outside the last 24 periods, so reading all of history to
+      // find which of them have data was work thrown away — and it grew with
+      // every year the factory ran.
+      const offered = getPeriods(PERIOD_COUNT, locale);
+      const first = offered[0];
+      const last = offered[offered.length - 1];
+      return getProductionsInRange(first.from, last.to)
         .then((prods) => {
-          const withData = getPeriodsWithData(prods, 24, locale);
+          const withData = getPeriodsWithData(prods, PERIOD_COUNT, locale);
           setLoadFailed(false);
           setPeriods(withData);
           const current = getPeriodForDate(
@@ -96,7 +107,8 @@ export default function ReportsPage() {
           setLoadFailed(true);
           // Stop the skeleton: the page must show the error, not spin forever.
           setPeriodsLoaded(true);
-        }),
+        });
+    },
     [locale],
   );
 

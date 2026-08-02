@@ -307,10 +307,11 @@ export async function deleteMovementSilently(id: string): Promise<void> {
 }
 
 export async function deleteMovement(id: string): Promise<void> {
-  const rows = await getAll(MOVEMENTS_STORE);
-  const before = (rows as unknown as InventoryMovement[]).find(
-    (m) => m.id === id,
-  );
+  // Read the one row by primary key. Scanning the whole movement store to find
+  // it cost the entire history on every delete.
+  const before = (await get(MOVEMENTS_STORE, id)) as unknown as
+    | InventoryMovement
+    | null;
   await remove(MOVEMENTS_STORE, id);
   const item = before ? await getInventoryItem(before.itemId) : null;
   void auditRecord(

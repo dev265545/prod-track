@@ -1,4 +1,4 @@
-import { getAll, get, put, STORES } from "@/lib/db/adapter";
+import { getAll, get, getByIndex, put, STORES } from "@/lib/db/adapter";
 import { AUDIT_ACTIONS, diffEntity, record as auditRecord } from "./auditService";
 import { plural } from "./auditNames";
 
@@ -40,18 +40,20 @@ export async function getSalaryRecords(): Promise<Record<string, unknown>[]> {
 export async function getSalaryRecordsByEmployee(
   employeeId: string,
 ): Promise<Record<string, unknown>[]> {
-  const all = await getAll(STORE);
-  return all.filter((r) => (r.employeeId as string) === employeeId);
+  return getByIndex(STORE, "by_employee", employeeId, employeeId);
 }
 
+/**
+ * The month narrows through the `by_month` index; `empName` is not indexed, so
+ * it stays a filter — over one month's rows rather than every salary record
+ * ever written.
+ */
 export async function getSalaryRecordsByEmpNameAndMonth(
   empName: string,
   month: string,
 ): Promise<Record<string, unknown>[]> {
-  const all = await getAll(STORE);
-  return all.filter(
-    (r) => (r.empName as string) === empName && (r.month as string) === month,
-  );
+  const inMonth = await getByIndex(STORE, "by_month", month, month);
+  return inMonth.filter((r) => (r.empName as string) === empName);
 }
 
 /** Write one salary record without auditing it — see `saveSalaryRecords`. */

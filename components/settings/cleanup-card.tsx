@@ -16,20 +16,35 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Eraser } from "lucide-react";
-import {
-  getProductions,
-  deleteProductionsBefore,
-} from "@/lib/services/productionService";
-import {
-  getAdvances,
-  deleteAdvancesBefore,
-} from "@/lib/services/advanceService";
+import { countByIndex, STORES } from "@/lib/db/adapter";
+import { deleteProductionsBefore } from "@/lib/services/productionService";
+import { deleteAdvancesBefore } from "@/lib/services/advanceService";
 import { useLanguage } from "@/components/language-provider";
 import { recordPurge } from "@/lib/services/purgeAudit";
 import { cn } from "@/lib/utils";
 import { SettingsSection, ToneAlert, type ToneMessage } from "./shared";
 
 type Counts = { date: string; work: number; advances: number };
+
+const MIN_DATE_KEY = "";
+const MAX_DATE_KEY = "￿";
+
+/**
+ * How many rows in `store` are dated before `cutoff`, asked of the `by_date`
+ * index instead of by reading every row and filtering in JavaScript.
+ *
+ * Counted as "everything" minus "everything on or after the cutoff": index
+ * ranges are inclusive at both ends, so that is the only exact way to express
+ * the strict `date < cutoff` the delete itself uses. Both halves walk keys
+ * without deserialising a single record.
+ */
+async function countOlderThan(store: string, cutoff: string): Promise<number> {
+  const [total, kept] = await Promise.all([
+    countByIndex(store, "by_date", MIN_DATE_KEY, MAX_DATE_KEY),
+    countByIndex(store, "by_date", cutoff, MAX_DATE_KEY),
+  ]);
+  return total - kept;
+}
 
 function Checkbox({
   id,
@@ -104,17 +119,11 @@ export function CleanupCard() {
     setChecking(true);
     setMessage(null);
     try {
-      const [productions, advances] = await Promise.all([
-        getProductions(),
-        getAdvances(),
+      const [work, advances] = await Promise.all([
+        countOlderThan(STORES.PRODUCTIONS, beforeDate),
+        countOlderThan(STORES.ADVANCES, beforeDate),
       ]);
-      const older = (rows: Record<string, unknown>[]) =>
-        rows.filter((r) => (r.date as string) < beforeDate).length;
-      setCounts({
-        date: beforeDate,
-        work: older(productions),
-        advances: older(advances),
-      });
+      setCounts({ date: beforeDate, work, advances });
     } catch (e) {
       setMessage({
         tone: "danger",
