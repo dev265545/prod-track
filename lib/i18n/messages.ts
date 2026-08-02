@@ -1093,6 +1093,16 @@ const en = {
   invCatMoreActions: "More",
   invCatLowBelow: "Low below {qty} {unit}",
 
+  // --- Inventory item card (invCard*) ---
+  invCardCameIn: "Came in",
+  invCardWentOut: "Went out",
+  invCardLastMoved: "Last change {date}",
+  invCardNeverMoved: "No change yet",
+  invCardNoLowSet: "No low limit set",
+  invCardLevelAria:
+    "Stock level: {qty} {unit}. Low below {low} {unit}.",
+  invCardLevelAriaNoLow: "Stock level: {qty} {unit}. No low limit set.",
+
   // --- Inventory entry dialogs (invDlg*) ---
   invDlgStockInTitle: "Stock coming in",
   invDlgStockOutTitle: "Stock going out",
@@ -2526,6 +2536,15 @@ const hi: Record<MessageKey, string> = {
   invCatStockOut: "स्टॉक निकालें",
   invCatMoreActions: "और काम",
   invCatLowBelow: "{qty} {unit} से कम होने पर कम",
+
+  // --- Inventory item card (invCard*) ---
+  invCardCameIn: "आया",
+  invCardWentOut: "गया",
+  invCardLastMoved: "पिछला बदलाव {date}",
+  invCardNeverMoved: "अभी कोई बदलाव नहीं",
+  invCardNoLowSet: "कम की सीमा तय नहीं है",
+  invCardLevelAria: "स्टॉक: {qty} {unit}। {low} {unit} से कम होने पर कम।",
+  invCardLevelAriaNoLow: "स्टॉक: {qty} {unit}। कम की सीमा तय नहीं है।",
 
   // --- Inventory entry dialogs (invDlg*) ---
   invDlgStockInTitle: "स्टॉक अंदर आया",

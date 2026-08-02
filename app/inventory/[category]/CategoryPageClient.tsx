@@ -60,7 +60,10 @@ import { CATEGORY_THEME } from "@/components/inventory/category-theme";
 import { stockStatus } from "@/components/inventory/shared";
 import { BigItemCard } from "@/components/inventory/big-item-card";
 import { CategorySubnav } from "@/components/inventory/category/category-subnav";
-import { ItemTable } from "@/components/inventory/category/item-table";
+import {
+  ItemTable,
+  type MovementSummary,
+} from "@/components/inventory/category/item-table";
 import {
   SegmentedControl,
   type SegmentedOption,
@@ -228,11 +231,13 @@ export function CategoryPageClient({ category }: CategoryPageClientProps) {
   );
 
   const movementSummaries = useMemo(() => {
-    const map = new Map<string, { inward: number; outward: number }>();
+    const map = new Map<string, MovementSummary>();
     for (const m of movements) {
       const entry = map.get(m.itemId) ?? { inward: 0, outward: 0 };
       if (m.type === "inward") entry.inward += m.qty;
       else if (m.type === "outward") entry.outward += m.qty;
+      // Any movement counts as "last change", including a correction.
+      if (!entry.lastDate || m.date > entry.lastDate) entry.lastDate = m.date;
       map.set(m.itemId, entry);
     }
     return map;
@@ -522,6 +527,7 @@ export function CategoryPageClient({ category }: CategoryPageClientProps) {
               <BigItemCard
                 key={item.id}
                 item={item}
+                movementSummary={movementSummaries.get(item.id)}
                 onInward={(i) => setDialog({ kind: "movement", item: i, type: "inward" })}
                 onOutward={(i) => setDialog({ kind: "movement", item: i, type: "outward" })}
                 onDetails={(i) => setDialog({ kind: "details", item: i })}

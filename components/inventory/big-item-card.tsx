@@ -7,8 +7,11 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/components/language-provider";
 import { stockStatus, stockStatusMeta } from "@/components/inventory/shared";
+import { CATEGORY_THEME } from "@/components/inventory/category-theme";
 import { ItemActionsMenu } from "@/components/inventory/category/item-actions-menu";
 import { formatInventoryQuantity } from "@/lib/services/inventoryCatalog";
+import { stockMeter } from "@/lib/utils/stockLevel";
+import { formatDisplayDate } from "@/lib/utils/date";
 import type { InventoryItem } from "@/lib/services/inventoryService";
 
 export type BigItemCardRow = InventoryItem & {
@@ -16,8 +19,16 @@ export type BigItemCardRow = InventoryItem & {
   isLow: boolean;
 };
 
+export interface BigItemCardMovement {
+  inward: number;
+  outward: number;
+  /** ISO date of the most recent movement, if the item has ever moved. */
+  lastDate?: string;
+}
+
 export interface BigItemCardProps {
   item: BigItemCardRow;
+  movementSummary?: BigItemCardMovement;
   onInward: (item: InventoryItem) => void;
   onOutward: (item: InventoryItem) => void;
   onDetails: (item: BigItemCardRow) => void;
@@ -27,14 +38,27 @@ export interface BigItemCardProps {
 }
 
 /**
- * A compact stock row-card. One item, one screenful of information: the
- * quantity is the hero figure, the threshold is quiet reference text folded
- * under the status badge, and everything that is not "add stock" or "take
- * out" lives in a single overflow menu. Deliberately short so an operator can
- * scan a whole shelf without scrolling.
+ * One item, read top to bottom in four falling weights:
+ *
+ *  1. IDENTITY — the name, the code chip the operator matches against the
+ *     label on the physical stock, and the status badge.
+ *  2. THE LEVEL — the quantity as the one dominant figure on the card, sitting
+ *     directly on a bar whose fill answers "am I ok?" without arithmetic. The
+ *     low line is a notch at the middle of the track (see `stockMeter`).
+ *  3. MOVEMENT — what came in, what went out, when it last moved. One quiet
+ *     line of text, not boxes: this is the context a table row cannot show,
+ *     and it earns its space precisely by staying small.
+ *  4. ACTIONS — the two things an operator actually does, side by side and
+ *     labelled in words. Everything rarer is in the overflow menu.
+ *
+ * Colour is split on purpose: the left stripe is the CATEGORY identity (a
+ * chart token, mark only, never behind text) while the bar and the badge carry
+ * STATUS. The two never mix, so a green bar always means "stock is fine" and
+ * never "this is the green category".
  */
 export function BigItemCard({
   item,
+  movementSummary,
   onInward,
   onOutward,
   onDetails,
@@ -42,36 +66,55 @@ export function BigItemCard({
   onArchive,
   className,
 }: BigItemCardProps) {
-  const { t } = useLanguage();
+  const { t, locale } = useLanguage();
   const status = stockStatus(item.currentStock, item.lowStockThreshold);
-  const { labelKey, variant } = stockStatusMeta(status);
+  const { labelKey, variant, meterFill } = stockStatusMeta(status);
+  const meter = stockMeter(item.currentStock, item.lowStockThreshold);
   const unitLabel = t(
     item.unit === "kg" ? "inventoryUnitKg" : "inventoryUnitPcs",
   );
+  const stockText = formatInventoryQuantity(item.currentStock);
+  const lowText = formatInventoryQuantity(item.lowStockThreshold);
+  const inward = movementSummary?.inward ?? 0;
+  const outward = movementSummary?.outward ?? 0;
 
   return (
     <Card
       className={cn(
-        "flex min-w-0 flex-col gap-3 rounded-lg border-border p-3.5 shadow-sm transition-shadow duration-150 hover:shadow-md",
+        "relative flex min-w-0 flex-col overflow-hidden transition-shadow duration-150 hover:shadow-md",
         className,
       )}
     >
-      <div className="flex min-w-0 items-start gap-2">
-        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+      <span
+        className={cn(
+          "absolute inset-y-0 left-0 w-1",
+          CATEGORY_THEME[item.category].stripe,
+        )}
+        aria-hidden
+      />
+
+      {/* 1. Identity */}
+      <div className="flex min-w-0 items-start gap-2 py-4 pl-6 pr-4">
+        <div className="flex min-w-0 flex-1 flex-col">
           <div className="flex min-w-0 items-center gap-1.5">
             {item.isFavorite && (
               <Star
-                className="size-3.5 shrink-0 fill-current text-warning"
+                className="size-4 shrink-0 fill-current text-warning"
                 aria-label={t("invCatScopeFavourites")}
               />
             )}
-            <h3 className="min-w-0 truncate text-sm font-semibold leading-tight text-foreground">
+            <h3 className="min-w-0 truncate text-base font-semibold leading-snug text-foreground">
               {item.name}
             </h3>
           </div>
-          <p className="min-w-0 truncate font-mono text-[11px] text-muted-foreground">
-            {item.code} · {unitLabel}
-          </p>
+          <div className="mt-2 flex min-w-0 flex-wrap items-center gap-2">
+            <span className="rounded-md bg-surface-3 px-2 py-0.5 font-mono text-xs font-semibold tracking-wider text-foreground">
+              {item.code}
+            </span>
+            <span className="min-w-0 truncate text-xs text-muted-foreground">
+              {unitLabel}
+            </span>
+          </div>
         </div>
         <Badge variant={variant} className="mt-0.5 shrink-0">
           {t(labelKey)}
@@ -81,47 +124,100 @@ export function BigItemCard({
           onDetails={onDetails}
           onFavorite={onFavorite}
           onArchive={onArchive}
-          className="-mr-1.5 -mt-1.5"
+          className="-mr-2 -mt-2"
         />
       </div>
 
-      <div className="flex min-w-0 flex-wrap items-end justify-between gap-x-3 gap-y-2">
-        <div className="min-w-0">
-          <p className="font-heading text-[1.75rem] font-bold leading-none tabular-nums text-foreground">
-            {formatInventoryQuantity(item.currentStock)}
-            <span className="ml-1 text-xs font-medium text-muted-foreground">
-              {item.unit}
-            </span>
-          </p>
-          <p className="mt-1 truncate text-[11px] text-muted-foreground">
-            {t("invCatLowBelow", {
-              qty: formatInventoryQuantity(item.lowStockThreshold),
-              unit: item.unit,
-            })}
-          </p>
+      {/* 2. The level — the one dominant element on the card */}
+      <div className="min-w-0 pb-1 pl-6 pr-5">
+        <div className="flex min-w-0 flex-wrap items-baseline gap-x-2">
+          <span className="font-heading text-[2.5rem] font-bold leading-none tabular-nums text-foreground">
+            {stockText}
+          </span>
+          <span className="min-w-0 truncate text-sm font-medium text-muted-foreground">
+            {item.unit}
+          </span>
         </div>
 
-        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-          <Button
-            type="button"
-            size="lg"
-            className="min-h-[44px]"
-            onClick={() => onInward(item)}
-          >
-            <ArrowDownToLine data-icon="inline-start" aria-hidden />
-            {t("invCatStockIn")}
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="lg"
-            className="min-h-[44px]"
-            onClick={() => onOutward(item)}
-          >
-            <ArrowUpFromLine data-icon="inline-start" aria-hidden />
-            {t("invCatStockOut")}
-          </Button>
+        <div
+          className="mt-3.5"
+          role="img"
+          aria-label={
+            meter.lowMarkPercent === null
+              ? t("invCardLevelAriaNoLow", { qty: stockText, unit: item.unit })
+              : t("invCardLevelAria", {
+                  qty: stockText,
+                  unit: item.unit,
+                  low: lowText,
+                })
+          }
+        >
+          <div className="relative h-2.5 w-full min-w-0 overflow-hidden rounded-full bg-surface-3">
+            <div
+              className={cn("absolute inset-y-0 left-0 rounded-full", meterFill)}
+              style={{ width: `${meter.percent}%` }}
+            />
+            {meter.lowMarkPercent !== null && (
+              <span
+                className="absolute inset-y-0 w-0.5 bg-card"
+                style={{ left: `calc(${meter.lowMarkPercent}% - 1px)` }}
+              />
+            )}
+          </div>
+          <p className="mt-2 min-w-0 truncate text-xs text-muted-foreground">
+            {meter.lowMarkPercent === null
+              ? t("invCardNoLowSet")
+              : t("invCatLowBelow", { qty: lowText, unit: item.unit })}
+          </p>
         </div>
+      </div>
+
+      {/* 3. Movement — quiet tertiary detail, deliberately not boxed */}
+      <div className="mt-4 flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1.5 border-t border-border py-3 pl-6 pr-5 text-xs text-muted-foreground">
+        <span className="inline-flex min-w-0 items-center gap-1.5">
+          <ArrowDownToLine className="size-3.5 shrink-0" aria-hidden />
+          {t("invCardCameIn")}
+          <span className="font-semibold tabular-nums text-foreground">
+            {formatInventoryQuantity(inward)}
+          </span>
+        </span>
+        <span className="inline-flex min-w-0 items-center gap-1.5">
+          <ArrowUpFromLine className="size-3.5 shrink-0" aria-hidden />
+          {t("invCardWentOut")}
+          <span className="font-semibold tabular-nums text-foreground">
+            {formatInventoryQuantity(outward)}
+          </span>
+        </span>
+        <span className="min-w-0 truncate sm:ml-auto">
+          {movementSummary?.lastDate
+            ? t("invCardLastMoved", {
+                date: formatDisplayDate(movementSummary.lastDate, locale),
+              })
+            : t("invCardNeverMoved")}
+        </span>
+      </div>
+
+      {/* 4. Actions */}
+      <div className="mt-auto flex min-w-0 flex-wrap gap-2 pb-4 pl-6 pr-5">
+        <Button
+          type="button"
+          size="lg"
+          className="min-h-[44px] flex-1 basis-36 text-base"
+          onClick={() => onInward(item)}
+        >
+          <ArrowDownToLine data-icon="inline-start" aria-hidden />
+          {t("invCatStockIn")}
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="lg"
+          className="min-h-[44px] flex-1 basis-36 text-base"
+          onClick={() => onOutward(item)}
+        >
+          <ArrowUpFromLine data-icon="inline-start" aria-hidden />
+          {t("invCatStockOut")}
+        </Button>
       </div>
     </Card>
   );

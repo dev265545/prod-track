@@ -21,6 +21,8 @@ import type { InventoryItem } from "@/lib/services/inventoryService";
 export interface MovementSummary {
   inward: number;
   outward: number;
+  /** ISO date of the most recent movement — shown on the card view. */
+  lastDate?: string;
 }
 
 export interface ItemTableProps {
