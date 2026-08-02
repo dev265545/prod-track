@@ -146,6 +146,12 @@ const en = {
   calTitleExtraHours: "+{h}h extra",
   calTitleReducedHours: "−{h}h reduced",
 
+  // Day-status words on the printed attendance sheet. "Present", "Absent" and
+  // "Factory holiday" reuse calTitle* above — same word, same translation.
+  dayStatusSunday: "Sunday",
+  dayStatusSundayWorked: "Sunday — worked, extra day's pay",
+  dayStatusPresentOnHoliday: "Present on a factory holiday",
+
   empLegendProduction: "Production",
   empLegendPresent: "Present",
   empLegendAbsent: "Absent",
@@ -2208,6 +2214,10 @@ const hi: Record<MessageKey, string> = {
   calTitleAbsent: "गैरहाजिर",
   calTitleExtraHours: "+{h} घंटे ज्यादा",
   calTitleReducedHours: "−{h} घंटे कम",
+
+  dayStatusSunday: "रविवार",
+  dayStatusSundayWorked: "रविवार — काम किया, एक दिन की ज्यादा पगार",
+  dayStatusPresentOnHoliday: "फैक्टरी की छुट्टी पर हाजिर",
 
   empLegendProduction: "उत्पादन",
   empLegendPresent: "हाजिर",
