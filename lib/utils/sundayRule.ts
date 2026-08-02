@@ -294,6 +294,31 @@ export function evaluateSundayRuleForCycle(
 }
 
 /**
+ * The most a rule can pay across one whole calendar month.
+ *
+ * The per-cycle evaluator knows nothing about `maxPerMonth` — that cap is
+ * applied a long way away, in `computeEarnedExtraPayDaysForCalendarScope`. So
+ * an editor that previews only cycles cannot tell the owner that their monthly
+ * limit will clip the number it just showed them. This walks the same windows
+ * the pay engine walks, assumes a perfect attendance record in each, and
+ * returns the capped and uncapped monthly totals so the difference can be said
+ * out loud.
+ */
+export function evaluateSundayRuleForMonth(
+  rule: SundayRule,
+  year: number,
+  monthIndex: number,
+): { earned: number; uncapped: number; cappedByMonth: boolean } {
+  let uncapped = 0;
+  for (const block of getSundayRuleCycleBlocks(year, monthIndex, rule.cycleDays)) {
+    uncapped += evaluateSundayRuleForCycle(rule, block.end - block.start + 1).earned;
+  }
+  const earned =
+    rule.maxPerMonth === null ? uncapped : Math.min(rule.maxPerMonth, uncapped);
+  return { earned, uncapped, cappedByMonth: earned < uncapped };
+}
+
+/**
  * Split a calendar month into its earning windows.
  *
  * Windows run from day 1 in `cycleDays`-long steps, and the final window

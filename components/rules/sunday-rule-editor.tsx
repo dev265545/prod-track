@@ -21,9 +21,15 @@ import { NumberInput } from "@/components/ui/number-input";
 import { readNumericInput } from "@/lib/utils/numericInput";
 import {
   evaluateSundayRuleForCycle,
+  evaluateSundayRuleForMonth,
+  getSundayRuleCycleBlocks,
   normalizeSundayRule,
+  LEGACY_CYCLE_DAYS,
+  LEGACY_MAX_PER_CYCLE,
+  LEGACY_MAX_PER_MONTH,
   type SundayRule,
 } from "@/lib/utils/sundayRule";
+import { DEFAULT_APP_SETTINGS } from "@/lib/services/appSettingsService";
 import {
   AlertTriangle,
   Infinity as InfinityIcon,
@@ -50,15 +56,35 @@ function num(value: number): string {
   return String(Math.round(value * 100) / 100);
 }
 
+const PREMIUM_DEFAULT_DAYS = DEFAULT_APP_SETTINGS.defaultSundayPremiumRequiredDays;
+const PREMIUM_DEFAULT_TIMES = DEFAULT_APP_SETTINGS.defaultSundayPremiumMultiplier;
+
 /**
- * The preview rows: every present-day count from 0 to the cycle length, with
+ * The longest stretch this rule actually produces in the given month.
+ *
+ * `cycleDays` is *not* that number. The month splitter rounds, so `cycleDays:
+ * 25` yields one 31-day stretch and `cycleDays: 20` yields 1–20 then 21–31.
+ * Everything the editor says about "a stretch" is measured from the real
+ * windows, straight out of the function the pay engine walks, so the screen and
+ * the wage can never disagree.
+ */
+function longestWindowDays(rule: SundayRule, year: number, monthIndex: number): number {
+  return getSundayRuleCycleBlocks(year, monthIndex, rule.cycleDays).reduce(
+    (longest, block) => Math.max(longest, block.end - block.start + 1),
+    1,
+  );
+}
+
+/**
+ * The preview rows: every present-day count from 0 to the longest stretch, with
  * runs that pay the same amount collapsed into one line. Short enough to read
  * at a glance and complete enough that nothing is hidden.
  */
 export function buildSundayRulePreview(
   rule: SundayRule,
+  windowDays: number = rule.cycleDays,
 ): { from: number; to: number; earned: number; uncapped: number }[] {
-  const max = Math.max(1, Math.min(rule.cycleDays, 31));
+  const max = Math.max(1, Math.min(windowDays, 31));
   const rows: { from: number; to: number; earned: number; uncapped: number }[] = [];
   for (let days = 0; days <= max; days += 1) {
     const { earned, uncapped } = evaluateSundayRuleForCycle(rule, days);
@@ -82,7 +108,27 @@ export function SundayRuleEditor({
   t: Translate;
 }) {
   const rule = value;
-  const preview = useMemo(() => buildSundayRulePreview(rule), [rule]);
+  // The month on screen is the month the owner is standing in: the windows and
+  // the monthly total are only truthful for a concrete month length.
+  const now = useMemo(() => new Date(), []);
+  const year = now.getFullYear();
+  const monthIndex = now.getMonth();
+  const blocks = useMemo(
+    () => getSundayRuleCycleBlocks(year, monthIndex, rule.cycleDays),
+    [year, monthIndex, rule.cycleDays],
+  );
+  const windowDays = useMemo(
+    () => longestWindowDays(rule, year, monthIndex),
+    [rule, year, monthIndex],
+  );
+  const month = useMemo(
+    () => evaluateSundayRuleForMonth(rule, year, monthIndex),
+    [rule, year, monthIndex],
+  );
+  const preview = useMemo(
+    () => buildSundayRulePreview(rule, windowDays),
+    [rule, windowDays],
+  );
   const cappedRow = preview.find((row) => row.uncapped > row.earned);
   // The best-paying row is the one worth reading aloud as the worked example.
   const example = preview.reduce(
@@ -139,6 +185,14 @@ export function SundayRuleEditor({
         <p className="text-base leading-relaxed text-muted-foreground">
           {rule.kind === "table" ? t("ruleTypeTableHint") : t("ruleTypeRepeatHint")}
         </p>
+        {/* Switching shape hides the other shape's numbers but never deletes
+            them. Without this line the owner sees their typed lines vanish. */}
+        {(rule.kind === "repeat" && rule.brackets.length > 0) ||
+        (rule.kind === "table" && rule.repeatEveryPresentDays > 0) ? (
+          <p className="text-base leading-relaxed text-muted-foreground">
+            {t("ruleKeepsLines")}
+          </p>
+        ) : null}
       </div>
 
       {rule.kind === "table" ? (
@@ -147,7 +201,8 @@ export function SundayRuleEditor({
             <p className="text-base text-muted-foreground">{t("ruleTableEmpty")}</p>
           ) : (
             rule.brackets.map((bracket, index) => (
-              <div key={index} className={ROW}>
+              <div key={index} className="flex flex-col gap-2">
+              <div className={ROW}>
                 <div className="flex flex-col gap-2">
                   <Label htmlFor={`ruleWhen${index}`}>{t("ruleTableWhen")}</Label>
                   <NumberInput
@@ -185,6 +240,18 @@ export function SundayRuleEditor({
                   <Trash2 data-icon="inline-start" aria-hidden />
                   {t("ruleTableRemoveRow")}
                 </Button>
+              </div>
+              {/* A line asking for more present days than the longest stretch
+                  contains can never pay, and used to be shown as if it worked. */}
+              {bracket.whenPresentDaysAtLeast > windowDays ? (
+                <p className="flex items-start gap-2 rounded-lg border border-warning bg-surface-4 p-3 text-base leading-relaxed text-foreground">
+                  <AlertTriangle
+                    className="mt-0.5 size-5 shrink-0 text-warning"
+                    aria-hidden
+                  />
+                  <span>{t("ruleBracketUnreachable", { n: num(windowDays) })}</span>
+                </p>
+              ) : null}
               </div>
             ))
           )}
@@ -257,7 +324,12 @@ export function SundayRuleEditor({
               className={FIELD}
               value={String(rule.cycleDays)}
               onChange={(e) =>
-                patch({ cycleDays: readNumericInput(e.target.value, 15, { min: 1, max: 31 }) })
+                patch({
+                  cycleDays: readNumericInput(e.target.value, LEGACY_CYCLE_DAYS, {
+                    min: 1,
+                    max: 31,
+                  }),
+                })
               }
             />
           </div>
@@ -265,7 +337,7 @@ export function SundayRuleEditor({
             id="ruleMaxPerCycle"
             label={t("ruleMaxPerCycle")}
             value={rule.maxPerCycle}
-            fallback={2}
+            fallback={LEGACY_MAX_PER_CYCLE}
             onChange={(next) => patch({ maxPerCycle: next })}
             t={t}
           />
@@ -273,13 +345,28 @@ export function SundayRuleEditor({
             id="ruleMaxPerMonth"
             label={t("ruleMaxPerMonth")}
             value={rule.maxPerMonth}
-            fallback={4}
+            fallback={LEGACY_MAX_PER_MONTH}
             onChange={(next) => patch({ maxPerMonth: next })}
             t={t}
           />
         </div>
         <p className="text-base leading-relaxed text-muted-foreground">
-          {t("ruleCycleExplain", { n: num(rule.cycleDays) })}
+          {t("ruleCycleExplain")}
+        </p>
+        {/* The month is not cut into equal stretches of `cycleDays` — the
+            splitter rounds. Show the windows this month will really have,
+            read from the same function the pay engine uses. */}
+        <p className="text-base leading-relaxed text-foreground">
+          {t("ruleCycleActual", {
+            windows: blocks
+              .map((block) =>
+                t("ruleCycleWindow", {
+                  start: num(block.start),
+                  end: num(block.end),
+                }),
+              )
+              .join(t("ruleCycleWindowJoin")),
+          })}
         </p>
       </div>
 
@@ -299,7 +386,12 @@ export function SundayRuleEditor({
                 variant="outline"
                 className="min-h-[44px] px-5 py-3 text-base"
                 onClick={() =>
-                  patch({ sundayPremium: { requiredPresentDays: 26, multiplier: 1.2 } })
+                  patch({
+                    sundayPremium: {
+                      requiredPresentDays: PREMIUM_DEFAULT_DAYS,
+                      multiplier: PREMIUM_DEFAULT_TIMES,
+                    },
+                  })
                 }
               >
                 <Plus data-icon="inline-start" aria-hidden />
@@ -321,11 +413,11 @@ export function SundayRuleEditor({
                   onChange={(e) =>
                     patch({
                       sundayPremium: {
-                        requiredPresentDays: readNumericInput(e.target.value, 26, {
+                        requiredPresentDays: readNumericInput(e.target.value, PREMIUM_DEFAULT_DAYS, {
                           min: 0,
                           max: 31,
                         }),
-                        multiplier: rule.sundayPremium?.multiplier ?? 1.2,
+                        multiplier: rule.sundayPremium?.multiplier ?? PREMIUM_DEFAULT_TIMES,
                       },
                     })
                   }
@@ -344,8 +436,9 @@ export function SundayRuleEditor({
                     patch({
                       sundayPremium: {
                         requiredPresentDays:
-                          rule.sundayPremium?.requiredPresentDays ?? 26,
-                        multiplier: readNumericInput(e.target.value, 1.2, {
+                          rule.sundayPremium?.requiredPresentDays ??
+                          PREMIUM_DEFAULT_DAYS,
+                        multiplier: readNumericInput(e.target.value, PREMIUM_DEFAULT_TIMES, {
                           min: 0,
                           max: 10,
                         }),
@@ -383,6 +476,12 @@ export function SundayRuleEditor({
               })
             : t("rulePreviewNothing")}
         </p>
+        {/* The per-stretch table knows nothing about the monthly limit, which
+            is applied a long way away in the pay engine. Say the real monthly
+            outcome here, or the table promises money nobody will be paid. */}
+        <p className="text-base leading-relaxed text-foreground">
+          {t("ruleMonthMost", { earned: num(month.earned) })}
+        </p>
         {/* Surface token rather than a tinted warning background: an alpha
             modifier compiles to color-mix(), which Chrome 109 cannot read. */}
         {cappedRow ? (
@@ -393,6 +492,17 @@ export function SundayRuleEditor({
                 days: num(cappedRow.from),
                 uncapped: num(cappedRow.uncapped),
                 earned: num(cappedRow.earned),
+              })}
+            </span>
+          </p>
+        ) : null}
+        {month.cappedByMonth ? (
+          <p className="flex items-start gap-2 rounded-lg border border-warning bg-surface-4 p-3 text-base leading-relaxed text-foreground">
+            <AlertTriangle className="mt-0.5 size-5 shrink-0 text-warning" aria-hidden />
+            <span>
+              {t("ruleMonthCapWarning", {
+                uncapped: num(month.uncapped),
+                earned: num(month.earned),
               })}
             </span>
           </p>
@@ -437,7 +547,15 @@ export function SundayRuleEditor({
   );
 }
 
-/** A limit field with an explicit "no limit" state, because `null` must be reachable. */
+/**
+ * A limit field with an explicit "no limit" state, because `null` must be
+ * reachable.
+ *
+ * The chip states what the limit *is* ("No limit set"); the button always
+ * states what pressing it *does* ("Set a limit" / "Remove the limit"). They
+ * used to both read "No limit", so the pair said the same words twice and
+ * neither read as an action.
+ */
 function CapField({
   id,
   label,
@@ -460,7 +578,7 @@ function CapField({
         {value === null ? (
           <span className="flex min-h-[44px] items-center gap-2 rounded-lg border border-border px-3 text-base text-muted-foreground">
             <InfinityIcon className="size-5 shrink-0" aria-hidden />
-            {t("ruleNoLimit")}
+            {t("ruleNoLimitState")}
           </span>
         ) : (
           <NumberInput

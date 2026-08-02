@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_SUNDAY_RULE,
   evaluateSundayRuleForCycle,
+  evaluateSundayRuleForMonth,
   getSundayRuleCycleBlocks,
   normalizeSundayRule,
   type SundayRule,
@@ -370,6 +371,39 @@ describe("configurable cycles and caps end to end", () => {
     );
     // The legacy cap would have held this at 4; nothing clamps it now.
     expect(earned).toBeGreaterThan(4);
+  });
+
+  it("reports the monthly ceiling, including the cap the cycle evaluator cannot see", () => {
+    const rule = normalizeSundayRule({
+      kind: "table",
+      brackets: [{ whenPresentDaysAtLeast: 10, give: 3 }],
+      maxPerCycle: null,
+      maxPerMonth: 4,
+      cycleDays: 15,
+    } satisfies Partial<SundayRule>);
+    // Two windows of 3 each is 6; the monthly cap pays 4 — the number the
+    // per-stretch preview alone would never have shown.
+    expect(evaluateSundayRuleForMonth(rule, 2026, 2)).toEqual({
+      uncapped: 6,
+      earned: 4,
+      cappedByMonth: true,
+    });
+    expect(
+      evaluateSundayRuleForMonth({ ...rule, maxPerMonth: null }, 2026, 2),
+    ).toEqual({ uncapped: 6, earned: 6, cappedByMonth: false });
+  });
+
+  it("counts a month's real windows, not cycleDays-sized ones", () => {
+    const rule = normalizeSundayRule({
+      kind: "table",
+      brackets: [{ whenPresentDaysAtLeast: 25, give: 1 }],
+      maxPerCycle: null,
+      maxPerMonth: null,
+      cycleDays: 20,
+    } satisfies Partial<SundayRule>);
+    // cycleDays 20 splits March into 1–20 and 21–31; neither window is long
+    // enough to reach 25 present days, so the rule can never pay.
+    expect(evaluateSundayRuleForMonth(rule, 2026, 2).earned).toBe(0);
   });
 
   it("splits the month by a configured cycle length", () => {
