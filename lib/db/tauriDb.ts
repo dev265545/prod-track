@@ -7,10 +7,12 @@
 import { invoke } from "@/lib/tauriBridge";
 import { STORES } from "./schema";
 import {
+  applyIndexReadOptions,
   getIndexKeyPath,
   matchesIndexRange,
   sortByIndexOrder,
   type IndexKey,
+  type IndexReadOptions,
 } from "./indexes";
 
 export function openDB(): Promise<void> {
@@ -30,15 +32,37 @@ export async function getByIndex(
   storeName: string,
   indexName: string,
   lower: IndexKey,
-  upper: IndexKey
+  upper: IndexKey,
+  options?: IndexReadOptions
 ): Promise<Record<string, unknown>[]> {
   const keyPath = getIndexKeyPath(storeName, indexName);
   if (!keyPath) throw new Error(`Unknown index ${storeName}.${indexName}`);
   const rows = await getAll(storeName);
-  return sortByIndexOrder(
-    rows.filter((row) => matchesIndexRange(row, keyPath, lower, upper)),
-    keyPath
+  return applyIndexReadOptions(
+    sortByIndexOrder(
+      rows.filter((row) => matchesIndexRange(row, keyPath, lower, upper)),
+      keyPath
+    ),
+    options
   );
+}
+
+/**
+ * Rows in range, counted. No index to count with here — rows are JSON blobs in
+ * an (id, data) table — so this scans, exactly as `getByIndex` does. It exists
+ * so callers can express "count" and have IndexedDB answer it cheaply.
+ */
+export async function countByIndex(
+  storeName: string,
+  indexName: string,
+  lower: IndexKey,
+  upper: IndexKey
+): Promise<number> {
+  const keyPath = getIndexKeyPath(storeName, indexName);
+  if (!keyPath) throw new Error(`Unknown index ${storeName}.${indexName}`);
+  const rows = await getAll(storeName);
+  return rows.filter((row) => matchesIndexRange(row, keyPath, lower, upper))
+    .length;
 }
 
 export function get(

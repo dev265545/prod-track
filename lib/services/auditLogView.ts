@@ -8,11 +8,13 @@
  * viewer's behaviour be tested under vitest's node environment (there is no
  * React test harness in this repo).
  *
- * Scale note: the store has no timestamp index, so the page loads the log once
- * and everything below runs over that in-memory array. Filtering is a single
- * linear pass and paging is a slice, so a few tens of thousands of entries
- * stay instant; past that the honest fix is an index on `audit_log.timestamp`
- * in `lib/db/indexes.ts` plus a ranged read, not a cleverer filter here.
+ * Scale note: the store is now indexed on `timestamp`, and
+ * `auditService.queryAuditEntries` does the date-range narrowing and the
+ * paging against that index — it reads one page, not the log. The functions
+ * here are what it applies to the rows it read: `filterEntries` still handles
+ * category, role and free text, which no timestamp index can serve, and
+ * `paginate` still pages the result of those. Both therefore run over a
+ * bounded window rather than over everything ever written.
  */
 
 import type { AuditEntry, AuditFieldChange } from "./auditService";
@@ -77,9 +79,19 @@ export function categoryOfAction(action: string): AuditCategory {
   }
 }
 
-/** The calendar day (`yyyy-mm-dd`) an entry's UTC timestamp falls on. */
+/**
+ * The calendar day (`yyyy-mm-dd`) an entry's UTC timestamp falls on, or `""`
+ * when it has none.
+ *
+ * The guard is not defensive padding: `diff` is not the only field that
+ * survives a restore from another build, and one entry written without a
+ * timestamp used to throw here — from inside `filterEntries`, which the page
+ * calls on every keystroke, so a single malformed row blanked the entire log
+ * rather than itself. `""` sorts below every real day, so such a row falls
+ * outside any date range the owner picks and is visible when he picks none.
+ */
 export function entryDate(entry: AuditEntry): string {
-  return entry.timestamp.slice(0, 10);
+  return typeof entry.timestamp === "string" ? entry.timestamp.slice(0, 10) : "";
 }
 
 export interface AuditFilter {

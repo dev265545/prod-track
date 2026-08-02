@@ -11,24 +11,38 @@
 
 import { STORES } from "../schema";
 import {
+  applyIndexReadOptions,
   getIndexKeyPath,
   matchesIndexRange,
   sortByIndexOrder,
   type IndexKey,
+  type IndexReadOptions,
 } from "../indexes";
 
 export type MemoryAdapter = {
   STORES: typeof STORES;
   tables: Map<string, Map<string, Record<string, unknown>>>;
-  reads: { getAll: number; getByIndex: number; rowsScanned: number };
+  reads: {
+    getAll: number;
+    getByIndex: number;
+    countByIndex: number;
+    rowsScanned: number;
+  };
   resetCounters: () => void;
   getAll: (name: string) => Promise<Record<string, unknown>[]>;
   getByIndex: (
     name: string,
     indexName: string,
     lower: IndexKey,
-    upper: IndexKey
+    upper: IndexKey,
+    options?: IndexReadOptions
   ) => Promise<Record<string, unknown>[]>;
+  countByIndex: (
+    name: string,
+    indexName: string,
+    lower: IndexKey,
+    upper: IndexKey
+  ) => Promise<number>;
   get: (name: string, id: string) => Promise<Record<string, unknown> | null>;
   put: (
     name: string,
@@ -44,7 +58,7 @@ export type MemoryAdapter = {
 
 export function createMemoryAdapter(): MemoryAdapter {
   const tables = new Map<string, Map<string, Record<string, unknown>>>();
-  const reads = { getAll: 0, getByIndex: 0, rowsScanned: 0 };
+  const reads = { getAll: 0, getByIndex: 0, countByIndex: 0, rowsScanned: 0 };
 
   function tableFor(name: string) {
     if (!tables.has(name)) tables.set(name, new Map());
@@ -61,17 +75,42 @@ export function createMemoryAdapter(): MemoryAdapter {
     name: string,
     indexName: string,
     lower: IndexKey,
-    upper: IndexKey
+    upper: IndexKey,
+    options?: IndexReadOptions
   ) {
     const keyPath = getIndexKeyPath(name, indexName);
     if (!keyPath) throw new Error(`Unknown index ${name}.${indexName}`);
     reads.getByIndex += 1;
-    const out: Record<string, unknown>[] = [];
+    const matched: Record<string, unknown>[] = [];
     for (const row of tableFor(name).values()) {
-      if (matchesIndexRange(row, keyPath, lower, upper)) out.push(row);
+      if (matchesIndexRange(row, keyPath, lower, upper)) matched.push(row);
     }
-    reads.rowsScanned += out.length;
-    return sortByIndexOrder(out, keyPath);
+    const window = applyIndexReadOptions(
+      sortByIndexOrder(matched, keyPath),
+      options
+    );
+    // Charged for what the query returns, not what it looked at: a cursor with
+    // a limit stops at the page boundary, so a bounded read must show as
+    // cheap here or the benchmark would understate the fix.
+    reads.rowsScanned += window.length;
+    return window;
+  }
+
+  /** Counts keys, never rows — so it adds nothing to `rowsScanned`. */
+  async function countByIndex(
+    name: string,
+    indexName: string,
+    lower: IndexKey,
+    upper: IndexKey
+  ) {
+    const keyPath = getIndexKeyPath(name, indexName);
+    if (!keyPath) throw new Error(`Unknown index ${name}.${indexName}`);
+    reads.countByIndex += 1;
+    let n = 0;
+    for (const row of tableFor(name).values()) {
+      if (matchesIndexRange(row, keyPath, lower, upper)) n += 1;
+    }
+    return n;
   }
 
   return {
@@ -81,6 +120,7 @@ export function createMemoryAdapter(): MemoryAdapter {
     resetCounters: () => {
       reads.getAll = 0;
       reads.getByIndex = 0;
+      reads.countByIndex = 0;
       reads.rowsScanned = 0;
     },
     getAll: async (name: string) => {
@@ -90,6 +130,7 @@ export function createMemoryAdapter(): MemoryAdapter {
       return rows;
     },
     getByIndex,
+    countByIndex,
     get: async (name: string, id: string) => {
       reads.rowsScanned += 1;
       return tableFor(name).get(id) ?? null;

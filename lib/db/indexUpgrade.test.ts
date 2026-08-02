@@ -16,7 +16,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DB_NAME, METADATA_STORE, STORES } from "./schema";
 import { INDEXES } from "./indexes";
 
-/** The v10 layout, reproduced as it shipped: no indexes on attendance. */
+/** The v10 layout, reproduced as it shipped: no indexes on attendance or audit_log. */
 const V10_STORES_WITH_INDEXES: Record<string, [string, string | string[], boolean][]> = {
   [STORES.PRODUCTIONS]: [
     ["by_date", "date", false],
@@ -49,6 +49,18 @@ const LEGACY_ATTENDANCE = [
   { id: "att_nodate", employeeId: "e1" },
 ];
 
+/**
+ * Audit entries as an install that predates `audit_log.by_timestamp` holds
+ * them: no index, and written in no particular primary-key order.
+ */
+const LEGACY_AUDIT = [
+  { id: "aud_c", timestamp: "2025-03-01T09:00:00.000Z", action: "login.success", summary: "Somebody signed in" },
+  { id: "aud_a", timestamp: "2025-01-01T09:00:00.000Z", action: "attendance.mark", summary: "Rakesh was marked present" },
+  { id: "aud_d", timestamp: "2025-03-01T10:00:00.000Z", action: "teleport.engage", summary: "An action from another build" },
+  { id: "aud_b", timestamp: "2025-02-01T09:00:00.000Z", action: "advance.create", summary: "An advance was paid out" },
+  { id: "aud_nostamp", action: "attendance.mark", summary: "An entry with no timestamp" },
+];
+
 function deleteDb(): Promise<void> {
   return new Promise((resolve, reject) => {
     const req = indexedDB.deleteDatabase(DB_NAME);
@@ -73,9 +85,14 @@ function createV10Database(): Promise<void> {
     };
     req.onsuccess = () => {
       const db = req.result;
-      const tx = db.transaction(STORES.ATTENDANCE, "readwrite");
+      const tx = db.transaction(
+        [STORES.ATTENDANCE, STORES.AUDIT_LOG],
+        "readwrite"
+      );
       const store = tx.objectStore(STORES.ATTENDANCE);
       for (const row of LEGACY_ATTENDANCE) store.put(row);
+      const audit = tx.objectStore(STORES.AUDIT_LOG);
+      for (const row of LEGACY_AUDIT) audit.put(row);
       tx.oncomplete = () => {
         db.close();
         resolve();
@@ -186,5 +203,81 @@ describe("upgrading a v10 database", () => {
       "2999-12-31"
     );
     expect(all.some((r) => r.id === "att_nodate")).toBe(false);
+  });
+});
+
+/**
+ * The audit log is the store that grows without bound, and it is read
+ * newest-first a page at a time. These run the real cursor and the real
+ * `IDBIndex.count` against entries written before the index existed.
+ */
+describe("the audit log's timestamp index, over pre-existing entries", () => {
+  it("reads newest-first with a limit, without touching older rows", async () => {
+    const { getByIndex } = await import("./indexeddb");
+    const newest = await getByIndex(
+      STORES.AUDIT_LOG,
+      "by_timestamp",
+      "",
+      "\uffff",
+      { direction: "prev", limit: 2 }
+    );
+    expect(newest.map((r) => r.id)).toEqual(["aud_d", "aud_c"]);
+  });
+
+  it("offsets into the descending order, which is how page 2 is fetched", async () => {
+    const { getByIndex } = await import("./indexeddb");
+    const page2 = await getByIndex(
+      STORES.AUDIT_LOG,
+      "by_timestamp",
+      "",
+      "\uffff",
+      { direction: "prev", limit: 2, offset: 2 }
+    );
+    expect(page2.map((r) => r.id)).toEqual(["aud_b", "aud_a"]);
+  });
+
+  it("bounds a month the way the viewer's date filter does", async () => {
+    const { getByIndex } = await import("./indexeddb");
+    const march = await getByIndex(
+      STORES.AUDIT_LOG,
+      "by_timestamp",
+      "2025-03-01",
+      "2025-03-31\uffff",
+      { direction: "prev" }
+    );
+    expect(march.map((r) => r.id)).toEqual(["aud_d", "aud_c"]);
+  });
+
+  it("counts a range without returning any rows", async () => {
+    const { countByIndex } = await import("./indexeddb");
+    expect(
+      await countByIndex(STORES.AUDIT_LOG, "by_timestamp", "", "\uffff")
+    ).toBe(4);
+    expect(
+      await countByIndex(
+        STORES.AUDIT_LOG,
+        "by_timestamp",
+        "",
+        "2025-02-01T09:00:00.000Z"
+      )
+    ).toBe(2);
+  });
+
+  it("keeps an unknown action, so a restored backup stays readable", async () => {
+    const { getByIndex } = await import("./indexeddb");
+    const all = await getByIndex(STORES.AUDIT_LOG, "by_timestamp", "", "\uffff");
+    expect(all.map((r) => r.action)).toContain("teleport.engage");
+  });
+
+  it("leaves the undatable entry in the store, though the index omits it", async () => {
+    const { getAll, getByIndex } = await import("./indexeddb");
+    expect(await getAll(STORES.AUDIT_LOG)).toHaveLength(LEGACY_AUDIT.length);
+    const indexed = await getByIndex(
+      STORES.AUDIT_LOG,
+      "by_timestamp",
+      "",
+      "\uffff"
+    );
+    expect(indexed.some((r) => r.id === "aud_nostamp")).toBe(false);
   });
 });

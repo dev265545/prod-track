@@ -1,13 +1,52 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { STORES } from "../../db/schema";
+// Types only — safe to reference from inside the hoisted `vi.mock` factory.
+import type { IndexKey, IndexReadOptions } from "../../db/indexes";
 
 const rows: Record<string, unknown>[] = [];
 let putShouldThrow = false;
 
 vi.mock("../../db/adapter", async () => {
   const schema = await import("../../db/schema");
+  const indexes = await import("../../db/indexes");
+  /**
+   * Ranged reads answered by the *production* range helpers, so a test can
+   * never pass against a hand-rolled approximation of the bounds semantics the
+   * real backends implement.
+   */
+  const inRange = (
+    indexName: string,
+    lower: IndexKey,
+    upper: IndexKey,
+  ) => {
+    const keyPath = indexes.getIndexKeyPath(schema.STORES.AUDIT_LOG, indexName);
+    if (!keyPath) throw new Error(`Unknown index ${indexName}`);
+    return indexes.sortByIndexOrder(
+      rows.filter((row) => indexes.matchesIndexRange(row, keyPath, lower, upper)),
+      keyPath,
+    );
+  };
   return {
     STORES: schema.STORES,
+    getByIndex: async (
+      name: string,
+      indexName: string,
+      lower: IndexKey,
+      upper: IndexKey,
+      options?: IndexReadOptions,
+    ) => {
+      expect(name).toBe(schema.STORES.AUDIT_LOG);
+      return indexes.applyIndexReadOptions(inRange(indexName, lower, upper), options);
+    },
+    countByIndex: async (
+      name: string,
+      indexName: string,
+      lower: IndexKey,
+      upper: IndexKey,
+    ) => {
+      expect(name).toBe(schema.STORES.AUDIT_LOG);
+      return inRange(indexName, lower, upper).length;
+    },
     put: async (name: string, rec: Record<string, unknown>) => {
       if (putShouldThrow) throw new Error("db unavailable");
       expect(name).toBe(schema.STORES.AUDIT_LOG);

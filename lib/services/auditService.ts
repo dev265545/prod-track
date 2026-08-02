@@ -23,8 +23,15 @@
  * localStorage instead.
  */
 
-import { deleteWhere, getAll, put } from "../db/adapter";
+import { countByIndex, deleteWhere, getAll, getByIndex, put } from "../db/adapter";
 import { STORES } from "../db/schema";
+import {
+  AUDIT_PAGE_SIZE,
+  filterEntries,
+  paginate,
+  type AuditFilter,
+  type AuditPage,
+} from "./auditLogView";
 
 const STORAGE_SESSION_ROLE = "prodtrack_session_role";
 
@@ -303,7 +310,172 @@ function sameValue(a: unknown, b: unknown): boolean {
   return false;
 }
 
-/** All audit entries, newest first. */
+/* -------------------------------------------------------------------------
+ * Reading the log
+ *
+ * The store is indexed on `timestamp` (`lib/db/indexes.ts`), and ISO-8601 UTC
+ * sorts lexicographically, so a `yyyy-mm-dd` day filter and a chronological
+ * page are the same range query. What the index can and cannot answer:
+ *
+ *   INDEX-SERVED   the date range, the newest-first order, the page window,
+ *                  and the total count (a key walk, no rows deserialised).
+ *   IN-MEMORY      category, role and free text. None of them is derivable
+ *                  from the timestamp, and `category` in particular buckets by
+ *                  an action prefix that includes an open-ended "other", so no
+ *                  index could serve it without pre-computing a column that a
+ *                  restored backup would immediately falsify.
+ *
+ * When only the date filters are set — which is what the viewer opens with —
+ * the read is exactly one page. When one of the in-memory filters is set, the
+ * date window has to be examined row by row, so it is read newest-first and
+ * capped at {@link AUDIT_SCAN_LIMIT}; the result says `truncated` so the caller
+ * can tell the owner to narrow the dates rather than quietly showing him a
+ * subset. The unbounded `getAll` is gone from every one of these paths.
+ * ---------------------------------------------------------------------- */
+
+const BY_TIMESTAMP = "by_timestamp";
+
+/**
+ * The lowest and highest possible index keys. `""` sorts below every string
+ * and `"￿"` above every timestamp, so this is "the whole log" expressed
+ * as a range the index can seek rather than as a full-store read.
+ */
+const MIN_KEY = "";
+const MAX_KEY = "￿";
+
+/**
+ * `yyyy-mm-dd` day filters as timestamp bounds. The upper bound appends
+ * `"￿"` rather than `"T23:59:59.999Z"` so it also covers a timestamp
+ * written in some other ISO shape by an older build or another tool — an entry
+ * that fell outside the range would be an entry silently lost from the log.
+ */
+function rangeFor(from: string, to: string): [string, string] {
+  return [from || MIN_KEY, to ? `${to}${MAX_KEY}` : MAX_KEY];
+}
+
+/**
+ * The most rows a filtered search will deserialise in one go.
+ *
+ * Two months of a busy factory. High enough that a realistic "what did Ramesh
+ * change in March" search is answered whole, low enough that it is a bounded
+ * cost on a log of any size.
+ */
+export const AUDIT_SCAN_LIMIT = 10_000;
+
+async function readNewest(
+  from: string,
+  to: string,
+  limit: number,
+  offset = 0,
+): Promise<AuditEntry[]> {
+  const [lower, upper] = rangeFor(from, to);
+  const rows = await getByIndex(STORES.AUDIT_LOG, BY_TIMESTAMP, lower, upper, {
+    direction: "prev",
+    limit,
+    offset,
+  });
+  return rows as unknown as AuditEntry[];
+}
+
+export interface AuditQueryResult extends AuditPage {
+  /**
+   * True when an in-memory filter was applied to only the newest
+   * {@link AUDIT_SCAN_LIMIT} entries of the date range, so older matches exist
+   * that this result does not contain. Always false for a date-only query.
+   */
+  truncated: boolean;
+}
+
+/**
+ * One page of the log, newest first, reading only what it shows.
+ *
+ * Replaces "load every entry, then filter and slice in the page". The rows,
+ * order, totals and page clamping are identical to what
+ * `filterEntries` + `paginate` produced over the whole array — that
+ * equivalence is asserted directly in the tests — but a date-only query now
+ * deserialises one page instead of the store.
+ */
+export async function queryAuditEntries(
+  filter: AuditFilter,
+  page: number,
+  pageSize: number = AUDIT_PAGE_SIZE,
+): Promise<AuditQueryResult> {
+  const size = Math.max(1, pageSize);
+  const needsRowScan =
+    filter.category !== "all" ||
+    filter.role !== "all" ||
+    filter.search.trim() !== "";
+
+  if (!needsRowScan) {
+    const [lower, upper] = rangeFor(filter.from, filter.to);
+    const total = await countByIndex(
+      STORES.AUDIT_LOG,
+      BY_TIMESTAMP,
+      lower,
+      upper,
+    );
+    const pageCount = Math.max(1, Math.ceil(total / size));
+    const current = Math.min(Math.max(1, Math.floor(page) || 1), pageCount);
+    const start = (current - 1) * size;
+    const rows = total === 0 ? [] : await readNewest(filter.from, filter.to, size, start);
+    return {
+      rows,
+      page: current,
+      pageCount,
+      total,
+      firstIndex: rows.length ? start + 1 : 0,
+      lastIndex: rows.length ? start + rows.length : 0,
+      truncated: false,
+    };
+  }
+
+  // One extra row is read purely to distinguish "exactly at the cap" from
+  // "there is more"; it is dropped before filtering.
+  const window = await readNewest(filter.from, filter.to, AUDIT_SCAN_LIMIT + 1);
+  const truncated = window.length > AUDIT_SCAN_LIMIT;
+  const scanned = truncated ? window.slice(0, AUDIT_SCAN_LIMIT) : window;
+  return { ...paginate(filterEntries(scanned, filter), page, size), truncated };
+}
+
+/**
+ * The filtered log for the export cards, capped like a filtered search.
+ *
+ * A date-only export is limited by the same cap rather than by the index,
+ * because a CSV of the entire log is a file the browser has to hold in memory
+ * whole; the caller is told when it was cut short.
+ */
+export async function collectAuditEntries(
+  filter: AuditFilter,
+  limit: number = AUDIT_SCAN_LIMIT,
+): Promise<{ entries: AuditEntry[]; truncated: boolean }> {
+  const window = await readNewest(filter.from, filter.to, limit + 1);
+  const truncated = window.length > limit;
+  const scanned = truncated ? window.slice(0, limit) : window;
+  return { entries: filterEntries(scanned, filter), truncated };
+}
+
+/**
+ * The roles the filter dropdown should offer.
+ *
+ * Read from the newest {@link AUDIT_SCAN_LIMIT} entries rather than the whole
+ * log: the app has two roles, so in practice this is complete, and the cost of
+ * being certain is reading every entry ever written to populate a two-item
+ * select.
+ */
+export async function listAuditRoles(): Promise<string[]> {
+  const window = await readNewest("", "", AUDIT_SCAN_LIMIT);
+  const seen = new Set<string>();
+  for (const e of window) if (e.role) seen.add(e.role);
+  return [...seen].sort();
+}
+
+/**
+ * All audit entries, newest first.
+ *
+ * The unbounded read, kept for the whole-database paths (JSON export, tests)
+ * that genuinely need every row. The viewer must not use it — see
+ * {@link queryAuditEntries}.
+ */
 export async function listAuditEntries(): Promise<AuditEntry[]> {
   const rows = (await getAll(STORES.AUDIT_LOG)) as unknown as AuditEntry[];
   return [...rows].sort((a, b) => (a.timestamp < b.timestamp ? 1 : -1));
@@ -339,12 +511,70 @@ export function summariseHealth(entries: AuditEntry[]): AuditLogHealth {
   };
 }
 
+/**
+ * Size and age of the log, from two index reads.
+ *
+ * `count` is a key walk and `oldest` is a single row off the ascending end, so
+ * the retention card's header costs the same on a log of two hundred entries
+ * and on one of two hundred thousand. {@link summariseHealth} remains for
+ * callers that already hold the entries.
+ */
+export async function readAuditLogHealth(): Promise<AuditLogHealth> {
+  const count = await countByIndex(
+    STORES.AUDIT_LOG,
+    BY_TIMESTAMP,
+    MIN_KEY,
+    MAX_KEY,
+  );
+  const first = (await getByIndex(
+    STORES.AUDIT_LOG,
+    BY_TIMESTAMP,
+    MIN_KEY,
+    MAX_KEY,
+    { direction: "next", limit: 1 },
+  )) as unknown as AuditEntry[];
+  return {
+    count,
+    cap: AUDIT_SOFT_CAP,
+    overCap: count > AUDIT_SOFT_CAP,
+    oldest: first[0]?.timestamp ?? null,
+  };
+}
+
 /** How many entries a prune at `cutoffIso` would remove. Read-only. */
 export function countEntriesBefore(
   entries: AuditEntry[],
   cutoffIso: string,
 ): number {
   return entries.filter((e) => e.timestamp < cutoffIso).length;
+}
+
+/**
+ * The same question asked of the database instead of an array.
+ *
+ * Counted as "everything" minus "everything at or after the cutoff" rather
+ * than by an exclusive upper bound: index ranges are inclusive at both ends,
+ * and the only exact way to express an exclusive bound over arbitrary strings
+ * is to not need one. Both halves are key walks — no entry is deserialised to
+ * answer how many there are.
+ */
+export async function readCountEntriesBefore(
+  cutoffIso: string,
+): Promise<number> {
+  if (!cutoffIso) return 0;
+  const total = await countByIndex(
+    STORES.AUDIT_LOG,
+    BY_TIMESTAMP,
+    MIN_KEY,
+    MAX_KEY,
+  );
+  const kept = await countByIndex(
+    STORES.AUDIT_LOG,
+    BY_TIMESTAMP,
+    cutoffIso,
+    MAX_KEY,
+  );
+  return total - kept;
 }
 
 /**
@@ -358,7 +588,7 @@ export function countEntriesBefore(
 export async function pruneAuditEntriesBefore(
   cutoffIso: string,
 ): Promise<number> {
-  const doomed = countEntriesBefore(await listAuditEntries(), cutoffIso);
+  const doomed = await readCountEntriesBefore(cutoffIso);
   await record(
     AUDIT_ACTIONS.auditPrune,
     "audit_log",

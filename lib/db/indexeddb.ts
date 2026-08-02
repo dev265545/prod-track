@@ -92,7 +92,8 @@ export function getByIndex(
   storeName: string,
   indexName: string,
   lower: IndexKey,
-  upper: IndexKey
+  upper: IndexKey,
+  options?: IndexReadOptions
 ): Promise<Record<string, unknown>[]> {
   return openDB().then(
     (db) =>
@@ -107,21 +108,107 @@ export function getByIndex(
           const scan = store.getAll();
           scan.onsuccess = () =>
             resolve(
-              sortByIndexOrder(
-                (scan.result || []).filter((row) =>
-                  matchesIndexRange(row, keyPath, lower, upper)
+              applyIndexReadOptions(
+                sortByIndexOrder(
+                  (scan.result || []).filter((row) =>
+                    matchesIndexRange(row, keyPath, lower, upper)
+                  ),
+                  keyPath
                 ),
-                keyPath
+                options
               )
+            );
+          scan.onerror = () => reject(scan.error);
+          return;
+        }
+        const index = store.index(indexName);
+        const range = IDBKeyRange.bound(lower, upper);
+        if (!options) {
+          const request = index.getAll(range);
+          // Already in index order from IndexedDB itself; nothing to sort.
+          request.onsuccess = () => resolve(request.result || []);
+          request.onerror = () => reject(request.error);
+          return;
+        }
+        // A cursor, not `getAll` plus a slice: `getAll` would structured-clone
+        // the entire range before the caller ever discarded it, which for a
+        // "newest 50 of 146,000" read is the whole cost of the query.
+        const limit = options.limit;
+        if (limit !== undefined && limit <= 0) {
+          resolve([]);
+          return;
+        }
+        let toSkip = Math.max(0, Math.floor(options.offset ?? 0));
+        let skipped = false;
+        const out: Record<string, unknown>[] = [];
+        const request = index.openCursor(
+          range,
+          options.direction === "prev" ? "prev" : "next"
+        );
+        request.onsuccess = () => {
+          const cursor = request.result;
+          if (!cursor) {
+            resolve(out);
+            return;
+          }
+          // `advance(0)` is a TypeError, so the skip is guarded rather than
+          // issued unconditionally.
+          if (!skipped && toSkip > 0) {
+            skipped = true;
+            cursor.advance(toSkip);
+            return;
+          }
+          skipped = true;
+          toSkip = 0;
+          out.push(cursor.value as Record<string, unknown>);
+          if (limit !== undefined && out.length >= limit) {
+            resolve(out);
+            return;
+          }
+          cursor.continue();
+        };
+        request.onerror = () => reject(request.error);
+      })
+  );
+}
+
+/**
+ * How many rows fall in `[lower, upper]`, without deserialising any of them.
+ *
+ * `IDBIndex.count` walks index keys only — no structured clone per record — so
+ * this is what a "how many entries would this prune remove?" question should
+ * cost, rather than reading the log into memory to call `.length` on it.
+ */
+export function countByIndex(
+  storeName: string,
+  indexName: string,
+  lower: IndexKey,
+  upper: IndexKey
+): Promise<number> {
+  return openDB().then(
+    (db) =>
+      new Promise((resolve, reject) => {
+        const store = getStore(db, storeName);
+        if (!store.indexNames.contains(indexName)) {
+          const keyPath = getIndexKeyPath(storeName, indexName);
+          if (!keyPath) {
+            reject(new Error(`Unknown index ${storeName}.${indexName}`));
+            return;
+          }
+          const scan = store.getAll();
+          scan.onsuccess = () =>
+            resolve(
+              (scan.result || []).filter((row) =>
+                matchesIndexRange(row, keyPath, lower, upper)
+              ).length
             );
           scan.onerror = () => reject(scan.error);
           return;
         }
         const request = store
           .index(indexName)
-          .getAll(IDBKeyRange.bound(lower, upper));
-        // Already in index order from IndexedDB itself; nothing to sort.
-        request.onsuccess = () => resolve(request.result || []);
+          .count(IDBKeyRange.bound(lower, upper));
+        request.onsuccess = () => resolve(request.result || 0);
         request.onerror = () => reject(request.error);
       })
   );
