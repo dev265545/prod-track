@@ -40,6 +40,15 @@ export function DangerZoneCard({ onCleared }: { onCleared: () => void }) {
   const [busy, setBusy] = React.useState(false);
   const [dialogError, setDialogError] = React.useState<ToneMessage>(null);
   const [message, setMessage] = React.useState<ToneMessage>(null);
+  const [savingCopy, setSavingCopy] = React.useState(false);
+  /**
+   * Whether a copy has actually been saved in this sitting. The button used to
+   * `void saveFullCopy()` and discard the outcome, so a failed copy — a full
+   * disk, a refused permission, a cancelled dialog — said nothing at all, and
+   * the owner went on to wipe everything believing he had a backup. That is
+   * the one place in this app where a silent failure is unrecoverable.
+   */
+  const [copySaved, setCopySaved] = React.useState(false);
   const word = t("setgDangerWord");
 
   const reset = () => {
@@ -91,7 +100,21 @@ export function DangerZoneCard({ onCleared }: { onCleared: () => void }) {
           type="button"
           variant="outline"
           className="min-h-[44px] px-6 text-base"
-          onClick={() => void saveFullCopy()}
+          disabled={savingCopy}
+          onClick={async () => {
+            setSavingCopy(true);
+            try {
+              const outcome = await saveFullCopy();
+              setCopySaved(outcome.ok);
+              setMessage(
+                outcome.ok
+                  ? { tone: "success", text: t("bkpSaved") }
+                  : { tone: "danger", text: t("bkpSaveFailed", { msg: outcome.error || "" }) },
+              );
+            } finally {
+              setSavingCopy(false);
+            }
+          }}
         >
           {t("setgDangerSaveFirst")}
         </Button>
@@ -126,6 +149,15 @@ export function DangerZoneCard({ onCleared }: { onCleared: () => void }) {
               {t("setgDangerDialogDesc")}
             </AlertDialogDescription>
           </AlertDialogHeader>
+
+          {/* Say it at the moment it matters. The owner may have pressed
+              "save a copy first" and had it fail, or skipped it entirely;
+              either way this is the last screen before the data is gone. */}
+          {!copySaved ? (
+            <p className="rounded-md border border-destructive bg-surface-2 p-3 text-sm text-foreground">
+              {t("bkpLastSavedNever")}
+            </p>
+          ) : null}
 
           <div className="flex flex-col gap-4">
             <PasswordField
