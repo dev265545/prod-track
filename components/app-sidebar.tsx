@@ -50,7 +50,7 @@ export function AppSidebar() {
 
   return (
     <>
-      <SidebarHeader className="flex flex-row items-center gap-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-1.5 group-data-[collapsible=icon]:py-3">
+      <SidebarHeader className="flex flex-row items-center gap-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0 group-data-[collapsible=icon]:py-3">
         <Link
           href="/"
           className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-sidebar-foreground no-underline outline-none ring-sidebar-ring transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 group-data-[collapsible=icon]:hidden"
@@ -69,9 +69,9 @@ export function AppSidebar() {
       <SidebarContent>
         {/* Module switcher — always visible, so you can hop between sections
             without going back Home. */}
-        <SidebarGroup className="group-data-[collapsible=icon]:px-1.5">
+        <SidebarGroup className="group-data-[collapsible=icon]:px-0">
           <SidebarGroupLabel>{t("navSections")}</SidebarGroupLabel>
-          <SidebarMenu>
+          <SidebarMenu className="group-data-[collapsible=icon]:items-center">
             <SidebarMenuItem>
               <SidebarMenuButton
                 asChild
@@ -140,9 +140,9 @@ export function AppSidebar() {
                 the icons below belong to the section highlighted above. Sized
                 to the 52px rail: a 24px rule, centred (52 − 24) / 2 = 14px. */}
             <SidebarSeparator className="group-data-[collapsible=icon]:mx-3.5 group-data-[collapsible=icon]:w-6" />
-            <SidebarGroup className="group-data-[collapsible=icon]:px-1.5">
+            <SidebarGroup className="group-data-[collapsible=icon]:px-0">
               <SidebarGroupLabel>{t(currentModule.labelKey)}</SidebarGroupLabel>
-              <SidebarMenu>
+              <SidebarMenu className="group-data-[collapsible=icon]:items-center">
                 {currentModule.items.map(({ href, labelKey, icon: Icon }) => {
                   const label = t(labelKey);
                   return (
