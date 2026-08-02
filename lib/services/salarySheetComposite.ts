@@ -134,6 +134,26 @@ export function resolveEffectiveSalarySheetRow(
     return baseRow;
   }
 
+  // Only fall back to per-slice composition when a correction actually exists
+  // for one of the slices. Recomposing an un-corrected range out of half-month
+  // slices is not value-neutral: period-scoped values (advance deductions are
+  // matched on an exact periodFrom/periodTo pair) and running per-month state
+  // (the Operator Sunday multiplier's present-day counter) are lost when the
+  // range is cut up. With no override to honour, the whole-range base row is
+  // both cheaper and more accurate.
+  const hasSliceOverride = slices.some((period) =>
+    Boolean(
+      findSalarySheetOverrideForRange(
+        employeeOverrides,
+        period.fromDate,
+        period.toDate,
+      ),
+    ),
+  );
+  if (!hasSliceOverride) {
+    return baseRow;
+  }
+
   if (slices.length === 1) {
     const period = slices[0];
     const sliceBase = buildBaseForRange(period.fromDate, period.toDate);

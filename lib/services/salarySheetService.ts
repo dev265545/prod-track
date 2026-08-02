@@ -64,10 +64,44 @@ function round2(value: number): number {
   return Math.round(value * 100) / 100;
 }
 
+/**
+ * Rate multiplier applied to an Operator's present Sunday once the running
+ * count of present working days in the month reaches `requiredPresentDays`.
+ * Used whenever the employee record does not carry its own value — kept as a
+ * single exported constant so the employee editor and the payroll engine
+ * cannot drift apart (the editor has always shown 1.2 as its default).
+ */
+export const DEFAULT_SUNDAY_MULTIPLIER = 1.2;
+
+/** Default number of present working days an Operator needs before the multiplier applies. */
+export const DEFAULT_REQUIRED_PRESENT_DAYS = 26;
+
+/**
+ * Override fields that can actually move an employee's pay. `absentDays` and
+ * `holidayPresentDays` are deliberately absent: both are descriptive counters
+ * derived from the same attendance that already produced `presentDays`
+ * (a holiday-present day is *inside* `presentDays`), so honouring them as pay
+ * inputs would double-count. They are still stored and displayed, but they must
+ * not flip `hasOverrides` — a row is only "adjusted" when the adjustment is
+ * capable of changing what the employee is paid.
+ */
+const PAY_AFFECTING_OVERRIDE_KEYS = [
+  "presentDays",
+  "earnedSundayPayDays",
+  "sundayPresentBonusDays",
+  "totalPaidDays",
+  "hoursExtraTotal",
+  "hoursReducedTotal",
+  "calculatedSalary",
+  "advanceDeduction",
+  "netCalculatedSalary",
+] as const;
+
 function hasPersistedOverrides(record: SalarySheetOverrideRecord | null): boolean {
   if (!record) return false;
+  const overrides = record.overrides ?? {};
   return (
-    Object.keys(record.overrides ?? {}).length > 0 ||
+    PAY_AFFECTING_OVERRIDE_KEYS.some((key) => overrides[key] !== undefined) ||
     (record.notes?.trim().length ?? 0) > 0
   );
 }
@@ -119,21 +153,33 @@ export function applySalarySheetOverrides(
     round2(presentDays + earnedSundayPayDays + sundayPresentBonusDays);
   const baseCalculatedSalary =
     baseRow.baseCalculatedSalary ?? baseRow.calculatedSalary;
-  // Only recompute salary from the flat totalPaidDays * ratePerDay formula when
-  // one of its driver fields was actually overridden. Otherwise fall back to
-  // baseRow.calculatedSalary as-is — needed because some rows (e.g. Operators
-  // with a Sunday-multiplier rule) compute calculatedSalary from day-level pay
-  // that isn't expressible as a single flat rate times totalPaidDays.
-  const driverFieldOverridden =
-    overrides.presentDays !== undefined ||
-    overrides.earnedSundayPayDays !== undefined ||
-    overrides.sundayPresentBonusDays !== undefined ||
-    overrides.totalPaidDays !== undefined;
+  // Corrections are applied as *deltas* on top of the row's own computed pay
+  // rather than by rebuilding it from a flat `totalPaidDays * ratePerDay`.
+  // For ordinary rows the two are identical (their pay IS paid days times the
+  // daily rate), but Operators can carry day-level premiums — a Sunday paid at
+  // `ratePerDay * sundayMultiplier` — that the flat formula would silently
+  // erase the moment any driver was corrected.
+  //   • day drivers move pay by (corrected − computed) days × ratePerDay
+  //   • hour totals move pay by (corrected − computed) hours × ratePerHour
+  //     (extra adds, reduced subtracts), matching how attendance hours feed
+  //     the computed figure in the first place.
+  const dayDelta = totalPaidDays - baseRow.totalPaidDays;
+  const hoursExtraDelta =
+    overrides.hoursExtraTotal !== undefined
+      ? overrides.hoursExtraTotal - baseRow.hoursExtraTotal
+      : 0;
+  const hoursReducedDelta =
+    overrides.hoursReducedTotal !== undefined
+      ? overrides.hoursReducedTotal - baseRow.hoursReducedTotal
+      : 0;
+  const hoursDelta = hoursExtraDelta - hoursReducedDelta;
   const calculatedSalary =
     overrides.calculatedSalary ??
-    (driverFieldOverridden
-      ? round2(totalPaidDays * baseRow.ratePerDay)
-      : baseRow.calculatedSalary);
+    round2(
+      baseRow.calculatedSalary +
+        dayDelta * baseRow.ratePerDay +
+        hoursDelta * baseRow.ratePerHour,
+    );
   const advanceDeduction =
     overrides.advanceDeduction ?? baseRow.advanceDeduction ?? 0;
   const netCalculatedSalary =
@@ -182,6 +228,13 @@ interface AttendanceSalarySummaryLike {
  * filters the resulting day rows down to the requested range — same
  * filtering pattern `getPrintableAttendanceSalaryRangeHtml` in
  * salaryService.ts uses for display purposes.
+ *
+ * `attendance` must be the employee's attendance for the WHOLE month, not just
+ * `[rangeFrom, rangeTo]`: the Sunday-multiplier rule depends on a present-day
+ * count that runs from day 1 of the month, so a range-filtered input would
+ * restart that counter and silently suppress the multiplier for any range that
+ * does not start on the 1st. Scoping happens afterwards, by filtering the
+ * resulting day rows.
  */
 function buildOperatorSummaryForRange(input: {
   year: number;
@@ -189,6 +242,7 @@ function buildOperatorSummaryForRange(input: {
   rangeFrom: string;
   rangeTo: string;
   holidayDates: string[];
+  /** Whole-month attendance (see doc comment) — filtered to the range internally. */
   attendance: AttendanceRecord[];
   hoursPerDay: number;
   ratePerDay: number;
@@ -338,7 +392,7 @@ export async function getSalarySheetForRange(
   holidayDates: string[];
   calendarDaysInMonth: number;
 }> {
-  const [employees, attendance, holidays, operatorHolidays, shifts, sundayCategories, monthOverrides] =
+  const [allEmployees, attendance, holidays, operatorHolidays, shifts, sundayCategories, monthOverrides] =
     await Promise.all([
       getEmployees(true),
       getAttendanceInRange(from, to),
@@ -348,6 +402,15 @@ export async function getSalarySheetForRange(
       getSundayCategories(),
       getSalarySheetOverridesForMonth(year, month),
     ]);
+
+  // Production workers are paid for what they make, not for the days they
+  // attend, so this attendance-based sheet says nothing true about them: their
+  // monthly salary is 0, which made every one of their columns render blank.
+  // They get their own document instead — see
+  // `getProductionPaySheetForRange` in productionPaySheetService.ts.
+  const employees = allEmployees.filter(
+    (emp) => (emp.employeeType as string | undefined) !== "production",
+  );
 
   const deductionsByEmployeeId = new Map<string, Record<string, unknown>[]>();
   await Promise.all(
@@ -412,15 +475,18 @@ export async function getSalarySheetForRange(
       hoursPerDay,
     );
     const empAtt = attByEmpDate.get(empId) ?? new Map();
-    const attendanceForRange = Array.from(empAtt.entries())
-      .filter(([date]) => date >= rangeFrom && date <= rangeTo)
-      .map(([date, att]) => ({
-        date,
-        status: att.status,
-        hoursWorked: att.hoursWorked,
-        hoursReduced: att.hoursReduced,
-        hoursExtra: att.hoursExtra,
-      }));
+    const attendanceForSheet: AttendanceRecord[] = Array.from(
+      empAtt.entries(),
+    ).map(([date, att]) => ({
+      date,
+      status: att.status,
+      hoursWorked: att.hoursWorked,
+      hoursReduced: att.hoursReduced,
+      hoursExtra: att.hoursExtra,
+    }));
+    const attendanceForRange = attendanceForSheet.filter(
+      (a) => a.date >= rangeFrom && a.date <= rangeTo,
+    );
     const employeeType = emp.employeeType as string | undefined;
     const isOperator = employeeType === "operator";
     const isProduction = employeeType === "production";
@@ -434,13 +500,16 @@ export async function getSalarySheetForRange(
           holidayDates: Array.from(
             new Set([...holidayDates, ...operatorHolidayDates]),
           ),
-          attendance: attendanceForRange,
+          attendance: attendanceForSheet,
           hoursPerDay,
           ratePerDay,
           sundayCategoryRule,
           operatorSundayRule: {
-            requiredPresentDays: (emp.requiredPresentDays as number) ?? 26,
-            sundayMultiplier: (emp.sundayMultiplier as number) ?? 1,
+            requiredPresentDays:
+              (emp.requiredPresentDays as number) ??
+              DEFAULT_REQUIRED_PRESENT_DAYS,
+            sundayMultiplier:
+              (emp.sundayMultiplier as number) ?? DEFAULT_SUNDAY_MULTIPLIER,
           },
         })
       : buildAttendanceSalarySummaryForRange({
@@ -585,8 +654,10 @@ export async function getSalarySheetRowForEmployee(
   const isOperator = employeeType === "operator";
   const isProduction = employeeType === "production";
   const operatorSundayRule = {
-    requiredPresentDays: (employee.requiredPresentDays as number) ?? 26,
-    sundayMultiplier: (employee.sundayMultiplier as number) ?? 1,
+    requiredPresentDays:
+      (employee.requiredPresentDays as number) ?? DEFAULT_REQUIRED_PRESENT_DAYS,
+    sundayMultiplier:
+      (employee.sundayMultiplier as number) ?? DEFAULT_SUNDAY_MULTIPLIER,
   };
   const unionHolidayDates = isOperator
     ? Array.from(new Set([...holidayDates, ...operatorHolidayDates]))
@@ -614,7 +685,8 @@ export async function getSalarySheetRowForEmployee(
           rangeFrom,
           rangeTo,
           holidayDates: unionHolidayDates,
-          attendance: rangeAttendance,
+          // Whole-month attendance on purpose — see buildOperatorSummaryForRange.
+          attendance: attendanceRecords,
           hoursPerDay,
           ratePerDay,
           sundayCategoryRule,

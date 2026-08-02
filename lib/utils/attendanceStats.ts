@@ -16,6 +16,7 @@ import {
   getSundayDatesInMonth,
   getMonthRange,
   getCalendarDaysInMonth,
+  MAX_DAY_PAY_FRACTION,
 } from "./date";
 
 /** Length of each pay cycle window (calendar days within a month). */
@@ -100,10 +101,53 @@ function forEachCalendarMonthOverlappingRange(
 }
 
 /**
+ * Split a calendar month into its extra-pay cycle blocks.
+ *
+ * Rule: a month has as many blocks as its cap allows
+ * ({@link MAX_EXTRA_PAY_DAYS_PER_MONTH} ÷ {@link MAX_EXTRA_PAY_DAYS_PER_CYCLE} = 2).
+ * Each block is {@link EXTRA_PAY_CYCLE_DAYS} days long, except the last, which
+ * absorbs whatever is left of the month. So every month — 28, 29, 30 or 31 days
+ * — yields exactly `1–15` and `16–end of month`.
+ *
+ * This is deliberate. The old rule evaluated only *whole* 15-day blocks, which
+ * meant February (whose second block is 13–14 days) could never earn more than
+ * one block's worth while every other month earned two, and day 31 of a 31-day
+ * month fell outside every block and was never counted. Absorbing the tail keeps
+ * {@link MAX_EXTRA_PAY_DAYS_PER_MONTH} (= 2 blocks × {@link MAX_EXTRA_PAY_DAYS_PER_CYCLE})
+ * reachable in every month and makes the blocks line up exactly with the
+ * first-half / second-half correction periods used by the salary sheet.
+ */
+export function getExtraPayCycleBlocks(
+  year: number,
+  monthIndex: number,
+): { start: number; end: number }[] {
+  const lastDay = getCalendarDaysInMonth(year, monthIndex);
+  const blockCount = Math.max(
+    1,
+    Math.floor(MAX_EXTRA_PAY_DAYS_PER_MONTH / MAX_EXTRA_PAY_DAYS_PER_CYCLE),
+  );
+  const blocks: { start: number; end: number }[] = [];
+  for (let i = 0; i < blockCount; i += 1) {
+    const start = 1 + i * EXTRA_PAY_CYCLE_DAYS;
+    if (start > lastDay) break;
+    const isLast = i === blockCount - 1;
+    blocks.push({
+      start,
+      end: isLast
+        ? lastDay
+        : Math.min(start + EXTRA_PAY_CYCLE_DAYS - 1, lastDay),
+    });
+  }
+  return blocks;
+}
+
+/**
  * Cycle-based extra pay days for every calendar month that overlaps `[fromDate, toDate]`.
- * Only **full** in-month 15-day blocks (starting at calendar day 1) that lie entirely inside the
- * range are evaluated. Each qualifying block adds {@link EXTRA_PAY_DAYS_PER_QUALIFIED_CYCLE};
- * each month’s total is capped at {@link MAX_EXTRA_PAY_DAYS_PER_MONTH}.
+ * Only blocks (see {@link getExtraPayCycleBlocks}) that lie entirely inside the
+ * range are evaluated — that containment check is what lets a half-month slice
+ * and its sibling add up to the full month without double counting. Each
+ * qualifying block adds {@link EXTRA_PAY_DAYS_PER_QUALIFIED_CYCLE}; each month’s
+ * total is capped at {@link MAX_EXTRA_PAY_DAYS_PER_MONTH}.
  */
 export function computeEarnedExtraPayDaysForCalendarScope(
   fromDate: string,
@@ -115,14 +159,8 @@ export function computeEarnedExtraPayDaysForCalendarScope(
 ): number {
   let total = 0;
   forEachCalendarMonthOverlappingRange(fromDate, toDate, (year, monthIndex) => {
-    const lastDay = getCalendarDaysInMonth(year, monthIndex);
     let monthRaw = 0;
-    for (
-      let start = 1;
-      start + EXTRA_PAY_CYCLE_DAYS - 1 <= lastDay;
-      start += EXTRA_PAY_CYCLE_DAYS
-    ) {
-      const end = start + EXTRA_PAY_CYCLE_DAYS - 1;
+    for (const { start, end } of getExtraPayCycleBlocks(year, monthIndex)) {
       const windowStart = `${year}-${pad2(monthIndex + 1)}-${pad2(start)}`;
       const windowEnd = `${year}-${pad2(monthIndex + 1)}-${pad2(end)}`;
       if (windowStart < fromDate || windowEnd > toDate) continue;
@@ -192,12 +230,15 @@ export function computeDayPayFraction(
 ): number {
   if (fullDayHours <= 0) return 1;
   if (att.hoursWorked != null && att.hoursWorked >= 0) {
-    return Math.min(Math.max(att.hoursWorked / fullDayHours, 0), 2);
+    return Math.min(
+      Math.max(att.hoursWorked / fullDayHours, 0),
+      MAX_DAY_PAY_FRACTION,
+    );
   }
   const reduced = att.hoursReduced ?? 0;
   const extra = att.hoursExtra ?? 0;
   const adj = (extra - reduced) / fullDayHours;
-  return Math.min(Math.max(1 + adj, 0), 2);
+  return Math.min(Math.max(1 + adj, 0), MAX_DAY_PAY_FRACTION);
 }
 
 export function computeAttendanceStats(input: AttendanceStatsInput): AttendanceStats {

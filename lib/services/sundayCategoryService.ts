@@ -46,6 +46,28 @@ export async function deleteSundayCategory(id: string): Promise<void> {
   await remove(STORE, id);
 }
 
+/**
+ * A configured non-negative number, or `null` when the field is genuinely unset
+ * (undefined / null / empty / non-numeric). An explicit `0` is a *configuration*,
+ * not an absence — see resolveSundayCategoryRule.
+ */
+function configuredNonNegative(value: unknown): number | null {
+  if (value === undefined || value === null || value === "") return null;
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  return Math.max(0, n);
+}
+
+/**
+ * Turn a stored Sunday category into the rule the payroll engine consumes.
+ *
+ * The default rule is substituted only when a field is genuinely **unset**.
+ * A field explicitly configured as `0` is honoured, so a category can express
+ * "this group earns no Sundays" (`earnedSundays: 0` / `earnedPerStep: 0`) —
+ * previously that was silently replaced by the default and quietly paid people.
+ * `everyPresentDays: 0` is the one exception: it is not a rule but a division by
+ * zero, so it still falls back to the default.
+ */
 export function resolveSundayCategoryRule(
   category?: Pick<
     SundayCategory,
@@ -55,14 +77,18 @@ export function resolveSundayCategoryRule(
   if (!category) return DEFAULT_SUNDAY_CATEGORY_RULE;
 
   if (category.mode === "threshold") {
-    const requiredPresent = Math.max(0, Number(category.requiredPresent ?? 0));
-    const earnedSundays = Math.max(0, Number(category.earnedSundays ?? 0));
-    if (!requiredPresent || !earnedSundays) return DEFAULT_SUNDAY_CATEGORY_RULE;
+    const requiredPresent = configuredNonNegative(category.requiredPresent);
+    const earnedSundays = configuredNonNegative(category.earnedSundays);
+    if (requiredPresent === null || earnedSundays === null) {
+      return DEFAULT_SUNDAY_CATEGORY_RULE;
+    }
     return { mode: "threshold", requiredPresent, earnedSundays };
   }
 
-  const everyPresentDays = Math.max(0, Number(category.everyPresentDays ?? 0));
-  const earnedPerStep = Math.max(0, Number(category.earnedPerStep ?? 0));
-  if (!everyPresentDays || !earnedPerStep) return DEFAULT_SUNDAY_CATEGORY_RULE;
+  const everyPresentDays = configuredNonNegative(category.everyPresentDays);
+  const earnedPerStep = configuredNonNegative(category.earnedPerStep);
+  if (!everyPresentDays || earnedPerStep === null) {
+    return DEFAULT_SUNDAY_CATEGORY_RULE;
+  }
   return { mode: "step", everyPresentDays, earnedPerStep };
 }

@@ -47,7 +47,12 @@ describe("saveSalarySheetOverride", () => {
     mockGetAdvancesByEmployee.mockResolvedValue([]);
   });
 
-  it("clamps present days to Mon–Sat workdays in the period", async () => {
+  // NOTE: this test used to assert a cap of 12 (= Mon–Sat workdays). That
+  // encoded a bug: computed `presentDays` is a sum of *paid day fractions*,
+  // each of which can reach 2.0 for a long day (see computeDayPayFraction),
+  // so a legitimate computed figure of e.g. 20 was being silently clamped
+  // down to 12 the moment anything else on the row was corrected.
+  it("does not clamp a present-days figure that overtime can legitimately reach", async () => {
     await saveSalarySheetOverride({
       employeeId: "e1",
       year: 2026,
@@ -61,7 +66,24 @@ describe("saveSalarySheetOverride", () => {
     const saved = mockPut.mock.calls[0][1] as {
       overrides: { presentDays: number };
     };
-    expect(saved.overrides.presentDays).toBe(12);
+    expect(saved.overrides.presentDays).toBe(20);
+  });
+
+  it("clamps present days to the real ceiling of 2 paid days per non-Sunday date", async () => {
+    // Mar 1–15 2026 has 12 non-Sunday dates → at most 24 paid days.
+    await saveSalarySheetOverride({
+      employeeId: "e1",
+      year: 2026,
+      month: 2,
+      fromDate: "2026-03-01",
+      toDate: "2026-03-15",
+      notes: "note",
+      overrides: { presentDays: 40 },
+    });
+    const saved = mockPut.mock.calls[0][1] as {
+      overrides: { presentDays: number };
+    };
+    expect(saved.overrides.presentDays).toBe(24);
   });
 
   it("clamps earned Sunday pay and Sunday bonus to period rules", async () => {
@@ -87,7 +109,11 @@ describe("saveSalarySheetOverride", () => {
     expect(saved.overrides.sundayPresentBonusDays).toBe(3);
   });
 
-  it("treats factory holidays as non-workdays for present cap", async () => {
+  // NOTE: this test used to assert that factory holidays lower the present-days
+  // cap (20 → 10). That also encoded the bug: an employee who works on a factory
+  // holiday IS paid for it, and `computeAttendanceStats` adds those days into
+  // `presentDays`. Holidays therefore do not reduce the achievable maximum.
+  it("does not lower the present-days cap for factory holidays (holiday work is paid)", async () => {
     mockGetHolidaysInRange.mockResolvedValue([
       { id: "h1", date: "2026-03-02" },
       { id: "h2", date: "2026-03-03" },
@@ -104,7 +130,7 @@ describe("saveSalarySheetOverride", () => {
     const saved = mockPut.mock.calls[0][1] as {
       overrides: { presentDays: number };
     };
-    expect(saved.overrides.presentDays).toBe(10);
+    expect(saved.overrides.presentDays).toBe(20);
   });
 
   it("clamps a negative advanceDeduction override to zero", async () => {

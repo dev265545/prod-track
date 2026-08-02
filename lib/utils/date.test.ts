@@ -63,16 +63,29 @@ describe("getMaxEarnedSundayPayDaysInRange", () => {
 });
 
 describe("clampPayrollDriverFieldsToPeriod", () => {
-  it("caps present to workdays and Sunday bonus to Sundays in range", () => {
+  // NOTE: previously asserted presentDays capped to 12 (Mon–Sat day count).
+  // That encoded a bug — presentDays is a sum of paid-day fractions of up to 2
+  // per date, so 20 is legitimately achievable in Mar 1–15 and must survive.
+  it("caps present to 2 paid days per non-Sunday date and Sunday bonus to Sundays in range", () => {
     const out = clampPayrollDriverFieldsToPeriod(
       "2026-03-01",
       "2026-03-15",
       [],
       { presentDays: 20, earnedSundayPayDays: 5, sundayPresentBonusDays: 10 },
     );
-    expect(out.presentDays).toBe(12);
+    expect(out.presentDays).toBe(20);
     expect(out.earnedSundayPayDays).toBe(2);
     expect(out.sundayPresentBonusDays).toBe(3);
+  });
+
+  it("caps present days at twice the non-Sunday date count", () => {
+    const out = clampPayrollDriverFieldsToPeriod(
+      "2026-03-01",
+      "2026-03-15",
+      [],
+      { presentDays: 99, earnedSundayPayDays: 0, sundayPresentBonusDays: 0 },
+    );
+    expect(out.presentDays).toBe(24); // 12 non-Sunday dates * 2
   });
 
   it("caps present days to 0 when the range has no Mon–Sat workdays", () => {

@@ -366,11 +366,36 @@ export interface PayrollDriverCapFields {
   sundayPresentBonusDays: number;
 }
 
+/** A single date can pay at most this many days (long shifts; see computeDayPayFraction). */
+export const MAX_DAY_PAY_FRACTION = 2;
+
+/**
+ * Highest `presentDays` figure the payroll engine can legitimately produce for
+ * a range. `presentDays` is a sum of paid-day *fractions*, not a headcount:
+ *  - every non-Sunday date can contribute (factory holidays included — working
+ *    a holiday is paid and is folded into `presentDays`), and
+ *  - each such date can contribute up to {@link MAX_DAY_PAY_FRACTION}.
+ * Sundays are excluded because a present Sunday is counted under
+ * `sundayPresentBonusDays`, not here.
+ */
+export function getMaxPresentDaysInRange(
+  fromDate: string,
+  toDate: string,
+): number {
+  const nonSundayDates = getDatesInRange(fromDate, toDate).filter(
+    (d) => !isSunday(d),
+  );
+  return nonSundayDates.length * MAX_DAY_PAY_FRACTION;
+}
+
 /**
  * Clamp the three adjustable payroll drivers to the period:
- * - present days ≤ Mon–Sat days excluding factory holidays
+ * - present days ≤ non-Sunday dates × 2 (see getMaxPresentDaysInRange)
  * - earned Sunday pay days ≤ 2 (half-month) or 4 (longer)
  * - Sunday present bonus ≤ number of Sundays in range
+ *
+ * `factoryHolidayDates` no longer affects the present-days ceiling (holiday
+ * work is paid) but is kept in the signature for the other callers' clarity.
  */
 export function clampPayrollDriverFieldsToPeriod(
   fromDate: string,
@@ -378,7 +403,8 @@ export function clampPayrollDriverFieldsToPeriod(
   factoryHolidayDates: string[],
   d: PayrollDriverCapFields,
 ): PayrollDriverCapFields {
-  const maxPresent = getWorkingDaysInRange(fromDate, toDate, factoryHolidayDates);
+  void factoryHolidayDates;
+  const maxPresent = getMaxPresentDaysInRange(fromDate, toDate);
   const maxEarned = getMaxEarnedSundayPayDaysInRange(fromDate, toDate);
   const maxSundayBonus = countSundaysInRange(fromDate, toDate);
   return {

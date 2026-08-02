@@ -583,3 +583,62 @@ describe("buildMonthSalaryBreakdown", () => {
     expect(row?.basePay).toBe(1000);
   });
 });
+
+describe("computeEarnedExtraPayDaysForCalendarScope — trailing partial blocks", () => {
+  function fullMonthPresence(
+    year: number,
+    monthIndex: number,
+    lastDay: number,
+  ) {
+    const entries: [string, { status: string }][] = [];
+    for (let d = 1; d <= lastDay; d++) {
+      if (new Date(year, monthIndex, d).getDay() === 0) continue;
+      entries.push([
+        `${year}-${String(monthIndex + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`,
+        { status: "present" },
+      ]);
+    }
+    return new Map(entries);
+  }
+
+  // Bug 7: February's 16th–EOM block is only 13/14 days long, so the old
+  // "full 15-day blocks only" loop skipped it entirely and February capped at 2.
+  it("February with full attendance earns the same 4 days as any other month", () => {
+    const earned = computeEarnedExtraPayDaysForCalendarScope(
+      "2026-02-01",
+      "2026-02-28",
+      [],
+      fullMonthPresence(2026, 1, 28),
+      8,
+    );
+    expect(earned).toBe(MAX_EXTRA_PAY_DAYS_PER_MONTH);
+  });
+
+  it("leap February (29 days) also earns the full 4 days", () => {
+    const earned = computeEarnedExtraPayDaysForCalendarScope(
+      "2024-02-01",
+      "2024-02-29",
+      [],
+      fullMonthPresence(2024, 1, 29),
+      8,
+    );
+    expect(earned).toBe(MAX_EXTRA_PAY_DAYS_PER_MONTH);
+  });
+
+  it("counts day 31 inside the second block of a 31-day month", () => {
+    // Only the second half is worked, and only just enough days to qualify —
+    // the 31st has to count for the block to reach the 12-present threshold.
+    const entries: [string, { status: string }][] = [];
+    for (const d of [16, 17, 18, 19, 20, 21, 23, 24, 25, 26, 27, 31]) {
+      entries.push([`2026-03-${String(d).padStart(2, "0")}`, { status: "present" }]);
+    }
+    const earned = computeEarnedExtraPayDaysForCalendarScope(
+      "2026-03-16",
+      "2026-03-31",
+      [],
+      new Map(entries),
+      8,
+    );
+    expect(earned).toBe(MAX_EXTRA_PAY_DAYS_PER_CYCLE);
+  });
+});
