@@ -93,7 +93,17 @@ export async function saveSalaryRecords(
     await putSalaryRecord(record);
   }
   if (records.length === 0) return;
-  const month = records[0]?.month;
+  // Every distinct month in the batch, not just the first record's. A
+  // finalisation that spans two months used to be filed under one of them,
+  // which made the log say a month was saved that partly was not.
+  const months = Array.from(
+    new Set(
+      records
+        .map((r) => r.month)
+        .filter((m): m is string => typeof m === "string" && m.length > 0),
+    ),
+  ).sort();
+  const month = months.length > 0 ? months.join(", ") : records[0]?.month;
   void auditRecord(
     AUDIT_ACTIONS.salaryRecordSave,
     "salary_records",

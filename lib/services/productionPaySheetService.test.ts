@@ -93,6 +93,7 @@ describe("getProductionPaySheetForRange", () => {
         nightQuantity: 4,
         totalQuantity: 14,
         amount: 70,
+        unpriced: false,
       },
       {
         itemName: "Nut",
@@ -101,6 +102,7 @@ describe("getProductionPaySheetForRange", () => {
         nightQuantity: 20,
         totalQuantity: 20,
         amount: 40,
+        unpriced: false,
       },
     ]);
     expect(row.dayQuantity).toBe(10);
@@ -108,6 +110,38 @@ describe("getProductionPaySheetForRange", () => {
     expect(row.totalQuantity).toBe(34);
     // 14 * 5 + 20 * 2
     expect(row.workAmount).toBe(110);
+  });
+
+  // Same answer as the payslip: an item with no usable rate is kept as a line
+  // with its quantity, worth nothing and flagged, so the money total is never
+  // presented as complete when it is not.
+  it("keeps an unpriced item as a flagged, zero-value line rather than free work", async () => {
+    mockGetItems.mockResolvedValue([
+      { id: "i1", name: "Bolt", rate: 5 },
+      { id: "i2", name: "Nut", rate: 0 }, // typed zero — not a price
+      { id: "i3", name: "Washer" }, // never priced
+    ]);
+    mockGetEmployees.mockResolvedValue([
+      { id: "e2", name: "Ravi", employeeType: "production" },
+    ]);
+    mockGetProductionsByEmployee.mockResolvedValue([
+      prod("e2", "2026-04-01", "i1", 10, "day"),
+      prod("e2", "2026-04-02", "i2", 30, "day"),
+      prod("e2", "2026-04-03", "i3", 40, "night"),
+    ]);
+
+    const sheet = await getProductionPaySheetForRange(FROM, TO);
+    const row = sheet.rows[0];
+
+    // the priced work is untouched
+    expect(row.workAmount).toBe(50);
+    // the unpriced work is still counted as work, and still visible
+    expect(row.totalQuantity).toBe(80);
+    expect(row.unpricedCount).toBe(2);
+    expect(sheet.totals.unpricedCount).toBe(2);
+    const unpriced = row.items.filter((i) => i.unpriced);
+    expect(unpriced.map((i) => i.itemName).sort()).toEqual(["Nut", "Washer"]);
+    expect(unpriced.every((i) => i.rate === null && i.amount === 0)).toBe(true);
   });
 
   it("shows the advance to cut and takes it off the amount to pay", async () => {
@@ -136,7 +170,11 @@ describe("getProductionPaySheetForRange", () => {
     expect(row.amountToPay).toBe(30);
   });
 
-  it("never pays a negative amount when the advance to cut is larger", async () => {
+  // Not floored at 0. Flooring made this record say "₹0" for a worker whose
+  // payslip and `calculateSalary().final` both said -490: the same worker, the
+  // same period, two different numbers. The shortfall is now carried through
+  // as a negative so whatever shows it can say money is owed back.
+  it("reports a negative amount to pay when the advance to cut is larger", async () => {
     mockGetEmployees.mockResolvedValue([
       { id: "e2", name: "Ravi", employeeType: "production" },
     ]);
@@ -148,7 +186,8 @@ describe("getProductionPaySheetForRange", () => {
     const sheet = await getProductionPaySheetForRange(FROM, TO);
 
     expect(sheet.rows[0].workAmount).toBe(10);
-    expect(sheet.rows[0].amountToPay).toBe(0);
+    expect(sheet.rows[0].amountToPay).toBe(-490);
+    expect(sheet.totals.amountToPay).toBe(-490);
   });
 
   it("keeps a worker with no recorded work, with zeroes", async () => {

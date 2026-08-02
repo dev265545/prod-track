@@ -147,18 +147,20 @@ describe("salaryRecordService", () => {
     expect(await auditRows()).toEqual([]);
   });
 
-  // BEHAVIOUR (salaryRecordService.ts:100): the batch entry takes the month
-  // from the FIRST record only. A batch spanning two months is logged under
-  // one of them.
-  it("labels a mixed-month batch with the first record's month", async () => {
+  // A batch spanning two months names both. Taking the month from the first
+  // record alone filed the whole finalisation under one of them, so the log
+  // claimed a month had been saved that only partly had.
+  it("names every month in a mixed-month batch", async () => {
     await saveSalaryRecords([
-      { ...record(), month: "2026-04" },
       { ...record(), month: "2026-05" },
+      { ...record(), month: "2026-04" },
     ]);
 
     const entries = await auditRows();
     expect(entries[0].summary).toContain("2026-04");
-    expect(entries[0].summary).not.toContain("2026-05");
+    expect(entries[0].summary).toContain("2026-05");
+    // sorted, so the same batch always reads the same way
+    expect(entries[0].diff).toEqual({ count: 2, month: "2026-04, 2026-05" });
   });
 });
 

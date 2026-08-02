@@ -6,6 +6,7 @@ import { getEmployee } from "./employeeService";
 import { getHolidaysInRange } from "./factoryHolidayService";
 import { getAttendanceByEmployeeInRange } from "./attendanceService";
 import { getShifts } from "./shiftService";
+import { plural } from "./auditNames";
 import {
   getSundayCategories,
   resolveSundayCategoryRule,
@@ -93,13 +94,61 @@ function dayRowHtml(row: MonthSalaryDayRow): string {
   );
 }
 
+/**
+ * Money in this file is rupees rounded to two decimals, at every point a
+ * number is stored or shown. `round2` is the same rounding the salary-sheet
+ * engine uses (`salarySheetService.round2`); there is deliberately only one
+ * convention in the app.
+ *
+ * Rounding happens per production row, then again on each total, so the row
+ * values on the payslip add up to the printed gross rather than being a
+ * rounded view of an unrounded number.
+ */
+function round2(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+/**
+ * The rate a piece of work is paid at, or `null` when the item cannot be
+ * priced.
+ *
+ * This is the same test as `productionCatalog.toRate`: only a finite rate
+ * **above zero** is a price. The rest of the app treats "no rate" and "a rate
+ * of 0" as the same fact — not priced yet — and the Items screen refuses to
+ * store 0 for exactly that reason (`itemCatalog.validateRate`). A payslip that
+ * paid an unpriced item at 0 was quietly disagreeing with the screen that
+ * refuses to save it.
+ */
+function toPaidRate(value: unknown): number | null {
+  const rate = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(rate) && rate > 0 ? rate : null;
+}
+
+/**
+ * Shown in the Item column when the production row points at an item that is
+ * gone. Never the raw item id: an id on a document handed to a worker is
+ * noise, and `auditNames` already settled that argument for the audit log.
+ */
+const UNKNOWN_ITEM_NAME = "Unknown item";
+
+/** Shown in the Rate/Value columns of a row that has no price. */
+const NOT_PRICED_LABEL = "Not priced";
+
 export interface ProductionRow {
   date: string;
   itemName: string;
   quantity: number;
   shift: string;
-  rate: number;
+  /**
+   * `null` when the item is missing, unpriced, or priced at 0 — see
+   * `toPaidRate`. A `null` rate is not the number 0: it means nobody has said
+   * what this work is worth, and `unpriced` is set so no caller can round it
+   * back down to "free" by accident.
+   */
+  rate: number | null;
   value: number;
+  /** True when `rate` is null: this row earned nothing because it has no price. */
+  unpriced: boolean;
 }
 
 export interface AdvanceRow {
@@ -110,9 +159,23 @@ export interface AdvanceRow {
 export interface SalaryResult {
   gross: number;
   advance: number;
+  /**
+   * `gross - advance`, **not** floored at zero. A negative net is a real fact —
+   * the worker drew more than they earned this period and carries a balance —
+   * and it is reported here and printed on the payslip with a plain-language
+   * line saying so. Hiding it in one place and showing it in the other is what
+   * used to make screen and paper disagree.
+   */
   final: number;
   productions: ProductionRow[];
   advances: AdvanceRow[];
+  /**
+   * How many production rows could not be priced. Never silently zero: the
+   * payslip prints a warning whenever this is above 0, so an owner is told
+   * that real recorded work is missing from the gross instead of finding a
+   * row worth ₹0 and guessing why.
+   */
+  unpricedCount: number;
 }
 
 export async function calculateSalary(
@@ -130,37 +193,42 @@ export async function calculateSalary(
     items.map((i) => [i.id as string, i])
   ) as Record<string, Record<string, unknown>>;
   let gross = 0;
+  let unpricedCount = 0;
   const productionRows: ProductionRow[] = productions.map((p) => {
     const item = itemMap[p.itemId as string];
-    const rate = item ? ((item.rate as number) || 0) : 0;
+    const rate = item ? toPaidRate(item.rate) : null;
     const qty = (p.quantity as number) || 0;
-    const value = qty * rate;
+    const value = rate == null ? 0 : round2(qty * rate);
+    if (rate == null) unpricedCount += 1;
     gross += value;
+    const name = item ? (item.name as string) : "";
     return {
       date: p.date as string,
-      itemName: (item ? (item.name as string) : p.itemId) as string,
+      itemName: name?.trim() ? name.trim() : UNKNOWN_ITEM_NAME,
       quantity: qty,
       shift: p.shift === "night" ? "Night" : "Day",
       rate,
       value,
+      unpriced: rate == null,
     };
   });
 
-  const totalAdvance = advances.reduce(
-    (sum, a) => sum + ((a.amount as number) || 0),
-    0
+  const totalAdvance = round2(
+    advances.reduce((sum, a) => sum + ((a.amount as number) || 0), 0)
   );
   const advanceRows: AdvanceRow[] = advances.map((a) => ({
     date: a.date as string,
-    amount: (a.amount as number) || 0,
+    amount: round2((a.amount as number) || 0),
   }));
 
+  const roundedGross = round2(gross);
   return {
-    gross,
+    gross: roundedGross,
     advance: totalAdvance,
-    final: gross - totalAdvance,
+    final: round2(roundedGross - totalAdvance),
     productions: productionRows,
     advances: advanceRows,
+    unpricedCount,
   };
 }
 
@@ -192,11 +260,14 @@ export async function getPrintableSalaryHtml(
       : filter === "night"
         ? salary.productions.filter((r) => r.shift === "Night")
         : salary.productions;
-  const grossFiltered = productions.reduce(
-    (sum, r) => sum + (r.value || 0),
-    0
+  const grossFiltered = round2(
+    productions.reduce((sum, r) => sum + (r.value || 0), 0)
   );
-  const finalFiltered = Math.max(0, grossFiltered - advanceToCut);
+  // Not floored. `calculateSalary().final` is not floored either, and the two
+  // must be the same number for the same worker; the shortfall is spelled out
+  // below instead of being rounded away into a ₹0 that looks like "paid".
+  const finalFiltered = round2(grossFiltered - advanceToCut);
+  const unpricedFiltered = productions.filter((r) => r.unpriced).length;
   const grossLabel =
     filter === "day"
       ? "Gross (Day):"
@@ -213,8 +284,8 @@ export async function getPrintableSalaryHtml(
         td(r.itemName) +
         (showShiftCol ? td(r.shift) : "") +
         td(number(r.quantity), true) +
-        td(currency(r.rate), true) +
-        td(currency(r.value), true) +
+        td(r.unpriced ? NOT_PRICED_LABEL : currency(r.rate), true) +
+        td(r.unpriced ? DASH : currency(r.value), true) +
         `</tr>`,
     )
     .join("");
@@ -238,6 +309,31 @@ export async function getPrintableSalaryHtml(
     )
     .join("");
 
+  /**
+   * Work that is on the sheet but not in the gross has to say so on the paper
+   * itself — the same rule the Sunday caps, the daily pay cap and the
+   * unusable-machine guard already follow. Without this the owner sees a real
+   * day's work sitting at "—" and has no way to tell whether that is correct.
+   */
+  const unpricedNote =
+    unpricedFiltered === 0
+      ? ""
+      : `<p class="text-sm" style="margin:-12px 0 16px;color:#b45309">${escapeHtml(
+          `${plural(unpricedFiltered, "row is", "rows are")} not included above: the item has no rate (or has been deleted), so this work could not be priced. Set a rate on the Items screen and print again.`,
+        )}</p>`;
+
+  /**
+   * A net below zero means the worker drew more than they earned. It is said
+   * out loud rather than floored to ₹0, which read as "nothing owed either
+   * way" and disagreed with the figure the app showed on screen.
+   */
+  const netNote =
+    finalFiltered >= 0
+      ? ""
+      : `<p class="text-sm" style="margin:4px 0 0;color:#b45309">${escapeHtml(
+          `Advances exceed earnings for this period by ${currency(-finalFiltered)}. Nothing is payable now; this amount is still owed.`,
+        )}</p>`;
+
   const body =
     `<div class="mb-4"><p class="text-lg">${labelled("Employee:", name)}</p></div>` +
     `<h2 class="text-sm" style="font-weight:600;text-transform:uppercase;color:#52525b;margin-bottom:6px">Production</h2>` +
@@ -245,6 +341,7 @@ export async function getPrintableSalaryHtml(
     (rows ||
       `<tr><td colspan="${prodColspan}" class="border" style="color:#71717a">No production in this period.</td></tr>`) +
     `</tbody></table>` +
+    unpricedNote +
     `<h2 class="text-sm" style="font-weight:600;text-transform:uppercase;color:#52525b;margin-bottom:6px">Advances</h2>` +
     `<table class="table w-full mb-6"><thead><tr class="border">${th("Date")}<th class="border text-right" colspan="${advanceColspan}">Amount</th></tr></thead><tbody>` +
     (advanceRows ||
@@ -254,6 +351,7 @@ export async function getPrintableSalaryHtml(
     `<p class="text-sm">${labelled(grossLabel, currency(grossFiltered))}</p>` +
     `<p class="text-sm">${labelled("Advance to cut (this period):", currency(advanceToCut))}</p>` +
     `<p class="text-lg" style="font-weight:700;padding-top:8px">Net: ${escapeHtml(currency(finalFiltered))}</p>` +
+    netNote +
     `</div>`;
 
   const html = buildPrintDocument({
@@ -275,12 +373,38 @@ export async function getPrintableSalaryHtml(
   return { html, employeeName: name, salary };
 }
 
-/** Printable full-month attendance & salary grid for one employee (attendance only; no production earnings). */
+/**
+ * Guard for the 0-based month arguments below.
+ *
+ * Every month number in this codebase is a `Date` month index: 0 = January,
+ * 3 = April, 11 = December. That is impossible to see at a call site — `4`
+ * reads as April and silently prints May — so the parameters are named
+ * `monthIndex`, never `month`, and passing 12 (or anything outside 0–11)
+ * throws here instead of quietly rolling into the next year.
+ *
+ * Exported so `monthIndex` is a checked contract rather than a comment.
+ */
+export function assertMonthIndex(monthIndex: number): void {
+  if (!Number.isInteger(monthIndex) || monthIndex < 0 || monthIndex > 11) {
+    throw new RangeError(
+      `monthIndex must be a Date month index 0–11 (0 = January, 11 = December); received ${monthIndex}. For a calendar month number, pass month - 1.`,
+    );
+  }
+}
+
+/**
+ * Printable full-month attendance & salary grid for one employee (attendance
+ * only; no production earnings).
+ *
+ * @param monthIndex 0-based, as in `Date`: 0 = January, 3 = April.
+ */
 export async function getPrintableMonthlyAttendanceSheetHtml(
   employeeId: string,
   year: number,
-  month: number
+  monthIndex: number
 ): Promise<{ html: string; employeeName: string }> {
+  assertMonthIndex(monthIndex);
+  const month = monthIndex;
   const { from, to } = getMonthRange(year, month);
   const [employee, holidays, att, shifts, sundayCategories] = await Promise.all([
     getEmployee(employeeId),
@@ -395,14 +519,21 @@ export async function getPrintableMonthlyAttendanceSheetHtml(
   return { html, employeeName: name };
 }
 
-/** Build attendance-salary print HTML; loads payroll overrides fresh at print time. */
+/**
+ * Build attendance-salary print HTML; loads payroll overrides fresh at print
+ * time.
+ *
+ * @param monthIndex 0-based, as in `Date`: 0 = January, 3 = April.
+ */
 export async function getPrintableAttendanceSalaryRangeHtml(
   employeeId: string,
   year: number,
-  month: number,
+  monthIndex: number,
   fromDate: string,
   toDate: string,
 ): Promise<string> {
+  assertMonthIndex(monthIndex);
+  const month = monthIndex;
   const [employee, holidays, att, shifts, sundayCategories] = await Promise.all([
     getEmployee(employeeId),
     getHolidaysInRange(fromDate, toDate),

@@ -207,8 +207,10 @@ describe("salary sheet print", () => {
     );
     const totals = rowsOf(html).at(-1)!;
     expect(totals).toContain("salarySheetPrintTotal");
-    // `currency` rounds to whole rupees for print.
-    expect(totals).toContain("1,251");
+    // `currency` prints the stored amount exactly, paise included. It used to
+    // round 1250.50 up to "1,251" for print, so the sheet showed half a rupee
+    // more than the number it was totalling.
+    expect(totals).toContain("1,250.50");
   });
 
   it("escapes an employee named like a script tag", () => {

@@ -125,7 +125,25 @@ export function ProductionPayRecord({
                       {currency(r.advanceDeduction)}
                     </TableCell>
                     <TableCell className="text-right tabular-nums font-semibold">
-                      {currency(r.amountToPay)}
+                      {/* amountToPay is signed now: the Math.max(0, ...) floor was
+                          removed because it showed 0 here while the payslip showed
+                          the real negative. Label it so a minus reads as "owed
+                          back" rather than looking like a bug. */}
+                      <span className={r.amountToPay < 0 ? "text-destructive" : undefined}>
+                        {currency(r.amountToPay)}
+                      </span>
+                      {r.amountToPay < 0 ? (
+                        <span className="mt-0.5 block text-xs font-normal text-muted-foreground">
+                          {tr("payFixOwedNote", {
+                            amount: currency(Math.abs(r.amountToPay)),
+                          })}
+                        </span>
+                      ) : null}
+                      {r.unpricedCount > 0 ? (
+                        <span className="mt-0.5 block text-xs font-normal text-warning">
+                          {tr("payFixUnpricedNote", { count: r.unpricedCount })}
+                        </span>
+                      ) : null}
                     </TableCell>
                   </TableRow>
                 ))}
@@ -216,7 +234,10 @@ export function ProductionPayRecord({
                             {number(item.totalQuantity)}
                           </TableCell>
                           <TableCell className="text-right tabular-nums text-muted-foreground">
-                            {currency(item.rate)}
+                            {/* An unpriced line has rate null, and currency(null)
+                                renders "₹ 0" — the silent zero this whole change
+                                removed everywhere else. Say it instead. */}
+                            {item.unpriced ? tr("payFixNotPriced") : currency(item.rate)}
                           </TableCell>
                           <TableCell className="text-right tabular-nums">
                             {currency(item.amount)}

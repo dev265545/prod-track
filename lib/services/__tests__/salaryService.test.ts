@@ -21,6 +21,7 @@ const { adapter } = await vi.hoisted(async () => {
 vi.mock("@/lib/db/adapter", () => adapter);
 
 import {
+  assertMonthIndex,
   buildPrintableAttendanceSalaryRangeHtml,
   calculateSalary,
   calculateSalaryForPeriod,
@@ -29,6 +30,7 @@ import {
   getPrintableSalaryHtml,
 } from "../salaryService";
 import { STORES } from "@/lib/db/schema";
+import { currency } from "@/lib/utils/formatter";
 
 const EMP = "emp_1";
 
@@ -77,6 +79,7 @@ describe("calculateSalary — the money", () => {
       final: 0,
       productions: [],
       advances: [],
+      unpricedCount: 0,
     });
   });
 
@@ -96,6 +99,7 @@ describe("calculateSalary — the money", () => {
         shift: "Day",
         rate: 12.5,
         value: 100,
+        unpriced: false,
       },
     ]);
   });
@@ -135,11 +139,11 @@ describe("calculateSalary — the money", () => {
     expect(result.productions).toHaveLength(1);
   });
 
-  // BEHAVIOUR (salaryService.ts:135,141): a production pointing at a deleted /
-  // unknown item is silently paid at rate 0 — the row still appears on the
-  // payslip, worth nothing — and `itemName` falls back to the RAW ITEM ID,
-  // which is then printed on paper. Pinning both, not endorsing either.
-  it("pays an unknown item id at rate 0 and shows the raw id as the item name", async () => {
+  // A production pointing at a deleted / unknown item can no longer be priced:
+  // it earns nothing (as before — gross is unchanged), but it now says so
+  // (`rate: null`, `unpriced: true`, counted in `unpricedCount`) instead of
+  // reading as a decision to pay ₹0, and it never prints the raw item id.
+  it("cannot price an unknown item id, and names it without leaking the id", async () => {
     await seed(STORES.ITEMS, [seedItem("i1", "Hinge", 10)]);
     await seed(STORES.PRODUCTIONS, [
       prod("i1", "2026-04-10", 5),
@@ -151,9 +155,12 @@ describe("calculateSalary — the money", () => {
     expect(result.gross).toBe(50);
     const ghost = result.productions.find((r) => r.quantity === 100);
     expect(ghost).toBeDefined();
-    expect(ghost!.rate).toBe(0);
+    expect(ghost!.rate).toBeNull();
     expect(ghost!.value).toBe(0);
-    expect(ghost!.itemName).toBe("ghost_item_id");
+    expect(ghost!.unpriced).toBe(true);
+    expect(ghost!.itemName).toBe("Unknown item");
+    expect(ghost!.itemName).not.toContain("ghost");
+    expect(result.unpricedCount).toBe(1);
   });
 
   it("treats a quantity of 0 and a missing quantity identically — both earn nothing", async () => {
@@ -171,12 +178,12 @@ describe("calculateSalary — the money", () => {
     expect(result.productions.map((r) => r.value)).toEqual([0, 0, 70]);
   });
 
-  // BEHAVIOUR (salaryService.ts:135): `(item.rate as number) || 0` collapses an
-  // explicit rate of 0 and an UNSET rate into the same 0. Elsewhere in the app
-  // this distinction is load-bearing (`toRate` only accepts rate > 0, and
-  // `rate == null` means "not priced yet"), so a mis-typed/unpriced item pays
-  // silently as free work rather than surfacing as an error.
-  it("cannot distinguish a rate of 0 from an unset rate — both pay nothing", async () => {
+  // A rate of 0 and an unset rate are the same fact everywhere else in the app
+  // — `productionCatalog.toRate` accepts only a rate above 0, and the Items
+  // screen refuses to store 0 so that blank stays the one way to say "not
+  // priced". Both are therefore *unpriced* here: still worth nothing (the pay
+  // is unchanged), but flagged rather than silently paid as free work.
+  it("treats a rate of 0 and an unset rate alike, as unpriced rather than free", async () => {
     await seed(STORES.ITEMS, [
       seedItem("i_zero", "Zero-rated", 0),
       seedItem("i_unset", "Unpriced", null),
@@ -193,10 +200,13 @@ describe("calculateSalary — the money", () => {
     expect(result.gross).toBe(40);
     const zero = result.productions.find((r) => r.itemName === "Zero-rated")!;
     const unset = result.productions.find((r) => r.itemName === "Unpriced")!;
-    expect(zero.rate).toBe(0);
-    expect(unset.rate).toBe(0);
+    expect(zero.rate).toBeNull();
+    expect(unset.rate).toBeNull();
     expect(zero.value).toBe(0);
     expect(unset.value).toBe(0);
+    expect(zero.unpriced).toBe(true);
+    expect(unset.unpriced).toBe(true);
+    expect(result.unpricedCount).toBe(2);
     // and the priced one really did pay, so the two zeros above mean something
     expect(result.productions.find((r) => r.itemName === "Paid")!.value).toBe(40);
   });
@@ -249,10 +259,11 @@ describe("calculateSalary — the money", () => {
     expect(result.final).toBe(-150);
   });
 
-  // BEHAVIOUR (salaryService.ts:132-164): no rounding happens anywhere in
-  // `calculateSalary`. Fractional rates therefore carry raw IEEE-754 error into
-  // `gross`/`final`. Pinned exactly so a later "add rounding" change is visible.
-  it("does not round — binary floating-point error survives into gross", async () => {
+  // Money is rounded to 2dp at every point it is stored or totalled — the same
+  // `round2` the salary-sheet engine uses — so binary error never reaches a
+  // saved salary record or a printed figure, and `currency` can print the
+  // stored number exactly.
+  it("rounds to paise, so floating-point error never reaches gross", async () => {
     await seed(STORES.ITEMS, [
       seedItem("i1", "Penny", 0.1),
       seedItem("i2", "Twopence", 0.2),
@@ -264,11 +275,10 @@ describe("calculateSalary — the money", () => {
 
     const result = await calculateSalary(EMP, "2026-04-01", "2026-04-30");
 
-    expect(result.gross).not.toBe(0.3);
-    expect(result.gross).toBeCloseTo(0.3, 10);
-    expect(result.gross).toBe(0.30000000000000004);
-    // rounded to 2dp it is the money the worker expects
-    expect(Math.round(result.gross * 100) / 100).toBe(0.3);
+    expect(result.gross).toBe(0.3);
+    expect(result.final).toBe(0.3);
+    // and it prints as the same value it stores, paise and all
+    expect(currency(result.gross)).toBe("₹0.30");
   });
 
   it("includes productions exactly on fromDate and exactly on toDate, excludes just outside", async () => {
@@ -437,10 +447,11 @@ describe("getPrintableSalaryHtml", () => {
     expectNoGarbage(night.html);
   });
 
-  // BEHAVIOUR (salaryService.ts:199): the printed net floors at 0, while
-  // `calculateSalary().final` (line 161) does not. A worker who over-drew shows
-  // -150 on screen and ₹0 on paper.
-  it("floors the printed net at zero even though the computed final is negative", async () => {
+  // The printed net no longer floors at 0: it shows the same signed number
+  // `calculateSalary().final` reports, plus a line in plain language saying
+  // the advance overran the earnings and how much is still owed. Screen and
+  // paper now say the same thing about the same worker.
+  it("prints a negative net as owed money instead of flooring it to zero", async () => {
     await seed(STORES.ADVANCE_DEDUCTIONS, [
       {
         id: "d1",
@@ -458,7 +469,32 @@ describe("getPrintableSalaryHtml", () => {
     );
 
     expect(salary.gross).toBe(150);
-    expect(html).toContain("Net: ₹0");
+    // 150 earned, 9,999 cut: the shortfall is stated, not swallowed.
+    expect(html).toContain("Net: -₹9,849");
+    expect(html).toContain("Advances exceed earnings");
+    expect(html).toContain("by ₹9,849");
+    expect(html).toContain("this amount is still owed");
+    expectNoGarbage(html);
+  });
+
+  // Work missing from the gross must be visible on the paper, the same rule
+  // the Sunday caps and the day-pay cap already follow.
+  it("says on the payslip that an unpriced row is not in the gross", async () => {
+    await seed(STORES.ITEMS, [seedItem("i_unset", "Unpriced", null)]);
+    await seed(STORES.PRODUCTIONS, [prod("i_unset", "2026-04-12", 25)]);
+
+    const { html, salary } = await getPrintableSalaryHtml(
+      EMP,
+      "2026-04-01",
+      "2026-04-30",
+    );
+
+    expect(salary.unpricedCount).toBe(1);
+    expect(html).toContain("1 row is not included above");
+    expect(html).toContain("could not be priced");
+    // the row itself is still on the sheet, quantity and all
+    expect(html).toContain("Not priced");
+    expect(html).toContain("Unpriced");
     expectNoGarbage(html);
   });
 
@@ -538,6 +574,35 @@ describe("getPrintableMonthlyAttendanceSheetHtml", () => {
     expect(html).not.toContain("no_such_employee");
     expectChrome109SafeCss(html);
     expectNoGarbage(html);
+  });
+});
+
+describe("assertMonthIndex", () => {
+  // The print helpers take a 0-based month. A caller who passes 4 meaning
+  // April still gets May — nothing can catch that — but a caller who passes a
+  // 1-based month number now fails loudly at the boundary instead of printing
+  // the wrong sheet, and the parameter is named `monthIndex` at every level.
+  it("accepts 0–11 and rejects anything else", () => {
+    expect(() => assertMonthIndex(0)).not.toThrow();
+    expect(() => assertMonthIndex(11)).not.toThrow();
+    expect(() => assertMonthIndex(12)).toThrow(RangeError);
+    expect(() => assertMonthIndex(-1)).toThrow(/0–11/);
+    expect(() => assertMonthIndex(3.5)).toThrow(RangeError);
+  });
+
+  it("guards the printable month sheet", async () => {
+    await expect(
+      getPrintableMonthlyAttendanceSheetHtml(EMP, 2026, 12),
+    ).rejects.toThrow(RangeError);
+    await expect(
+      getPrintableAttendanceSalaryRangeHtml(
+        EMP,
+        2026,
+        12,
+        "2026-04-01",
+        "2026-04-15",
+      ),
+    ).rejects.toThrow(RangeError);
   });
 });
 

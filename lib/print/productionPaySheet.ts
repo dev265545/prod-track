@@ -108,8 +108,10 @@ function buildMadeTable(sheet: ProductionPaySheet, tr: Translate): string {
                 td(number(item.dayQuantity), true) +
                 td(number(item.nightQuantity), true) +
                 td(number(item.totalQuantity), true) +
-                td(currency(item.rate), true) +
-                td(currency(item.amount), true) +
+                // An unpriced line shows why it is worth nothing instead of
+                // printing a rate of ₹0 that looks like a decision someone made.
+                td(item.unpriced ? tr("payFixNotPriced") : currency(item.rate), true) +
+                td(item.unpriced ? "—" : currency(item.amount), true) +
                 `</tr>`,
             )
             .join(""),
@@ -118,9 +120,19 @@ function buildMadeTable(sheet: ProductionPaySheet, tr: Translate): string {
 
   const body = lines || emptyRow(7, tr("prepNoWorkAtAll"));
 
+  // Work missing from the money column has to be stated on the paper itself,
+  // the same way the Sunday caps and the day-pay cap already are.
+  const unpricedNote =
+    sheet.totals.unpricedCount === 0
+      ? ""
+      : `<p class="text-sm" style="margin:-12px 0 16px;color:#b45309">${escapeHtml(
+          tr("payFixUnpricedNote", { count: sheet.totals.unpricedCount }),
+        )}</p>`;
+
   return (
     heading(tr("prepMadeHeading")) +
-    `<table class="table w-full mb-6"><thead>${head}</thead><tbody>${body}</tbody></table>`
+    `<table class="table w-full mb-6"><thead>${head}</thead><tbody>${body}</tbody></table>` +
+    unpricedNote
   );
 }
 
