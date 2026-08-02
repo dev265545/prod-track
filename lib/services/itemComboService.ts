@@ -1,4 +1,6 @@
 import { getAll, get, put, remove, STORES } from "@/lib/db/adapter";
+import { AUDIT_ACTIONS, diffEntity, record as auditRecord } from "./auditService";
+import { nameOnRow } from "./auditNames";
 
 export interface ItemComboComponent {
   itemId: string;
@@ -21,12 +23,17 @@ export async function getItemCombo(id: string): Promise<ItemCombo | null> {
   return get(STORE, id) as unknown as Promise<ItemCombo | null>;
 }
 
+const COMBO_AUDIT_FIELDS = ["name", "components"] as const;
+
 export async function saveItemCombo(
   combo: Record<string, unknown>
 ): Promise<ItemCombo> {
+  let before: Record<string, unknown> | null = null;
   if (!combo.id) {
     combo.id =
       "combo_" + Date.now() + "_" + Math.random().toString(36).slice(2, 9);
+  } else {
+    before = await get(STORE, combo.id as string);
   }
   const components = (combo.components as ItemComboComponent[] | undefined) ?? [];
   combo.components = components.map((c) => ({
@@ -34,11 +41,28 @@ export async function saveItemCombo(
     ratio: c.ratio || 1,
   }));
   await put(STORE, combo);
+  void auditRecord(
+    before ? AUDIT_ACTIONS.itemUpdate : AUDIT_ACTIONS.itemCreate,
+    "item_combos",
+    combo.id as string,
+    before
+      ? `Item set ${nameOnRow(combo, "with no name")} was updated`
+      : `Item set ${nameOnRow(combo, "with no name")} was created`,
+    diffEntity(before, combo, COMBO_AUDIT_FIELDS),
+  );
   return combo as unknown as ItemCombo;
 }
 
 export async function deleteItemCombo(id: string): Promise<void> {
+  const before = await get(STORE, id);
   await remove(STORE, id);
+  void auditRecord(
+    AUDIT_ACTIONS.itemDelete,
+    "item_combos",
+    id,
+    `Item set ${nameOnRow(before, "with no name")} was deleted`,
+    diffEntity(before, null, COMBO_AUDIT_FIELDS),
+  );
 }
 
 function unitsPossible(

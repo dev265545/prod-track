@@ -91,6 +91,31 @@ vi.mock("./employeeService", () => ({
 
 vi.mock("./attendanceService", () => ({
   getAttendanceInRange: mockGetAttendanceInRange,
+  // The single-row path reads one employee's attendance through the
+  // employee_date index instead of the whole period — same stubbed rows,
+  // narrowed by the real index key matching.
+  getAttendanceByEmployeeInRange: async (
+    employeeId: string,
+    fromDate: string,
+    toDate: string,
+  ) => {
+    const keyPath = getIndexKeyPath(STORES.ATTENDANCE, "employee_date")!;
+    const rows = (await mockGetAttendanceInRange(
+      fromDate,
+      toDate,
+    )) as Record<string, unknown>[];
+    return sortByIndexOrder(
+      rows.filter((row) =>
+        matchesIndexRange(
+          row,
+          keyPath,
+          [employeeId, fromDate],
+          [employeeId, toDate],
+        ),
+      ),
+      keyPath,
+    );
+  },
 }));
 
 vi.mock("./factoryHolidayService", () => ({

@@ -35,6 +35,10 @@ import { getItems } from "@/lib/services/itemService";
 import { getPeriodForDate, getPeriodsWithData } from "@/lib/utils/date";
 import { number, dateDisplay } from "@/lib/utils/formatter";
 import { printHtml } from "@/lib/utils/print";
+import {
+  AUDIT_ACTIONS,
+  record as auditRecord,
+} from "@/lib/services/auditService";
 import { buildProductionReportHtml } from "@/lib/print/productionReport";
 import { Package, BarChart2, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
@@ -182,15 +186,25 @@ export default function ReportsPage() {
   }, [productions, items]);
 
   const handlePrint = async () => {
+    const periodLabel = `${dateDisplay(from)} – ${dateDisplay(to)}`;
     const html = buildProductionReportHtml({
       rows: cumulativeRows,
       scope: printScope,
-      periodLabel: `${dateDisplay(from)} – ${dateDisplay(to)}`,
+      periodLabel,
       tr: t,
       lang: locale === "hi" ? "hi" : "en",
     });
     try {
       await printHtml(html);
+      // Logged only once the print actually went out: an entry for a print
+      // that failed would claim paper exists that nobody ever held.
+      void auditRecord(
+        AUDIT_ACTIONS.reportPrint,
+        "productions",
+        null,
+        t("auditWireReportPrint", { period: periodLabel }),
+        { from, to, scope: printScope, itemsOnReport: cumulativeRows.length },
+      );
     } catch (error) {
       console.error("[reports] print failed", error);
       toast.error(t("plainReportsLoadFailed"));

@@ -14,6 +14,7 @@
 
 import { get, put, remove } from "@/lib/db/adapter";
 import { METADATA_STORE } from "@/lib/db/schema";
+import { AUDIT_ACTIONS, diffEntity, record as auditRecord } from "./auditService";
 
 export const APP_SETTINGS_ID = "app_settings";
 export const APP_SETTINGS_VERSION = 1;
@@ -40,6 +41,25 @@ export interface AppSettings {
    */
   defaultSundayPremiumRequiredDays: number;
   defaultSundayPremiumMultiplier: number;
+  /**
+   * Backup freshness and schedule. All of this is deliberately part of the
+   * normal settings row: it must travel in a backup like everything else, so a
+   * restored install keeps reminding the owner instead of going quiet.
+   *
+   * Empty string means "never happened" — a string rather than null so the
+   * normaliser has one shape to defend.
+   */
+  lastBackupAt: string;
+  lastBackupVerifiedAt: string;
+  /** Remind once the newest copy is older than this many days. */
+  backupReminderDays: number;
+  /** Reminder hidden until this moment (the owner pressed "later"). */
+  backupReminderSnoozedUntil: string;
+  /** Desktop build only: write a copy into `autoBackupFolder` without asking. */
+  autoBackupEnabled: boolean;
+  autoBackupFolder: string;
+  /** How many copies to keep in that folder; older ones are deleted. */
+  autoBackupKeepCount: number;
 }
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
@@ -57,6 +77,13 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   lowStockWarningsEnabled: true,
   defaultSundayPremiumRequiredDays: 26,
   defaultSundayPremiumMultiplier: 1.2,
+  lastBackupAt: "",
+  lastBackupVerifiedAt: "",
+  backupReminderDays: 7,
+  backupReminderSnoozedUntil: "",
+  autoBackupEnabled: false,
+  autoBackupFolder: "",
+  autoBackupKeepCount: 10,
 };
 
 /** A finite number in `[min, max]`, else the default. NaN never survives. */
@@ -68,6 +95,11 @@ function numberInRange(
 ): number {
   const n = Number(value);
   return Number.isFinite(n) && n >= min && n <= max ? n : fallback;
+}
+
+/** A trimmed string no longer than `max`, else the fallback. */
+function textOr(value: unknown, fallback: string, max = 200): string {
+  return typeof value === "string" ? value.slice(0, max) : fallback;
 }
 
 function boolOr(value: unknown, fallback: boolean): boolean {
@@ -124,6 +156,23 @@ export function normalizeAppSettings(raw: unknown): AppSettings {
       10,
       DEFAULT_APP_SETTINGS.defaultSundayPremiumMultiplier,
     ),
+    lastBackupAt: textOr(row.lastBackupAt, ""),
+    lastBackupVerifiedAt: textOr(row.lastBackupVerifiedAt, ""),
+    backupReminderDays: numberInRange(
+      row.backupReminderDays,
+      1,
+      365,
+      DEFAULT_APP_SETTINGS.backupReminderDays,
+    ),
+    backupReminderSnoozedUntil: textOr(row.backupReminderSnoozedUntil, ""),
+    autoBackupEnabled: boolOr(row.autoBackupEnabled, false),
+    autoBackupFolder: textOr(row.autoBackupFolder, "", 400),
+    autoBackupKeepCount: numberInRange(
+      row.autoBackupKeepCount,
+      1,
+      60,
+      DEFAULT_APP_SETTINGS.autoBackupKeepCount,
+    ),
   };
 }
 
@@ -155,21 +204,49 @@ export async function getAppSettings(): Promise<AppSettings> {
   }
 }
 
+/** Every setting a person can change. `id` and `version` stay internal. */
+const APP_SETTINGS_AUDIT_FIELDS = Object.keys(DEFAULT_APP_SETTINGS).filter(
+  (key) => key !== "id" && key !== "version",
+);
+
 export async function saveAppSettings(
   patch: Partial<AppSettings>,
 ): Promise<AppSettings> {
   const current = await getAppSettings();
   const next = mergeAppSettings(current, patch);
   await put(METADATA_STORE, next as unknown as Record<string, unknown>);
+  void auditRecord(
+    AUDIT_ACTIONS.settingsUpdate,
+    "app_settings",
+    APP_SETTINGS_ID,
+    "App settings were changed",
+    diffEntity(
+      current as unknown as Record<string, unknown>,
+      next as unknown as Record<string, unknown>,
+      APP_SETTINGS_AUDIT_FIELDS,
+    ),
+  );
   return next;
 }
 
 export async function resetAppSettings(): Promise<AppSettings> {
+  const current = await getAppSettings();
   try {
     await remove(METADATA_STORE, APP_SETTINGS_ID);
   } catch {
     /* nothing stored yet */
   }
+  void auditRecord(
+    AUDIT_ACTIONS.settingsUpdate,
+    "app_settings",
+    APP_SETTINGS_ID,
+    "App settings were put back to their starting values",
+    diffEntity(
+      current as unknown as Record<string, unknown>,
+      DEFAULT_APP_SETTINGS as unknown as Record<string, unknown>,
+      APP_SETTINGS_AUDIT_FIELDS,
+    ),
+  );
   return { ...DEFAULT_APP_SETTINGS };
 }
 

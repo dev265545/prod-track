@@ -1,10 +1,14 @@
 import { getEmployee, getEmployees } from "./employeeService";
-import { getAttendanceInRange } from "./attendanceService";
+import {
+  getAttendanceByEmployeeInRange,
+  getAttendanceInRange,
+} from "./attendanceService";
 import { getHolidaysInRange } from "./factoryHolidayService";
 import { getShifts } from "./shiftService";
 import {
   getSundayCategories,
   resolveSundayCategoryRule,
+  type SundayCategory,
 } from "./sundayCategoryService";
 import {
   getSalarySheetOverridesForMonth,
@@ -407,6 +411,224 @@ function resolveAdvanceDeductionAmount(
   return (match?.amount as number) ?? 0;
 }
 
+/** One employee's attendance for the period, keyed by date, duplicates resolved. */
+type AttendanceByDate = Map<
+  string,
+  {
+    status: string;
+    hoursWorked?: number;
+    hoursReduced?: number;
+    hoursExtra?: number;
+  }
+>;
+
+/**
+ * Everything a salary-sheet row needs that is *not* specific to one employee.
+ *
+ * It exists so the whole-sheet build and the single-employee build can run the
+ * exact same row code. They used to be two transcriptions of the same rules,
+ * which is why `getSalarySheetRowForEmployee` built the entire sheet just to
+ * pick one row out of it: that was the only way to be sure the employee page
+ * and the payroll table agreed. They now agree by construction, so one row can
+ * be built from one employee's data.
+ */
+interface SalarySheetContext {
+  year: number;
+  month: number;
+  calendarDaysInMonth: number;
+  /** Factory holidays in range — the only holidays non-Operators observe. */
+  holidayDates: string[];
+  /** Operator-only national holidays; unioned with the above for Operators. */
+  operatorHolidayDates: string[];
+  /** shiftId → hoursPerDay */
+  shiftMap: Record<string, number>;
+  sundayCategoryMap: Record<string, SundayCategory | undefined>;
+  appSettings: {
+    defaultSundayPremiumRequiredDays: number;
+    defaultSundayPremiumMultiplier: number;
+  };
+}
+
+/**
+ * Fold raw attendance rows into one entry per date.
+ *
+ * A store written before `saveAttendance` upserted can hold two rows for the
+ * same employee and date. The **last** one wins, which is exactly what
+ * `getAttendanceByEmployeeAndDate` does — see its doc comment. Both readers
+ * must agree or a corrected day would display one way and be paid another.
+ * Callers must pass rows in index order (employeeId/date then primary key),
+ * which is how both `getAttendanceInRange` and `getAttendanceByEmployeeInRange`
+ * return them.
+ */
+function foldAttendanceByDate(
+  rows: Record<string, unknown>[],
+): AttendanceByDate {
+  const byDate: AttendanceByDate = new Map();
+  rows.forEach((a) => {
+    byDate.set(a.date as string, {
+      status: a.status as string,
+      hoursWorked: a.hoursWorked as number | undefined,
+      hoursReduced: a.hoursReduced as number | undefined,
+      hoursExtra: a.hoursExtra as number | undefined,
+    });
+  });
+  return byDate;
+}
+
+function buildBaseSalarySheetRow(
+  emp: Record<string, unknown>,
+  attendanceByDate: AttendanceByDate,
+  deductions: Record<string, unknown>[],
+  ctx: SalarySheetContext,
+  rangeFrom: string,
+  rangeTo: string,
+): SalarySheetRow {
+  const {
+    year,
+    month,
+    calendarDaysInMonth,
+    holidayDates,
+    operatorHolidayDates,
+    shiftMap,
+    sundayCategoryMap,
+    appSettings,
+  } = ctx;
+  const empId = emp.id as string;
+  const monthlySalary = (emp.monthlySalary as number) ?? 0;
+  const ratePerDay = getRatePerDay(monthlySalary, calendarDaysInMonth);
+  const shiftId = emp.shiftId as string | undefined;
+  const hoursPerDay = shiftId ? (shiftMap[shiftId] ?? 8) : 8;
+  const sundayCategoryId = emp.sundayCategoryId as string | undefined;
+  const sundayCategory = sundayCategoryId
+    ? sundayCategoryMap[sundayCategoryId]
+    : undefined;
+  const sundayCategoryRule = resolveSundayCategoryRule(sundayCategory);
+  const ratePerHour = getRatePerHour(
+    monthlySalary,
+    calendarDaysInMonth,
+    hoursPerDay,
+  );
+  const attendanceForSheet: AttendanceRecord[] = Array.from(
+    attendanceByDate.entries(),
+  ).map(([date, att]) => ({
+    date,
+    status: att.status,
+    hoursWorked: att.hoursWorked,
+    hoursReduced: att.hoursReduced,
+    hoursExtra: att.hoursExtra,
+  }));
+  const attendanceForRange = attendanceForSheet.filter(
+    (a) => a.date >= rangeFrom && a.date <= rangeTo,
+  );
+  const employeeType = emp.employeeType as string | undefined;
+  const isOperator = employeeType === "operator";
+  const isProduction = employeeType === "production";
+
+  const summary: AttendanceSalarySummaryLike = isOperator
+    ? buildOperatorSummaryForRange({
+        year,
+        month,
+        rangeFrom,
+        rangeTo,
+        holidayDates: Array.from(
+          new Set([...holidayDates, ...operatorHolidayDates]),
+        ),
+        attendance: attendanceForSheet,
+        hoursPerDay,
+        ratePerDay,
+        sundayCategoryRule,
+        operatorSundayRule: resolveOperatorSundayRule(
+          emp,
+          sundayCategoryRule,
+          appSettings,
+        ),
+      })
+    : buildAttendanceSalarySummaryForRange({
+        fromDate: rangeFrom,
+        toDate: rangeTo,
+        holidayDates,
+        attendance: attendanceForRange,
+        hoursPerDay,
+        ratePerDay,
+        sundayCategoryRule,
+      });
+
+  const advanceDeduction = isProduction
+    ? 0
+    : resolveAdvanceDeductionAmount(deductions, rangeFrom, rangeTo);
+  const netCalculatedSalary = isProduction
+    ? summary.calculatedSalary
+    : round2(Math.max(0, summary.calculatedSalary - advanceDeduction));
+
+  return {
+    id: empId,
+    name: (emp.name as string) || "Unknown",
+    employeeType: employeeType ?? "salaried",
+    presentDays: summary.presentDays,
+    absentDays: summary.absentDays,
+    holidayPresentDays: summary.holidayPresentDays,
+    earnedSundayPayDays: summary.earnedSundayPayDays,
+    sundayPresentBonusDays: summary.sundayPresentBonusDays,
+    totalPaidDays: summary.totalPaidDays,
+    monthlySalary,
+    ratePerDay,
+    ratePerHour,
+    hoursExtraTotal: summary.hoursExtraTotal,
+    hoursReducedTotal: summary.hoursReducedTotal,
+    baseCalculatedSalary: summary.calculatedSalary,
+    calculatedSalary: summary.calculatedSalary,
+    advanceDeduction,
+    netCalculatedSalary,
+    hasOverrides: false,
+    overrideNotes: "",
+    overrideUpdatedAt: "",
+    overrideValues: {},
+    calculatedValues: {
+      presentDays: summary.presentDays,
+      absentDays: summary.absentDays,
+      holidayPresentDays: summary.holidayPresentDays,
+      earnedSundayPayDays: summary.earnedSundayPayDays,
+      sundayPresentBonusDays: summary.sundayPresentBonusDays,
+      totalPaidDays: summary.totalPaidDays,
+      hoursExtraTotal: summary.hoursExtraTotal,
+      hoursReducedTotal: summary.hoursReducedTotal,
+      calculatedSalary: summary.calculatedSalary,
+      advanceDeduction,
+      netCalculatedSalary,
+    },
+  };
+}
+
+/** The finished row for one employee: base row plus any payroll corrections. */
+function buildSalarySheetRowForEmployee(
+  emp: Record<string, unknown>,
+  attendanceByDate: AttendanceByDate,
+  deductions: Record<string, unknown>[],
+  employeeOverrides: SalarySheetOverrideRecord[],
+  ctx: SalarySheetContext,
+  from: string,
+  to: string,
+): SalarySheetRow {
+  const buildBaseForRange = (rangeFrom: string, rangeTo: string) =>
+    buildBaseSalarySheetRow(
+      emp,
+      attendanceByDate,
+      deductions,
+      ctx,
+      rangeFrom,
+      rangeTo,
+    );
+  return resolveEffectiveSalarySheetRow(
+    buildBaseForRange(from, to),
+    employeeOverrides,
+    ctx.year,
+    ctx.month,
+    from,
+    to,
+    buildBaseForRange,
+  );
+}
+
 export async function getSalarySheetForMonth(
   year: number,
   month: number
@@ -462,16 +684,21 @@ export async function getSalarySheetForRange(
     }),
   );
 
-  const shiftMap = Object.fromEntries(
-    shifts.map((s) => [s.id as string, (s.hoursPerDay as number) ?? 8])
-  );
-  const sundayCategoryMap = Object.fromEntries(
-    sundayCategories.map((c) => [c.id, c]),
-  );
+  const ctx: SalarySheetContext = {
+    year,
+    month,
+    calendarDaysInMonth: getCalendarDaysInMonth(year, month),
+    holidayDates: holidays.map((h) => h.date as string),
+    operatorHolidayDates: operatorHolidays.map((h) => h.date),
+    shiftMap: Object.fromEntries(
+      shifts.map((s) => [s.id as string, (s.hoursPerDay as number) ?? 8]),
+    ),
+    sundayCategoryMap: Object.fromEntries(
+      sundayCategories.map((c) => [c.id, c]),
+    ),
+    appSettings,
+  };
 
-  const holidayDates = holidays.map((h) => h.date as string);
-  const operatorHolidayDates = operatorHolidays.map((h) => h.date);
-  const calendarDaysInMonth = getCalendarDaysInMonth(year, month);
   const overridesByEmployeeId = new Map<string, SalarySheetOverrideRecord[]>();
   monthOverrides.forEach((record) => {
     const list = overridesByEmployeeId.get(record.employeeId) ?? [];
@@ -479,150 +706,25 @@ export async function getSalarySheetForRange(
     overridesByEmployeeId.set(record.employeeId, list);
   });
 
-  // Attendance by employee+date
-  const attByEmpDate = new Map<
-    string,
-    Map<string, { status: string; hoursWorked?: number; hoursReduced?: number; hoursExtra?: number }>
-  >();
+  // Attendance by employee+date, duplicates resolved last-write-wins.
+  const attByEmpDate = new Map<string, Record<string, unknown>[]>();
   attendance.forEach((a) => {
     const empId = a.employeeId as string;
-    const date = a.date as string;
-    if (!attByEmpDate.has(empId)) attByEmpDate.set(empId, new Map());
-    attByEmpDate.get(empId)!.set(date, {
-      status: a.status as string,
-      hoursWorked: a.hoursWorked as number | undefined,
-      hoursReduced: a.hoursReduced as number | undefined,
-      hoursExtra: a.hoursExtra as number | undefined,
-    });
+    const list = attByEmpDate.get(empId);
+    if (list) list.push(a);
+    else attByEmpDate.set(empId, [a]);
   });
-
-  const buildBaseRowForEmployee = (
-    emp: Record<string, unknown>,
-    rangeFrom: string,
-    rangeTo: string,
-  ): SalarySheetRow => {
-    const empId = emp.id as string;
-    const monthlySalary = (emp.monthlySalary as number) ?? 0;
-    const ratePerDay = getRatePerDay(monthlySalary, calendarDaysInMonth);
-    const shiftId = emp.shiftId as string | undefined;
-    const hoursPerDay = shiftId ? (shiftMap[shiftId] ?? 8) : 8;
-    const sundayCategoryId = emp.sundayCategoryId as string | undefined;
-    const sundayCategory = sundayCategoryId
-      ? sundayCategoryMap[sundayCategoryId]
-      : undefined;
-    const sundayCategoryRule = resolveSundayCategoryRule(sundayCategory);
-    const ratePerHour = getRatePerHour(
-      monthlySalary,
-      calendarDaysInMonth,
-      hoursPerDay,
-    );
-    const empAtt = attByEmpDate.get(empId) ?? new Map();
-    const attendanceForSheet: AttendanceRecord[] = Array.from(
-      empAtt.entries(),
-    ).map(([date, att]) => ({
-      date,
-      status: att.status,
-      hoursWorked: att.hoursWorked,
-      hoursReduced: att.hoursReduced,
-      hoursExtra: att.hoursExtra,
-    }));
-    const attendanceForRange = attendanceForSheet.filter(
-      (a) => a.date >= rangeFrom && a.date <= rangeTo,
-    );
-    const employeeType = emp.employeeType as string | undefined;
-    const isOperator = employeeType === "operator";
-    const isProduction = employeeType === "production";
-
-    const summary: AttendanceSalarySummaryLike = isOperator
-      ? buildOperatorSummaryForRange({
-          year,
-          month,
-          rangeFrom,
-          rangeTo,
-          holidayDates: Array.from(
-            new Set([...holidayDates, ...operatorHolidayDates]),
-          ),
-          attendance: attendanceForSheet,
-          hoursPerDay,
-          ratePerDay,
-          sundayCategoryRule,
-          operatorSundayRule: resolveOperatorSundayRule(
-            emp,
-            sundayCategoryRule,
-            appSettings,
-          ),
-        })
-      : buildAttendanceSalarySummaryForRange({
-          fromDate: rangeFrom,
-          toDate: rangeTo,
-          holidayDates,
-          attendance: attendanceForRange,
-          hoursPerDay,
-          ratePerDay,
-          sundayCategoryRule,
-        });
-
-    const advanceDeduction = isProduction
-      ? 0
-      : resolveAdvanceDeductionAmount(
-          deductionsByEmployeeId.get(empId) ?? [],
-          rangeFrom,
-          rangeTo,
-        );
-    const netCalculatedSalary = isProduction
-      ? summary.calculatedSalary
-      : round2(Math.max(0, summary.calculatedSalary - advanceDeduction));
-
-    return {
-      id: empId,
-      name: (emp.name as string) || "Unknown",
-      employeeType: employeeType ?? "salaried",
-      presentDays: summary.presentDays,
-      absentDays: summary.absentDays,
-      holidayPresentDays: summary.holidayPresentDays,
-      earnedSundayPayDays: summary.earnedSundayPayDays,
-      sundayPresentBonusDays: summary.sundayPresentBonusDays,
-      totalPaidDays: summary.totalPaidDays,
-      monthlySalary,
-      ratePerDay,
-      ratePerHour,
-      hoursExtraTotal: summary.hoursExtraTotal,
-      hoursReducedTotal: summary.hoursReducedTotal,
-      baseCalculatedSalary: summary.calculatedSalary,
-      calculatedSalary: summary.calculatedSalary,
-      advanceDeduction,
-      netCalculatedSalary,
-      hasOverrides: false,
-      overrideNotes: "",
-      overrideUpdatedAt: "",
-      overrideValues: {},
-      calculatedValues: {
-        presentDays: summary.presentDays,
-        absentDays: summary.absentDays,
-        holidayPresentDays: summary.holidayPresentDays,
-        earnedSundayPayDays: summary.earnedSundayPayDays,
-        sundayPresentBonusDays: summary.sundayPresentBonusDays,
-        totalPaidDays: summary.totalPaidDays,
-        hoursExtraTotal: summary.hoursExtraTotal,
-        hoursReducedTotal: summary.hoursReducedTotal,
-        calculatedSalary: summary.calculatedSalary,
-        advanceDeduction,
-        netCalculatedSalary,
-      },
-    };
-  };
 
   const rows: SalarySheetRow[] = employees.map((emp) => {
     const empId = emp.id as string;
-    const baseRow = buildBaseRowForEmployee(emp, from, to);
-    return resolveEffectiveSalarySheetRow(
-      baseRow,
+    return buildSalarySheetRowForEmployee(
+      emp,
+      foldAttendanceByDate(attByEmpDate.get(empId) ?? []),
+      deductionsByEmployeeId.get(empId) ?? [],
       overridesByEmployeeId.get(empId) ?? [],
-      year,
-      month,
+      ctx,
       from,
       to,
-      (rangeFrom, rangeTo) => buildBaseRowForEmployee(emp, rangeFrom, rangeTo),
     );
   });
 
@@ -630,12 +732,28 @@ export async function getSalarySheetForRange(
     rows,
     from,
     to,
-    holidayDates,
-    calendarDaysInMonth,
+    holidayDates: ctx.holidayDates,
+    calendarDaysInMonth: ctx.calendarDaysInMonth,
   };
 }
 
-/** Single row for one employee (same rules as the salary sheet table). */
+/**
+ * Single row for one employee — the same row `getSalarySheetForRange` would
+ * produce for them, built from that employee's data alone.
+ *
+ * This used to build the whole sheet and pick one row out of it, so opening one
+ * employee deserialised every employee's attendance for the period (~130k rows
+ * on a 60-person factory, twice per page load) and ran the payroll engine 60
+ * times to keep 1 answer. It now reads only this employee's attendance and
+ * deductions and calls `buildSalarySheetRowForEmployee`, which is the very
+ * function the sheet builds its rows with — the two cannot disagree, because
+ * there is only one of them.
+ *
+ * The roster read stays: it is one small store, and it is how an employee is
+ * found whether or not they appear on the sheet (Production workers are
+ * deliberately off the roster — see `getSalarySheetForRange` — and inactive
+ * employees are filtered out of it, yet both still have a row here).
+ */
 export async function getSalarySheetRowForEmployee(
   employeeId: string,
   year: number,
@@ -643,197 +761,55 @@ export async function getSalarySheetRowForEmployee(
   from: string,
   to: string,
 ): Promise<SalarySheetRow | null> {
-  const result = await getSalarySheetForRange(year, month, from, to);
-  const fromRoster = result.rows.find((r) => r.id === employeeId);
-  if (fromRoster) return fromRoster;
+  const [
+    employees,
+    attendance,
+    holidays,
+    operatorHolidays,
+    shifts,
+    sundayCategories,
+    monthOverrides,
+    deductions,
+    appSettings,
+  ] = await Promise.all([
+    getEmployees(false),
+    getAttendanceByEmployeeInRange(employeeId, from, to),
+    getHolidaysInRange(from, to),
+    getOperatorHolidaysInRange(from, to),
+    getShifts(),
+    getSundayCategories(),
+    getSalarySheetOverridesForMonth(year, month),
+    getDeductionsByEmployee(employeeId),
+    getAppSettings(),
+  ]);
 
-  const employee = await getEmployee(employeeId);
+  const employee =
+    employees.find((emp) => (emp.id as string) === employeeId) ??
+    (await getEmployee(employeeId));
   if (!employee) return null;
 
-  const [attendance, holidays, operatorHolidays, shifts, sundayCategories, monthOverrides, deductions, appSettings] =
-    await Promise.all([
-      getAttendanceInRange(from, to).then((rows) =>
-        rows.filter((a) => (a.employeeId as string) === employeeId),
-      ),
-      getHolidaysInRange(from, to),
-      getOperatorHolidaysInRange(from, to),
-      getShifts(),
-      getSundayCategories(),
-      getSalarySheetOverridesForMonth(year, month),
-      getDeductionsByEmployee(employeeId),
-      getAppSettings(),
-    ]);
-
-  const holidayDates = holidays.map((h) => h.date as string);
-  const operatorHolidayDates = operatorHolidays.map((h) => h.date);
-  const calendarDaysInMonth = getCalendarDaysInMonth(year, month);
-  const shiftMap = Object.fromEntries(
-    shifts.map((s) => [s.id as string, (s.hoursPerDay as number) ?? 8]),
-  );
-  const sundayCategoryMap = Object.fromEntries(
-    sundayCategories.map((c) => [c.id, c]),
-  );
-  const employeeOverrides = monthOverrides.filter(
-    (record) => record.employeeId === employeeId,
-  );
-
-  const shiftId = employee.shiftId as string | undefined;
-  const hoursPerDay = shiftId ? (shiftMap[shiftId] ?? 8) : 8;
-  const sundayCategoryId = employee.sundayCategoryId as string | undefined;
-  const sundayCategory = sundayCategoryId
-    ? sundayCategoryMap[sundayCategoryId]
-    : undefined;
-  const sundayCategoryRule = resolveSundayCategoryRule(sundayCategory);
-  const monthlySalary = (employee.monthlySalary as number) ?? 0;
-  const ratePerDay = getRatePerDay(monthlySalary, calendarDaysInMonth);
-  const ratePerHour = getRatePerHour(
-    monthlySalary,
-    calendarDaysInMonth,
-    hoursPerDay,
-  );
-  const employeeType = employee.employeeType as string | undefined;
-  const isOperator = employeeType === "operator";
-  const isProduction = employeeType === "production";
-  const operatorSundayRule = resolveOperatorSundayRule(
-    employee,
-    sundayCategoryRule,
-    appSettings,
-  );
-  const unionHolidayDates = isOperator
-    ? Array.from(new Set([...holidayDates, ...operatorHolidayDates]))
-    : holidayDates;
-
-  const attendanceRecords: AttendanceRecord[] = attendance.map((a) => ({
-    date: a.date as string,
-    status: a.status as string,
-    hoursWorked: a.hoursWorked as number | undefined,
-    hoursReduced: a.hoursReduced as number | undefined,
-    hoursExtra: a.hoursExtra as number | undefined,
-  }));
-
-  const buildSummaryForRange = (
-    rangeFrom: string,
-    rangeTo: string,
-  ): AttendanceSalarySummaryLike => {
-    const rangeAttendance = attendanceRecords.filter(
-      (a) => a.date >= rangeFrom && a.date <= rangeTo,
-    );
-    return isOperator
-      ? buildOperatorSummaryForRange({
-          year,
-          month,
-          rangeFrom,
-          rangeTo,
-          holidayDates: unionHolidayDates,
-          // Whole-month attendance on purpose — see buildOperatorSummaryForRange.
-          attendance: attendanceRecords,
-          hoursPerDay,
-          ratePerDay,
-          sundayCategoryRule,
-          operatorSundayRule,
-        })
-      : buildAttendanceSalarySummaryForRange({
-          fromDate: rangeFrom,
-          toDate: rangeTo,
-          holidayDates,
-          attendance: rangeAttendance,
-          hoursPerDay,
-          ratePerDay,
-          sundayCategoryRule,
-        });
-  };
-
-  const summary = buildSummaryForRange(from, to);
-  const advanceDeduction = isProduction
-    ? 0
-    : resolveAdvanceDeductionAmount(deductions, from, to);
-  const netCalculatedSalary = isProduction
-    ? summary.calculatedSalary
-    : round2(Math.max(0, summary.calculatedSalary - advanceDeduction));
-
-  const baseRow: SalarySheetRow = {
-    id: employeeId,
-    name: (employee.name as string) || "Unknown",
-    employeeType: employeeType ?? "salaried",
-    presentDays: summary.presentDays,
-    absentDays: summary.absentDays,
-    holidayPresentDays: summary.holidayPresentDays,
-    earnedSundayPayDays: summary.earnedSundayPayDays,
-    sundayPresentBonusDays: summary.sundayPresentBonusDays,
-    totalPaidDays: summary.totalPaidDays,
-    monthlySalary,
-    ratePerDay,
-    ratePerHour,
-    hoursExtraTotal: summary.hoursExtraTotal,
-    hoursReducedTotal: summary.hoursReducedTotal,
-    baseCalculatedSalary: summary.calculatedSalary,
-    calculatedSalary: summary.calculatedSalary,
-    advanceDeduction,
-    netCalculatedSalary,
-    hasOverrides: false,
-    overrideNotes: "",
-    overrideUpdatedAt: "",
-    overrideValues: {},
-    calculatedValues: {
-      presentDays: summary.presentDays,
-      absentDays: summary.absentDays,
-      holidayPresentDays: summary.holidayPresentDays,
-      earnedSundayPayDays: summary.earnedSundayPayDays,
-      sundayPresentBonusDays: summary.sundayPresentBonusDays,
-      totalPaidDays: summary.totalPaidDays,
-      hoursExtraTotal: summary.hoursExtraTotal,
-      hoursReducedTotal: summary.hoursReducedTotal,
-      calculatedSalary: summary.calculatedSalary,
-      advanceDeduction,
-      netCalculatedSalary,
-    },
-  };
-
-  const buildBaseForRange = (rangeFrom: string, rangeTo: string): SalarySheetRow => {
-    const rangeSummary = buildSummaryForRange(rangeFrom, rangeTo);
-    const rangeAdvanceDeduction = isProduction
-      ? 0
-      : resolveAdvanceDeductionAmount(deductions, rangeFrom, rangeTo);
-    const rangeNetCalculatedSalary = isProduction
-      ? rangeSummary.calculatedSalary
-      : round2(Math.max(0, rangeSummary.calculatedSalary - rangeAdvanceDeduction));
-    return {
-      ...baseRow,
-      presentDays: rangeSummary.presentDays,
-      absentDays: rangeSummary.absentDays,
-      holidayPresentDays: rangeSummary.holidayPresentDays,
-      earnedSundayPayDays: rangeSummary.earnedSundayPayDays,
-      sundayPresentBonusDays: rangeSummary.sundayPresentBonusDays,
-      totalPaidDays: rangeSummary.totalPaidDays,
-      hoursExtraTotal: rangeSummary.hoursExtraTotal,
-      hoursReducedTotal: rangeSummary.hoursReducedTotal,
-      baseCalculatedSalary: rangeSummary.calculatedSalary,
-      calculatedSalary: rangeSummary.calculatedSalary,
-      advanceDeduction: rangeAdvanceDeduction,
-      netCalculatedSalary: rangeNetCalculatedSalary,
-      calculatedValues: {
-        presentDays: rangeSummary.presentDays,
-        absentDays: rangeSummary.absentDays,
-        holidayPresentDays: rangeSummary.holidayPresentDays,
-        earnedSundayPayDays: rangeSummary.earnedSundayPayDays,
-        sundayPresentBonusDays: rangeSummary.sundayPresentBonusDays,
-        totalPaidDays: rangeSummary.totalPaidDays,
-        hoursExtraTotal: rangeSummary.hoursExtraTotal,
-        hoursReducedTotal: rangeSummary.hoursReducedTotal,
-        calculatedSalary: rangeSummary.calculatedSalary,
-        advanceDeduction: rangeAdvanceDeduction,
-        netCalculatedSalary: rangeNetCalculatedSalary,
-      },
-    };
-  };
-
-  return resolveEffectiveSalarySheetRow(
-    baseRow,
-    employeeOverrides,
+  const ctx: SalarySheetContext = {
     year,
     month,
+    calendarDaysInMonth: getCalendarDaysInMonth(year, month),
+    holidayDates: holidays.map((h) => h.date as string),
+    operatorHolidayDates: operatorHolidays.map((h) => h.date),
+    shiftMap: Object.fromEntries(
+      shifts.map((s) => [s.id as string, (s.hoursPerDay as number) ?? 8]),
+    ),
+    sundayCategoryMap: Object.fromEntries(
+      sundayCategories.map((c) => [c.id, c]),
+    ),
+    appSettings,
+  };
+
+  return buildSalarySheetRowForEmployee(
+    employee,
+    foldAttendanceByDate(attendance),
+    deductions,
+    monthOverrides.filter((record) => record.employeeId === employeeId),
+    ctx,
     from,
     to,
-    buildBaseForRange,
   );
 }

@@ -21,10 +21,10 @@ async function loadXlsx() {
 }
 import {
   getInventoryItems,
-  saveInventoryItem,
-  addMovement,
+  saveInventoryItemSilently,
+  addMovementSilently,
   getMovementsForItem,
-  deleteMovement,
+  deleteMovementSilently,
   type InventoryCategory,
   type InventoryItem,
   type InventoryUnit,
@@ -426,7 +426,7 @@ export async function importLegacyWorkbook(wb: XLSX.WorkBook): Promise<{
     const key = `${item.category}:${item.code.toLowerCase()}`;
     try {
       const existing = byKey.get(key);
-      const saved = await saveInventoryItem({
+      const saved = await saveInventoryItemSilently({
         id: existing?.id,
         code: item.code,
         name: item.name,
@@ -473,7 +473,7 @@ export async function importLegacyWorkbook(wb: XLSX.WorkBook): Promise<{
         (m) => m.note === LEGACY_IMPORT_NOTE
       );
       for (const m of priorLegacyMovements) {
-        await deleteMovement(m.id);
+        await deleteMovementSilently(m.id);
       }
     } catch (err) {
       skipped.push(`Reconcile movements for ${itemId} - ${String(err)}`);
@@ -482,7 +482,7 @@ export async function importLegacyWorkbook(wb: XLSX.WorkBook): Promise<{
 
     for (const mv of movements) {
       try {
-        await addMovement({
+        await addMovementSilently({
           itemId,
           date: today,
           type: mv.type,

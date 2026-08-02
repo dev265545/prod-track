@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
-  saveProduction,
+  saveProductionSilently,
   deleteProduction,
   produceFinishedGood,
   getAppSettings,
@@ -9,7 +9,12 @@ const {
 } = vi.hoisted(() => ({
   getAppSettings: vi.fn(async () => ({ productionInventoryLinkEnabled: true })),
   readLegacyItemMap: vi.fn(async (): Promise<Record<string, string>> => ({ "item-1": "inv-1" })),
-  saveProduction: vi.fn(async (record: Record<string, unknown>) => ({ id: "prod-1", ...record })),
+  // The entry service writes the row silently and logs one audit entry
+  // itself, so this is the export it calls.
+  saveProductionSilently: vi.fn(async (record: Record<string, unknown>) => ({
+    row: { id: "prod-1", ...record },
+    before: null,
+  })),
   deleteProduction: vi.fn(async () => undefined),
   produceFinishedGood: vi.fn(
     async (): Promise<import("../inventoryService").ProduceResult> => ({
@@ -21,7 +26,7 @@ const {
   ),
 }));
 
-vi.mock("../productionService", () => ({ saveProduction, deleteProduction }));
+vi.mock("../productionService", () => ({ saveProductionSilently, deleteProduction }));
 vi.mock("../inventoryService", () => ({ produceFinishedGood }));
 vi.mock("../appSettingsService", () => ({ getAppSettings }));
 vi.mock("../productionCatalog", () => ({ readLegacyItemMap }));
@@ -29,7 +34,7 @@ vi.mock("../productionCatalog", () => ({ readLegacyItemMap }));
 import { saveProductionEntry } from "../productionEntryService";
 
 beforeEach(() => {
-  saveProduction.mockClear();
+  saveProductionSilently.mockClear();
   deleteProduction.mockClear();
   produceFinishedGood.mockClear();
   getAppSettings.mockClear();
@@ -50,7 +55,7 @@ describe("saveProductionEntry", () => {
     const result = await saveProductionEntry({
       employeeId: "emp-1", itemId: "item-1", date: "2026-07-29", shift: "night", quantity: 12, note: "Line 2",
     });
-    expect(saveProduction).toHaveBeenCalledWith(expect.objectContaining({ shift: "night", note: "Line 2" }));
+    expect(saveProductionSilently).toHaveBeenCalledWith(expect.objectContaining({ shift: "night", note: "Line 2" }));
     // The stock row id from the legacy map, never the pay item id: the two
     // stores use different id spaces, so passing the pay id deducted nothing.
     expect(produceFinishedGood).toHaveBeenCalledWith("inv-1", 12, "2026-07-29", "Line 2");
@@ -111,7 +116,7 @@ describe("saveProductionEntry", () => {
     });
 
     // Pay still gets its row; that must never depend on a setting.
-    expect(saveProduction).toHaveBeenCalledTimes(1);
+    expect(saveProductionSilently).toHaveBeenCalledTimes(1);
     expect(produceFinishedGood).not.toHaveBeenCalled();
     expect(result.inventory).toBeNull();
   });

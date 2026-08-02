@@ -55,6 +55,10 @@ import {
 } from "@/lib/utils/date";
 import { printHtml } from "@/lib/utils/print";
 import {
+  AUDIT_ACTIONS,
+  record as auditRecord,
+} from "@/lib/services/auditService";
+import {
   SALARY_SHEET_COLUMNS,
   buildPrintableHtml,
 } from "@/lib/print/salarySheet";
@@ -264,6 +268,17 @@ export default function SalarySheetPage() {
     });
     console.log("[print] Got HTML, length:", html?.length ?? 0);
     await printHtml(html);
+    void auditRecord(
+      AUDIT_ACTIONS.salaryPrint,
+      "salary_records",
+      null,
+      tr("auditWireSalarySheetPrint", { period: `${titleLabel}${categoryLabel}` }),
+      {
+        from: fresh.from,
+        to: fresh.to,
+        employeesOnSheet: freshVisibleRows.length,
+      },
+    );
   };
 
   /**

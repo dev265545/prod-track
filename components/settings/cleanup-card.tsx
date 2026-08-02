@@ -25,6 +25,7 @@ import {
   deleteAdvancesBefore,
 } from "@/lib/services/advanceService";
 import { useLanguage } from "@/components/language-provider";
+import { recordPurge } from "@/lib/services/purgeAudit";
 import { cn } from "@/lib/utils";
 import { SettingsSection, ToneAlert, type ToneMessage } from "./shared";
 
@@ -128,8 +129,21 @@ export function CleanupCard() {
     if (!fresh) return;
     const removed = summary;
     try {
-      if (pickWork) await deleteProductionsBefore(fresh.date);
-      if (pickAdvances) await deleteAdvancesBefore(fresh.date);
+      // The two service calls below are deliberately unaudited: only this
+      // component knows the cutoff the owner picked, which boxes were ticked
+      // and the counts he was shown before confirming. One entry, here, with
+      // all three — rather than two entries that each know half the story.
+      const work = pickWork ? await deleteProductionsBefore(fresh.date) : 0;
+      const advances = pickAdvances
+        ? await deleteAdvancesBefore(fresh.date)
+        : 0;
+      recordPurge(t("auditWirePurge", { work, advances, date: fresh.date }), {
+        cutoff: fresh.date,
+        workEntriesRemoved: work,
+        advancesRemoved: advances,
+        workEntriesChosen: pickWork,
+        advancesChosen: pickAdvances,
+      });
       setCounts(null);
       setMessage({
         tone: "success",

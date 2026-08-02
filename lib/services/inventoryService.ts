@@ -1,6 +1,8 @@
 import { getAll, get, getByIndex, put, remove, STORES } from "@/lib/db/adapter";
 import { METADATA_STORE } from "@/lib/db/schema";
 import { stockKindFor } from "@/lib/services/inventoryStockKind";
+import { AUDIT_ACTIONS, diffEntity, record as auditRecord } from "@/lib/services/auditService";
+import { plural } from "@/lib/services/auditNames";
 
 const ITEMS_STORE = STORES.INVENTORY_ITEMS;
 const MOVEMENTS_STORE = STORES.INVENTORY_MOVEMENTS;
@@ -91,7 +93,30 @@ export async function getInventoryItem(
   return (row as unknown as InventoryItem) ?? null;
 }
 
-export async function saveInventoryItem(
+/** Stock-item fields worth putting in front of a human. */
+const INVENTORY_ITEM_AUDIT_FIELDS = [
+  "code",
+  "name",
+  "category",
+  "unit",
+  "openingStock",
+  "lowStockThreshold",
+  "weightPerUnit",
+  "boxCode",
+  "stickerCodes",
+  "polyCode",
+  "stickersPerUnit",
+  "rate",
+  "isActive",
+] as const;
+
+/**
+ * Write a stock item without auditing it.
+ *
+ * For the spreadsheet importers and the legacy migration, which touch hundreds
+ * of rows in one operator action and write a single entry with counts instead.
+ */
+export async function saveInventoryItemSilently(
   item: Partial<InventoryItem>
 ): Promise<InventoryItem> {
   const now = Date.now();
@@ -127,10 +152,48 @@ export async function saveInventoryItem(
   return record;
 }
 
+export async function saveInventoryItem(
+  item: Partial<InventoryItem>
+): Promise<InventoryItem> {
+  const before = item.id ? await getInventoryItem(item.id) : null;
+  const record = await saveInventoryItemSilently(item);
+  const label = record.name || record.code || "with no name";
+  void auditRecord(
+    before
+      ? AUDIT_ACTIONS.inventoryItemUpdate
+      : AUDIT_ACTIONS.inventoryItemCreate,
+    "inventory_items",
+    record.id,
+    before
+      ? `Stock item ${label} was updated`
+      : `Stock item ${label} was added to the stock list`,
+    diffEntity(
+      before as unknown as Record<string, unknown> | null,
+      record as unknown as Record<string, unknown>,
+      INVENTORY_ITEM_AUDIT_FIELDS,
+    ),
+  );
+  return record;
+}
+
 export async function deleteInventoryItem(id: string): Promise<void> {
+  const before = await getInventoryItem(id);
   const toDelete = await getMovementsForItem(id);
   await Promise.all(toDelete.map((m) => remove(MOVEMENTS_STORE, m.id)));
   await remove(ITEMS_STORE, id);
+  // One entry: deleting an item takes its movement history with it, and that
+  // is one decision, not one decision per movement.
+  void auditRecord(
+    AUDIT_ACTIONS.inventoryItemDelete,
+    "inventory_items",
+    id,
+    `Stock item ${before?.name || before?.code || "with no name"} was deleted, along with ${plural(toDelete.length, "stock movement", "stock movements")}`,
+    diffEntity(
+      before as unknown as Record<string, unknown> | null,
+      null,
+      INVENTORY_ITEM_AUDIT_FIELDS,
+    ),
+  );
 }
 
 /** Deletes ALL inventory items and ALL inventory movements. Used by the
@@ -142,6 +205,13 @@ export async function clearInventory(): Promise<void> {
   ]);
   await Promise.all(movements.map((m) => remove(MOVEMENTS_STORE, m.id)));
   await Promise.all(items.map((i) => remove(ITEMS_STORE, i.id)));
+  void auditRecord(
+    AUDIT_ACTIONS.dataClear,
+    "inventory_items",
+    null,
+    `The whole stock list was wiped: ${plural(items.length, "item", "items")} and ${plural(movements.length, "stock movement", "stock movements")}`,
+    { itemsRemoved: items.length, movementsRemoved: movements.length },
+  );
 }
 
 /** Stored content-hash of the last successfully imported inventory file,
@@ -176,7 +246,14 @@ export async function getMovementsForItem(
   return rows as unknown as InventoryMovement[];
 }
 
-export async function addMovement(
+/**
+ * Write a movement without auditing it.
+ *
+ * Used by `produceFinishedGood` and the importers, which describe the whole
+ * operation in one entry — auditing here as well would turn a single "made 400
+ * lids" into one entry per BOM component.
+ */
+export async function addMovementSilently(
   m: Partial<InventoryMovement>
 ): Promise<InventoryMovement> {
   const record: InventoryMovement = {
@@ -194,8 +271,59 @@ export async function addMovement(
   return record;
 }
 
-export async function deleteMovement(id: string): Promise<void> {
+const MOVEMENT_AUDIT_FIELDS = ["date", "type", "qty", "note"] as const;
+
+export async function addMovement(
+  m: Partial<InventoryMovement>
+): Promise<InventoryMovement> {
+  const record = await addMovementSilently(m);
+  const item = await getInventoryItem(record.itemId);
+  const label = item?.name || item?.code || "a stock item";
+  const direction =
+    record.type === "inward"
+      ? `${record.qty} of ${label} came in`
+      : record.type === "outward"
+        ? `${record.qty} of ${label} went out`
+        : `Stock of ${label} was adjusted by ${record.qty}`;
+  void auditRecord(
+    record.type === "outward"
+      ? AUDIT_ACTIONS.inventoryOutward
+      : AUDIT_ACTIONS.inventoryInward,
+    "inventory_movements",
+    record.id,
+    `${direction} on ${record.date}`,
+    diffEntity(
+      null,
+      record as unknown as Record<string, unknown>,
+      MOVEMENT_AUDIT_FIELDS,
+    ),
+  );
+  return record;
+}
+
+/** Delete a movement without auditing it — for the importers' reconcile step. */
+export async function deleteMovementSilently(id: string): Promise<void> {
   await remove(MOVEMENTS_STORE, id);
+}
+
+export async function deleteMovement(id: string): Promise<void> {
+  const rows = await getAll(MOVEMENTS_STORE);
+  const before = (rows as unknown as InventoryMovement[]).find(
+    (m) => m.id === id,
+  );
+  await remove(MOVEMENTS_STORE, id);
+  const item = before ? await getInventoryItem(before.itemId) : null;
+  void auditRecord(
+    AUDIT_ACTIONS.inventoryMovementDelete,
+    "inventory_movements",
+    id,
+    `A stock movement for ${item?.name || item?.code || "a stock item"} was deleted`,
+    diffEntity(
+      (before ?? null) as unknown as Record<string, unknown> | null,
+      null,
+      MOVEMENT_AUDIT_FIELDS,
+    ),
+  );
 }
 
 export function computeStock(
@@ -384,7 +512,7 @@ export async function produceFinishedGood(
 
   const written: string[] = [];
   try {
-    const inward = await addMovement({
+    const inward = await addMovementSilently({
       itemId: finishedItem.id,
       date,
       type: "inward",
@@ -394,7 +522,7 @@ export async function produceFinishedGood(
     written.push(inward.id);
 
     for (const component of resolved) {
-      const movement = await addMovement({
+      const movement = await addMovementSilently({
         itemId: component.item.id,
         date,
         type: "outward",
@@ -422,6 +550,23 @@ export async function produceFinishedGood(
     }
     throw error;
   }
+
+  // One entry for the whole production: the finished good going in and every
+  // BOM component coming out are a single act by a single person.
+  void auditRecord(
+    AUDIT_ACTIONS.inventoryInward,
+    "inventory_movements",
+    finishedItem.id,
+    `${qty} of ${finishedItem.name || finishedItem.code} was produced on ${date}, taking ${plural(deducted.length, "component", "components")} out of stock`,
+    {
+      produced: qty,
+      deducted: deducted.map((d) => ({
+        component: d.itemName,
+        qty: d.qty,
+      })),
+      notFound: missing.map((m) => m.code),
+    },
+  );
 
   return { finishedItemId: finishedItem.id, qty, deducted, missing };
 }

@@ -36,6 +36,20 @@ import {
   saveSalarySheetOverride,
 } from "./salarySheetOverrideService";
 
+/**
+ * Writes that landed in the override store.
+ *
+ * Saving an override also appends an audit entry, which is a `put` into a
+ * different store — and one that is deliberately not awaited. Filtering by
+ * store keeps these assertions about the override itself, and keeps them from
+ * depending on whether the log write happened to finish first.
+ */
+function overridePuts(): unknown[][] {
+  return mockPut.mock.calls.filter(
+    (call) => call[0] === STORES.SALARY_SHEET_OVERRIDES,
+  );
+}
+
 describe("saveSalarySheetOverride", () => {
   beforeEach(() => {
     mockPut.mockReset();
@@ -62,8 +76,8 @@ describe("saveSalarySheetOverride", () => {
       notes: "note",
       overrides: { presentDays: 20 },
     });
-    expect(mockPut).toHaveBeenCalledTimes(1);
-    const saved = mockPut.mock.calls[0][1] as {
+    expect(overridePuts()).toHaveLength(1);
+    const saved = overridePuts()[0][1] as {
       overrides: { presentDays: number };
     };
     expect(saved.overrides.presentDays).toBe(20);
@@ -80,7 +94,7 @@ describe("saveSalarySheetOverride", () => {
       notes: "note",
       overrides: { presentDays: 40 },
     });
-    const saved = mockPut.mock.calls[0][1] as {
+    const saved = overridePuts()[0][1] as {
       overrides: { presentDays: number };
     };
     expect(saved.overrides.presentDays).toBe(24);
@@ -99,7 +113,7 @@ describe("saveSalarySheetOverride", () => {
         sundayPresentBonusDays: 9,
       },
     });
-    const saved = mockPut.mock.calls[0][1] as {
+    const saved = overridePuts()[0][1] as {
       overrides: {
         earnedSundayPayDays: number;
         sundayPresentBonusDays: number;
@@ -127,7 +141,7 @@ describe("saveSalarySheetOverride", () => {
       notes: "note",
       overrides: { presentDays: 20 },
     });
-    const saved = mockPut.mock.calls[0][1] as {
+    const saved = overridePuts()[0][1] as {
       overrides: { presentDays: number };
     };
     expect(saved.overrides.presentDays).toBe(20);
@@ -146,7 +160,7 @@ describe("saveSalarySheetOverride", () => {
       notes: "note",
       overrides: { advanceDeduction: -200 },
     });
-    const saved = mockPut.mock.calls[0][1] as {
+    const saved = overridePuts()[0][1] as {
       overrides: { advanceDeduction: number };
     };
     expect(saved.overrides.advanceDeduction).toBe(0);
@@ -166,7 +180,7 @@ describe("saveSalarySheetOverride", () => {
       notes: "note",
       overrides: { advanceDeduction: 900 },
     });
-    const saved = mockPut.mock.calls[0][1] as {
+    const saved = overridePuts()[0][1] as {
       overrides: { advanceDeduction: number };
     };
     expect(saved.overrides.advanceDeduction).toBe(300);

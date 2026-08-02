@@ -10,10 +10,10 @@ async function loadXlsx() {
 import {
   getInventoryItems,
   getMovements,
-  saveInventoryItem,
-  addMovement,
+  saveInventoryItemSilently,
+  addMovementSilently,
   getMovementsForItem,
-  deleteMovement,
+  deleteMovementSilently,
   getStockLevels,
   clearInventory,
   getInventoryImportHash,
@@ -26,6 +26,8 @@ import {
 } from "./inventoryService";
 import { isLegacyWorkbook, importLegacyWorkbook } from "./legacyInventoryImport";
 import { hashArrayBuffer } from "@/lib/utils/hash";
+import { AUDIT_ACTIONS, record as auditRecord } from "./auditService";
+import { plural } from "./auditNames";
 
 /** Note stamped on every movement this importer creates, so a re-import can
  * find and remove its own prior movements before adding fresh ones — this is
@@ -154,6 +156,7 @@ export async function exportInventoryToWorkbook(): Promise<void> {
 
   const wb = await buildInventoryWorkbook(stockLevels, movements);
 
+
   const XLSX = await loadXlsx();
   const wbout = XLSX.write(wb, { bookType: "xlsx", type: "array" });
   const blob = new Blob([wbout], {
@@ -161,6 +164,13 @@ export async function exportInventoryToWorkbook(): Promise<void> {
   });
   const dateStr = new Date().toISOString().slice(0, 10);
   triggerBrowserDownload(blob, `inventory-${dateStr}.xlsx`);
+  void auditRecord(
+    AUDIT_ACTIONS.inventoryExport,
+    "inventory_items",
+    null,
+    `The stock list was downloaded as a spreadsheet (${plural(stockLevels.length, "item", "items")})`,
+    { items: stockLevels.length, movements: movements.length },
+  );
 }
 
 function findCategoryForSheet(sheetName: string): InventoryCategory | null {
@@ -239,6 +249,7 @@ export async function importInventoryFromFile(
   if (isLegacyWorkbook(wb)) {
     const result = await importLegacyWorkbook(wb);
     await setInventoryImportHash(hash);
+    logInventoryImport(file.name, mode, result);
     return { mode, unchanged: false, ...result };
   }
 
@@ -290,7 +301,7 @@ export async function importInventoryFromFile(
       const key = `${category}:${code.toLowerCase()}`;
       const existing = byKey.get(key);
 
-      const saved = await saveInventoryItem({
+      const saved = await saveInventoryItemSilently({
         id: existing?.id,
         code,
         name,
@@ -319,11 +330,11 @@ export async function importInventoryFromFile(
       // Adding to them instead is what made an owner's own export re-import to
       // double the stock: opening 40 + 60 in - 10 out came back as 140.
       for (const prior of await getMovementsForItem(saved.id)) {
-        await deleteMovement(prior.id);
+        await deleteMovementSilently(prior.id);
       }
 
       if (inward > 0) {
-        await addMovement({
+        await addMovementSilently({
           itemId: saved.id,
           date: today,
           type: "inward",
@@ -333,7 +344,7 @@ export async function importInventoryFromFile(
         movementsCreated++;
       }
       if (outward > 0) {
-        await addMovement({
+        await addMovementSilently({
           itemId: saved.id,
           date: today,
           type: "outward",
@@ -346,5 +357,44 @@ export async function importInventoryFromFile(
   }
 
   await setInventoryImportHash(hash);
-  return { mode, unchanged: false, itemsCreated, itemsUpdated, movementsCreated, skipped: [] };
+  const result = { itemsCreated, itemsUpdated, movementsCreated, skipped: [] };
+  logInventoryImport(file.name, mode, result);
+  return { mode, unchanged: false, ...result };
+}
+
+/**
+ * One entry per imported file, with counts.
+ *
+ * The item and movement writes underneath deliberately use the silent
+ * variants: a 300-row workbook is one thing the operator did, and 300 entries
+ * would make the log useless for everything else that happened that day.
+ */
+function logInventoryImport(
+  fileName: string,
+  mode: InventoryImportMode,
+  result: {
+    itemsCreated: number;
+    itemsUpdated: number;
+    movementsCreated: number;
+    skipped: string[];
+  },
+): void {
+  const how =
+    mode === "replace"
+      ? "replacing the whole stock list"
+      : "updating the stock list";
+  void auditRecord(
+    AUDIT_ACTIONS.inventoryImport,
+    "inventory_items",
+    null,
+    `A stock spreadsheet was imported, ${how}: ${result.itemsCreated} items added, ${result.itemsUpdated} updated, ${result.movementsCreated} stock movements written`,
+    {
+      fileName,
+      mode,
+      itemsCreated: result.itemsCreated,
+      itemsUpdated: result.itemsUpdated,
+      movementsCreated: result.movementsCreated,
+      rowsSkipped: result.skipped.length,
+    },
+  );
 }

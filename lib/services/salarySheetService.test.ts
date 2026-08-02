@@ -1,7 +1,14 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
+import { STORES } from "@/lib/db/schema";
+import {
+  getIndexKeyPath,
+  matchesIndexRange,
+  sortByIndexOrder,
+} from "@/lib/db/indexes";
 import {
   applySalarySheetOverrides,
   getSalarySheetForRange,
+  getSalarySheetRowForEmployee,
   salarySheetRowHasAdjustment,
   type SalarySheetRow,
 } from "./salarySheetService";
@@ -37,6 +44,32 @@ vi.mock("./employeeService", () => ({
 }));
 vi.mock("./attendanceService", () => ({
   getAttendanceInRange: mockGetAttendanceInRange,
+  // The per-employee read the single-row path uses. Derived from the same
+  // stubbed rows as the whole-sheet read, through the real index key matching
+  // and ordering, so the two paths can never be fed different data — that is
+  // the whole point of the identity tests below.
+  getAttendanceByEmployeeInRange: async (
+    employeeId: string,
+    fromDate: string,
+    toDate: string,
+  ) => {
+    const keyPath = getIndexKeyPath(STORES.ATTENDANCE, "employee_date")!;
+    const rows = (await mockGetAttendanceInRange(
+      fromDate,
+      toDate,
+    )) as Record<string, unknown>[];
+    return sortByIndexOrder(
+      rows.filter((row) =>
+        matchesIndexRange(
+          row,
+          keyPath,
+          [employeeId, fromDate],
+          [employeeId, toDate],
+        ),
+      ),
+      keyPath,
+    );
+  },
 }));
 vi.mock("./factoryHolidayService", () => ({
   getHolidaysInRange: mockGetHolidaysInRange,
@@ -571,5 +604,272 @@ describe("applySalarySheetOverrides — honest override semantics", () => {
     // One extra ordinary day on top of the operator's own pay — the 150 Sunday
     // premium survives instead of being flattened to 13 * 300 = 3900.
     expect(row.calculatedSalary).toBe(4050);
+  });
+});
+
+/**
+ * `getSalarySheetRowForEmployee` used to build the whole sheet and pick one row
+ * out of it. It now builds that one row from that one employee's data, which is
+ * only safe if the two can never disagree — so every case below asserts the
+ * WHOLE row, field for field, against the row the sheet produces.
+ *
+ * (Production employees are deliberately off the sheet roster — they are paid
+ * on their own production record — so their case asserts that invariant plus
+ * the row the single-employee path must still return for the employee page.)
+ */
+describe("getSalarySheetRowForEmployee — identical to the whole-sheet row", () => {
+  const YEAR = 2026;
+  const MONTH = 3; // April 2026
+  const FULL_MONTH: [string, string] = ["2026-04-01", "2026-04-30"];
+  const FIRST_HALF: [string, string] = ["2026-04-01", "2026-04-15"];
+  const SECOND_HALF: [string, string] = ["2026-04-16", "2026-04-30"];
+
+  const salaried = {
+    id: "e1",
+    name: "Asha",
+    monthlySalary: 30000,
+    employeeType: "salaried",
+    shiftId: "s1",
+  };
+  const operator = {
+    id: "e3",
+    name: "Om",
+    monthlySalary: 30000,
+    employeeType: "operator",
+    requiredPresentDays: 5,
+    sundayMultiplier: 1.5,
+    shiftId: "s1",
+  };
+  const production = {
+    id: "e2",
+    name: "Ravi",
+    monthlySalary: 24000,
+    employeeType: "production",
+    shiftId: "s1",
+  };
+  /** A second employee whose data must not leak into anyone else's row. */
+  const bystander = {
+    id: "e9",
+    name: "Meera",
+    monthlySalary: 60000,
+    employeeType: "salaried",
+    shiftId: "s1",
+  };
+
+  const workedDates = [
+    "2026-04-01", "2026-04-02", "2026-04-03", "2026-04-04",
+    "2026-04-06", "2026-04-07", "2026-04-08", "2026-04-09",
+    "2026-04-10", "2026-04-11",
+    "2026-04-12", // Sunday, present
+    "2026-04-16", "2026-04-17", "2026-04-18",
+    "2026-04-20", "2026-04-21", "2026-04-22", "2026-04-23",
+    "2026-04-24", "2026-04-25",
+    "2026-04-26", // Sunday, present
+  ];
+
+  function attendanceFor(employeeIds: string[]): Record<string, unknown>[] {
+    return employeeIds.flatMap((employeeId, empIndex) =>
+      workedDates.map((date, i) => ({
+        id: `att_${empIndex}_${String(i).padStart(3, "0")}`,
+        ...attRow(employeeId, date, { hoursWorked: 8 }),
+        hoursExtra: i % 5 === 0 ? 2 : undefined,
+        hoursReduced: i % 7 === 0 ? 1 : undefined,
+      })),
+    );
+  }
+
+  const roster = [salaried, operator, production, bystander];
+
+  beforeEach(() => {
+    mockGetEmployees.mockReset().mockImplementation(async (activeOnly = false) =>
+      activeOnly ? roster.filter((e) => (e as { isActive?: boolean }).isActive !== false) : roster,
+    );
+    mockGetEmployee
+      .mockReset()
+      .mockImplementation(async (id: string) => roster.find((e) => e.id === id) ?? null);
+    mockGetAttendanceInRange
+      .mockReset()
+      .mockResolvedValue(attendanceFor(roster.map((e) => e.id)));
+    mockGetHolidaysInRange
+      .mockReset()
+      .mockResolvedValue([{ id: "h1", date: "2026-04-03" }]);
+    mockGetOperatorHolidaysInRange
+      .mockReset()
+      .mockResolvedValue([{ id: "oh1", date: "2026-04-21" }]);
+    mockGetShifts
+      .mockReset()
+      .mockResolvedValue([{ id: "s1", hoursPerDay: 8, name: "Day" }]);
+    mockGetSundayCategories.mockReset().mockResolvedValue([]);
+    mockGetSalarySheetOverridesForMonth.mockReset().mockResolvedValue([]);
+    mockGetDeductionsByEmployee.mockReset().mockResolvedValue([]);
+  });
+
+  const override = (
+    employeeId: string,
+    fromDate: string,
+    toDate: string,
+  ): SalarySheetOverrideRecord => ({
+    id: `ov_${employeeId}_${fromDate}`,
+    employeeId,
+    year: YEAR,
+    month: MONTH,
+    fromDate,
+    toDate,
+    notes: "Corrected after review",
+    updatedAt: "2026-05-01T00:00:00.000Z",
+    overrides: { presentDays: 9, hoursExtraTotal: 4 },
+  });
+
+  const ranges: [string, [string, string]][] = [
+    ["full month", FULL_MONTH],
+    ["first half", FIRST_HALF],
+    ["second half", SECOND_HALF],
+  ];
+
+  for (const employee of [salaried, operator]) {
+    for (const [rangeLabel, [from, to]] of ranges) {
+      for (const withOverrides of [false, true]) {
+        const label =
+          `${employee.employeeType}, ${rangeLabel}, ` +
+          `${withOverrides ? "with" : "without"} overrides`;
+
+        it(`${label} — single-employee row equals the sheet row`, async () => {
+          if (withOverrides) {
+            // A correction on the first half, so both the exact-match path and
+            // the half-month composition path get exercised across the ranges.
+            mockGetSalarySheetOverridesForMonth.mockResolvedValue([
+              override(employee.id, FIRST_HALF[0], FIRST_HALF[1]),
+              override(bystander.id, FIRST_HALF[0], FIRST_HALF[1]),
+            ]);
+          }
+          mockGetDeductionsByEmployee.mockImplementation(async (id: string) => [
+            { employeeId: id, periodFrom: from, periodTo: to, amount: 400 },
+            {
+              employeeId: id,
+              periodFrom: FIRST_HALF[0],
+              periodTo: FIRST_HALF[1],
+              amount: 150,
+            },
+          ]);
+
+          const sheetRow = (
+            await getSalarySheetForRange(YEAR, MONTH, from, to)
+          ).rows.find((r) => r.id === employee.id);
+          const singleRow = await getSalarySheetRowForEmployee(
+            employee.id,
+            YEAR,
+            MONTH,
+            from,
+            to,
+          );
+
+          expect(sheetRow).toBeDefined();
+          expect(singleRow).toEqual(sheetRow);
+          // Guard against a vacuous pass: the rows compared must be real pay.
+          expect(sheetRow!.calculatedSalary).toBeGreaterThan(0);
+          // The correction sits on the first half, so it shows up on the
+          // ranges that contain it and — correctly — not on the second half.
+          expect(salarySheetRowHasAdjustment(singleRow)).toBe(
+            withOverrides && from === FIRST_HALF[0],
+          );
+        });
+      }
+    }
+  }
+
+  it("keeps Production employees off the sheet but still answers for them", async () => {
+    const from = FULL_MONTH[0];
+    const to = FULL_MONTH[1];
+    mockGetDeductionsByEmployee.mockResolvedValue([
+      { employeeId: production.id, periodFrom: from, periodTo: to, amount: 500 },
+    ]);
+
+    const { rows } = await getSalarySheetForRange(YEAR, MONTH, from, to);
+    expect(rows.find((r) => r.id === production.id)).toBeUndefined();
+
+    const row = await getSalarySheetRowForEmployee(
+      production.id,
+      YEAR,
+      MONTH,
+      from,
+      to,
+    );
+    expect(row).not.toBeNull();
+    expect(row!.employeeType).toBe("production");
+    // Production pay is not attendance pay: no advance is netted off here.
+    expect(row!.advanceDeduction).toBe(0);
+    expect(row!.netCalculatedSalary).toBe(row!.calculatedSalary);
+  });
+
+  it("returns null for an unknown employee", async () => {
+    mockGetEmployee.mockResolvedValue(null);
+    const row = await getSalarySheetRowForEmployee(
+      "nobody",
+      YEAR,
+      MONTH,
+      ...FULL_MONTH,
+    );
+    expect(row).toBeNull();
+  });
+
+  it("still answers for an inactive employee, who is off the active roster", async () => {
+    const inactive = { ...salaried, id: "e_off", isActive: false };
+    mockGetEmployees.mockImplementation(async (activeOnly = false) =>
+      activeOnly ? roster : [...roster, inactive],
+    );
+    mockGetEmployee.mockResolvedValue(inactive);
+    mockGetAttendanceInRange.mockResolvedValue(attendanceFor([inactive.id]));
+
+    const row = await getSalarySheetRowForEmployee(
+      inactive.id,
+      YEAR,
+      MONTH,
+      ...FULL_MONTH,
+    );
+    expect(row).not.toBeNull();
+    expect(row!.id).toBe(inactive.id);
+    expect(row!.presentDays).toBeGreaterThan(0);
+  });
+
+  // Duplicate rows predate saveAttendance's upsert. Last write wins, in both
+  // readers — see foldAttendanceByDate and getAttendanceByEmployeeAndDate.
+  it("resolves duplicate attendance rows last-write-wins, identically in both paths", async () => {
+    const [from, to] = FULL_MONTH;
+    mockGetAttendanceInRange.mockResolvedValue([
+      ...attendanceFor([salaried.id]),
+      // Same employee+date as att_0_000 (2026-04-01), written later.
+      {
+        id: "att_0_999",
+        ...attRow(salaried.id, "2026-04-01", { status: "absent" }),
+      },
+    ]);
+    mockGetEmployees.mockResolvedValue([salaried]);
+
+    const sheetRow = (
+      await getSalarySheetForRange(YEAR, MONTH, from, to)
+    ).rows.find((r) => r.id === salaried.id)!;
+    const singleRow = await getSalarySheetRowForEmployee(
+      salaried.id,
+      YEAR,
+      MONTH,
+      from,
+      to,
+    );
+
+    expect(singleRow).toEqual(sheetRow);
+    // The later "absent" row is the one that counts.
+    expect(sheetRow.absentDays).toBeGreaterThan(0);
+  });
+
+  it("reads one employee's attendance and one employee's deductions, not everyone's", async () => {
+    mockGetDeductionsByEmployee.mockClear();
+    await getSalarySheetRowForEmployee(salaried.id, YEAR, MONTH, ...FULL_MONTH);
+
+    // One deduction read total — not one per employee on the roster.
+    expect(mockGetDeductionsByEmployee).toHaveBeenCalledTimes(1);
+    expect(mockGetDeductionsByEmployee).toHaveBeenCalledWith(salaried.id);
+    // And the whole-store attendance read is only reached via the per-employee
+    // index range, never as an unfiltered sheet-wide scan.
+    expect(mockGetAttendanceInRange).toHaveBeenCalledTimes(1);
   });
 });
