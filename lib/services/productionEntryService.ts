@@ -128,8 +128,27 @@ export async function saveProductionEntry(
     }
     // Anything else means the deduction genuinely went wrong, so the pay row
     // must not survive on its own.
-    const { deleteProduction } = await import("./productionService");
-    if (production.id) await deleteProduction(String(production.id));
+    //
+    // The rollback gets its own catch. Letting it throw replaced the deduction
+    // error with a delete error, so the one fact worth knowing — WHY the stock
+    // write failed — never reached the console, and the caller's "nothing was
+    // saved" message was reported against the wrong cause. The original error
+    // is always what propagates; a failed rollback is additional news, not a
+    // replacement for it.
+    try {
+      const { deleteProduction } = await import("./productionService");
+      if (production.id) await deleteProduction(String(production.id));
+    } catch (rollbackError) {
+      // The pay row survives and stock was not drawn down. The caller is about
+      // to say nothing was saved, which is now untrue, so say so loudly here:
+      // this is the one state the two stores can disagree in.
+      console.error(
+        "[production] stock deduction failed AND the pay row could not be " +
+          `rolled back; production row ${String(production.id)} is still ` +
+          "written down with no stock taken out",
+        { cause: error, rollbackError },
+      );
+    }
     throw error;
   }
 }

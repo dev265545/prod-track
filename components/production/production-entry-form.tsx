@@ -96,6 +96,19 @@ export const ProductionEntryForm = React.forwardRef<
   const [savedCount, setSavedCount] = React.useState(0);
 
   const qtyRef = React.useRef<HTMLInputElement>(null);
+  /**
+   * The double-tap guard, and deliberately a ref rather than the `saving`
+   * state. Every save creates a NEW production row — there is no key to
+   * overwrite — so two submits that both get past the guard write the work down
+   * twice and pay it twice. State is only guaranteed to be visible to the *next*
+   * render's closure; a ref is written and read in the same tick, which is the
+   * gap a fast double tap (or Enter held down in the quantity box) lives in.
+   *
+   * `saving` alone already covers everything a test can reach — React flushes a
+   * discrete event before the next one — so this is belt and braces for the
+   * real browser, where a touchscreen can dispatch two clicks in one task.
+   */
+  const inFlight = React.useRef(false);
 
   React.useImperativeHandle(ref, () => ({
     focusFor(nextEmployeeId: string) {
@@ -111,7 +124,7 @@ export const ProductionEntryForm = React.forwardRef<
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (disabled || saving) return;
+    if (disabled || saving || inFlight.current) return;
     if (!employee) {
       toast.error(t("prodNeedWho"));
       return;
@@ -139,6 +152,7 @@ export const ProductionEntryForm = React.forwardRef<
       return;
     }
 
+    inFlight.current = true;
     setSaving(true);
     try {
       // A stock item picked for the first time has no row in the pay list yet;
@@ -159,9 +173,12 @@ export const ProductionEntryForm = React.forwardRef<
       setSavedCount((n) => n + 1);
       setQty("");
       toast.success(
+        // `selected`, not a second lookup: the same object that was validated
+        // and saved. A repeat `find` could come back undefined — the list is
+        // reloaded by `onSaved` — and print "12  written down for Ram".
         t("prodSavedToast", {
           qty: quantity,
-          item: items.find((i) => i.id === item)?.name ?? "",
+          item: selected.name,
           name: employees.find((e) => e.id === employee)?.name ?? "",
         }),
       );
@@ -182,6 +199,7 @@ export const ProductionEntryForm = React.forwardRef<
       console.error("[production] entry failed", { employee, item, date }, error);
       toast.error(t("prodSaveFailed"));
     } finally {
+      inFlight.current = false;
       setSaving(false);
       // Straight back to the number box, whether it worked or not.
       qtyRef.current?.focus();

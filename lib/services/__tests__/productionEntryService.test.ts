@@ -108,6 +108,27 @@ describe("saveProductionEntry", () => {
     expect(deleteProduction).toHaveBeenCalledWith("prod-1");
   });
 
+  it("reports the deduction failure, not the rollback failure, when both go wrong", async () => {
+    // Both stores refusing at once is the one state where the two can end up
+    // disagreeing. Throwing the rollback's error instead of the original hid
+    // WHY stock could not be written, which is the only useful fact here.
+    produceFinishedGood.mockRejectedValueOnce(new Error("disk full"));
+    deleteProduction.mockRejectedValueOnce(new Error("delete refused"));
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(saveProductionEntry({
+      employeeId: "emp-1", itemId: "item-1", date: "2026-07-29", shift: "day", quantity: 12,
+    })).rejects.toThrow("disk full");
+
+    // And the surviving pay row is named, because the caller is about to tell
+    // the operator nothing was saved and that is no longer true.
+    expect(logged).toHaveBeenCalledWith(
+      expect.stringContaining("prod-1"),
+      expect.objectContaining({ rollbackError: expect.any(Error) }),
+    );
+    logged.mockRestore();
+  });
+
   it("records the work but touches no stock when the link is switched off", async () => {
     getAppSettings.mockResolvedValueOnce({ productionInventoryLinkEnabled: false });
 
