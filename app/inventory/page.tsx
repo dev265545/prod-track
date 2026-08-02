@@ -73,6 +73,7 @@ import { ItemFormDialog } from "@/components/inventory/item-form-dialog";
 import { MovementDialog } from "@/components/inventory/movement-dialog";
 import { ItemPickerDialog } from "@/components/inventory/hub/item-picker-dialog";
 import { GlobalSearchDialog } from "@/components/inventory/global-search-dialog";
+import { PageHeader } from "@/components/page-header";
 import {
   NeedsStockTable,
   type NeedsStockRow,
@@ -341,7 +342,7 @@ export default function InventoryPage() {
    * behind the Data menu.
    */
   const toolbar = (
-    <div className="flex min-w-0 flex-wrap items-start gap-x-3 gap-y-3">
+    <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-start">
       <div className="flex min-w-0 flex-col gap-1">
         <Button
           className="min-h-[56px] w-full min-w-0 px-6 text-base font-semibold sm:w-auto"
@@ -382,17 +383,11 @@ export default function InventoryPage() {
   );
 
   const header = (
-    <header className="flex min-w-0 flex-col gap-4">
-      <div className="flex min-w-0 flex-col gap-1">
-        <h1 className="font-heading text-3xl font-bold tracking-tight text-foreground md:text-4xl">
-          {t("inventoryPageTitle")}
-        </h1>
-        <p className="text-base text-muted-foreground">
-          {t("inventoryPageDescription")}
-        </p>
-      </div>
-      {toolbar}
-    </header>
+    <PageHeader
+      title={t("inventoryPageTitle")}
+      intro={t("inventoryPageDescription")}
+      action={toolbar}
+    />
   );
 
   if (loadFailed) {

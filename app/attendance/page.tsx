@@ -7,6 +7,7 @@ import { CalendarDays, CheckCheck, Info, UsersRound } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import { LoadError } from "@/components/load-error";
 import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { DatePicker } from "@/components/ui/date-picker";
 import {
@@ -56,11 +57,6 @@ import { formatDisplayDate, today, yesterday } from "@/lib/utils/date";
  * it was and an error names the person, so what is on screen is never something
  * the database disagrees with.
  */
-
-// The one page-title scale. Every screen's <h1> uses it; three different
-// sizes across the app was the drift this replaces.
-const HEADING_CLASS =
-  "font-heading text-3xl font-bold tracking-tight text-foreground md:text-4xl";
 
 export default function AttendancePage() {
   const { t, locale } = useLanguage();
@@ -286,12 +282,14 @@ export default function AttendancePage() {
   return (
     <AppShell>
       <main id="main" className="flex min-w-0 flex-col gap-6 animate-fade-in">
-        <header className="flex min-w-0 flex-col gap-2">
-          <h1 className={HEADING_CLASS}>{t("rostPageTitle")}</h1>
-          <p className="max-w-prose text-sm text-muted-foreground">
-            {t("rostPageIntro")}
-          </p>
-        </header>
+        {/* No `action`: the two buttons this screen could promote are both
+            scoped to something below them. "Mark everyone here" is a bulk
+            write over the rows for the chosen date, and the date is picked in
+            the card directly under this header — hoisting the button would
+            put the write ahead of the control that scopes it in reading order
+            and in tab order both. The holiday unlock is a gate on the notice
+            that explains it, and only exists on holidays. */}
+        <PageHeader title={t("rostPageTitle")} intro={t("rostPageIntro")} />
 
         {/* Date first: this is the one thing chosen per session. */}
         <Card className="border-border">

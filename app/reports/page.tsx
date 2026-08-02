@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/app-shell";
+import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -40,7 +41,7 @@ import {
   record as auditRecord,
 } from "@/lib/services/auditService";
 import { buildProductionReportHtml } from "@/lib/print/productionReport";
-import { Package, BarChart2, AlertTriangle } from "lucide-react";
+import { Package, BarChart2, AlertTriangle, Printer } from "lucide-react";
 import { toast } from "sonner";
 import { useLanguage } from "@/components/language-provider";
 
@@ -265,16 +266,11 @@ export default function ReportsPage() {
   return (
     <AppShell>
       <main className="flex flex-col gap-8 animate-fade-in">
-        <div className="flex flex-wrap items-end justify-between gap-4">
-          <div className="flex min-w-0 flex-col gap-2">
-            <h1 className="min-w-0 font-heading text-3xl font-bold tracking-tight text-foreground md:text-4xl">
-              {t("reportsPageTitle")}
-            </h1>
-            <p className="max-w-prose text-sm text-muted-foreground">
-              {t("ux3ReportsIntro")}
-            </p>
-          </div>
-          <div className="flex min-w-0 flex-wrap items-end gap-4">
+        <PageHeader
+          title={t("reportsPageTitle")}
+          intro={t("ux3ReportsIntro")}
+          action={
+            <>
             <div className="flex min-w-0 flex-col gap-2">
               <Label>{t("reportsPeriod")}</Label>
               <Select
@@ -324,12 +320,14 @@ export default function ReportsPage() {
             <Button
               type="button"
               onClick={handlePrint}
-              className="h-12 shrink-0 px-6"
+              className="min-h-12 px-6"
             >
+              <Printer data-icon="inline-start" className="size-4" aria-hidden />
               {t("reportsPrintButton")}
             </Button>
-          </div>
-        </div>
+            </>
+          }
+        />
 
         {hasNoData && (
           <p className="py-4 text-base text-muted-foreground">

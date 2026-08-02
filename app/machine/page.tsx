@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/app-shell";
+import { PageHeader } from "@/components/page-header";
 import { LoadError } from "@/components/load-error";
 import { AppLoadingScreen } from "@/components/app-loading-screen";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -99,14 +100,14 @@ export default function MachinePage() {
   return (
     <AppShell>
       <main className="animate-fade-in flex w-full min-w-0 flex-col gap-8">
-        <header className="flex flex-col gap-2">
-          <h1 className="font-heading text-3xl font-bold tracking-tight text-foreground md:text-4xl">
-            {t("machinePageTitle")}
-          </h1>
-          <p className="max-w-2xl text-base leading-relaxed text-muted-foreground">
-            {t("machinePageIntro")}
-          </p>
-        </header>
+        {/* No `action`: three tabs, three unrelated jobs. The add forms live
+            in the machines and item-sets cards and each card header links to
+            its own form — a page-level button could only ever point at one of
+            the three, and at whichever tab happens to be open. */}
+        <PageHeader
+          title={t("machinePageTitle")}
+          intro={t("machinePageIntro")}
+        />
 
         <Tabs defaultValue="machines" className="w-full min-w-0 gap-8">
           <div className="-mx-1 w-full min-w-0 overflow-x-auto px-1 pb-1">

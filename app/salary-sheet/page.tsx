@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ArrowDown, ArrowUp, FileSpreadsheet, GripVertical, Printer } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/page-header";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Card,
@@ -335,16 +336,11 @@ export default function SalarySheetPage() {
   return (
     <AppShell>
       <main className="flex flex-col gap-8 animate-fade-in">
-        <div className="flex flex-wrap items-end justify-between gap-4">
-          <div className="min-w-0 space-y-1">
-            <h1 className="font-heading text-3xl font-bold tracking-tight text-foreground md:text-4xl">
-              {tr("navSalarySheet")}
-            </h1>
-            <p className="text-sm text-muted-foreground">
-              {tr("salarySheetIntro")}
-            </p>
-          </div>
-          <div className="flex min-w-0 flex-wrap items-end gap-4">
+        <PageHeader
+          title={tr("navSalarySheet")}
+          intro={tr("salarySheetIntro")}
+          action={
+            <>
             <div className="flex min-w-0 flex-col gap-2">
               <Label htmlFor="salary-month">{tr("dashboardMonth")}</Label>
               <Select
@@ -435,8 +431,9 @@ export default function SalarySheetPage() {
               <Printer data-icon="inline-start" className="size-4" />
               {tr("salarySheetPrint")}
             </Button>
-          </div>
-        </div>
+            </>
+          }
+        />
 
         <Tabs
           value={category}

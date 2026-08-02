@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { AppShell } from "@/components/app-shell";
+import { PageHeader } from "@/components/page-header";
 import { AppLoadingScreen } from "@/components/app-loading-screen";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Boxes, CalendarOff, Database, Info, KeyRound } from "lucide-react";
@@ -47,14 +48,9 @@ export default function SettingsPage() {
   return (
     <AppShell>
       <main className="animate-fade-in flex w-full min-w-0 flex-col gap-8">
-        <header className="flex flex-col gap-2">
-          <h1 className="font-heading text-3xl font-bold tracking-tight text-foreground md:text-4xl">
-            {t("settingsPageTitle")}
-          </h1>
-          <p className="max-w-2xl text-base leading-relaxed text-muted-foreground">
-            {t("setgIntro")}
-          </p>
-        </header>
+        {/* No `action`: a tabbed screen of unrelated settings cards has no
+            single primary. */}
+        <PageHeader title={t("settingsPageTitle")} intro={t("setgIntro")} />
 
         <Tabs defaultValue="general" className="w-full min-w-0 gap-8">
           <div className="-mx-1 w-full min-w-0 overflow-x-auto px-1 pb-1">

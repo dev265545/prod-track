@@ -103,12 +103,31 @@ export function ItemSetsCard({
 
   return (
     <Card className="overflow-hidden border-border shadow-sm">
-      <CardHeader className="border-b border-border bg-surface-2 pb-6">
-        <CardTitle className="flex items-center gap-2 font-heading text-xl font-semibold">
-          <Boxes className="size-5 text-primary" aria-hidden />
-          {t("comboCardTitle")}
-        </CardTitle>
-        <p className="text-sm text-muted-foreground">{t("comboCardSubtitle")}</p>
+      <CardHeader className="flex min-w-0 flex-col gap-4 border-b border-border bg-surface-2 pb-6 sm:flex-row sm:items-end sm:justify-between">
+        <div className="flex min-w-0 flex-col gap-1.5">
+          <CardTitle className="flex min-w-0 items-center gap-2 font-heading text-xl font-semibold">
+            <Boxes className="size-5 shrink-0 text-primary" aria-hidden />
+            {t("comboCardTitle")}
+          </CardTitle>
+          <p className="min-w-0 text-sm text-muted-foreground">
+            {t("comboCardSubtitle")}
+          </p>
+        </div>
+        {/* The submit stays inside the form — it acts on the fields above
+            it, not on the page — so the header carries a link to the form
+            instead of a second button that would do the same thing from a
+            different place. The target is the first field, which browsers
+            focus as well as scroll to. */}
+        <Button
+          asChild
+          variant="outline"
+          className="min-h-[44px] w-full px-4 sm:w-auto"
+        >
+          <a href="#comboName">
+            <Plus data-icon="inline-start" className="size-4" aria-hidden />
+            {t("hdrComboAddLink")}
+          </a>
+        </Button>
       </CardHeader>
       <CardContent className="p-6 sm:p-8">
         <div className="mb-8 w-full min-w-0 overflow-x-auto">

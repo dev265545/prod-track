@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { AppShell } from "@/components/app-shell";
+import { PageHeader } from "@/components/page-header";
 import { LoadError } from "@/components/load-error";
 import { SettingsSection } from "@/components/settings/shared";
 import { Input } from "@/components/ui/input";
@@ -163,14 +164,10 @@ export default function ShiftsPage() {
   return (
     <AppShell>
       <main className="animate-fade-in flex w-full min-w-0 flex-col gap-6">
-        <header className="flex flex-col gap-2">
-          <h1 className="font-heading text-3xl font-bold tracking-tight text-foreground md:text-4xl">
-            {t("shiftsPageTitle")}
-          </h1>
-          <p className="max-w-2xl text-base leading-relaxed text-muted-foreground">
-            {t("setgShiftsIntro")}
-          </p>
-        </header>
+        {/* No `action`: this screen is three independent settings blocks,
+            each with its own save. Promoting any one of them would be
+            arbitrary. */}
+        <PageHeader title={t("shiftsPageTitle")} intro={t("setgShiftsIntro")} />
 
         {/* The three blocks below are not unrelated settings: together they
             are the whole answer to "how does a day of work turn into pay?" —

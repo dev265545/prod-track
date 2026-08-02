@@ -46,6 +46,7 @@ import { LoadError } from "@/components/load-error";
 import { useLanguage } from "@/components/language-provider";
 import { useAuthGuard } from "@/lib/hooks/useAuthGuard";
 import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -270,14 +271,20 @@ export default function ItemsPage() {
   return (
     <AppShell>
       <main className="animate-fade-in flex w-full min-w-0 flex-col gap-6">
-        <header className="flex flex-col gap-2">
-          <h1 className="font-heading text-3xl font-bold tracking-tight text-foreground md:text-4xl">
-            {t("itmTitle")}
-          </h1>
-          <p className="max-w-2xl text-base leading-relaxed text-muted-foreground">
-            {t("itmSubtitle")}
-          </p>
-        </header>
+        <PageHeader
+          title={t("itmTitle")}
+          intro={t("itmSubtitle")}
+          action={
+            <Button
+              type="button"
+              className="min-h-[44px] px-6 py-3 text-base"
+              onClick={openAdd}
+            >
+              <Plus data-icon="inline-start" aria-hidden />
+              {t("itmAdd")}
+            </Button>
+          }
+        />
 
         <div className="flex max-w-2xl flex-col gap-2 rounded-xl border border-border bg-surface-2 p-4">
           <p className="flex items-center gap-2 text-base font-semibold text-foreground">
@@ -322,8 +329,11 @@ export default function ItemsPage() {
           </div>
         ) : null}
 
-        <div className="flex w-full min-w-0 flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-          {showSearch ? (
+        {/* The add button used to live here, beside the search field. It is
+            the screen's action, not the search box's, so it moved to the page
+            header; what is left is the filter for the list below it. */}
+        {showSearch ? (
+          <div className="flex w-full min-w-0 flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div className="flex min-w-0 flex-col gap-2 sm:max-w-sm sm:flex-1">
               <Label htmlFor="itemSearch">{t("itmSearchLabel")}</Label>
               <div className="relative min-w-0">
@@ -342,18 +352,8 @@ export default function ItemsPage() {
                 />
               </div>
             </div>
-          ) : (
-            <div />
-          )}
-          <Button
-            type="button"
-            className="min-h-[44px] px-6 py-3 text-base"
-            onClick={openAdd}
-          >
-            <Plus data-icon="inline-start" aria-hidden />
-            {t("itmAdd")}
-          </Button>
-        </div>
+          </div>
+        ) : null}
 
         {items.length === 0 ? (
           <Empty className="border border-border bg-surface-1">

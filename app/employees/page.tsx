@@ -26,6 +26,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/page-header";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
@@ -172,20 +173,18 @@ export default function EmployeesPage() {
       <main id="main" className="flex flex-col gap-10 animate-fade-in">
         {/* Setup screen, not a daily one: say so, and point the daily job at
             the roster so this page stops reading as "attendance". */}
-        <div className="flex flex-col gap-3 min-w-0">
-          <h1 className="font-heading text-3xl font-bold tracking-tight text-foreground md:text-4xl">
-            {t("rostPeopleTitle")}
-          </h1>
-          <p className="max-w-prose text-sm text-muted-foreground">
-            {t("rostPeopleIntro")}
-          </p>
-          <Button asChild variant="outline" className="min-h-[44px] self-start px-4">
-            <Link href="/attendance">
-              <CalendarCheck data-icon="inline-start" aria-hidden />
-              {t("rostPeopleToRoster")}
-            </Link>
-          </Button>
-        </div>
+        <PageHeader
+          title={t("rostPeopleTitle")}
+          intro={t("rostPeopleIntro")}
+          action={
+            <Button asChild variant="outline" className="min-h-[44px] px-4">
+              <Link href="/attendance">
+                <CalendarCheck data-icon="inline-start" aria-hidden />
+                {t("rostPeopleToRoster")}
+              </Link>
+            </Button>
+          }
+        />
 
         <Card className="border-border">
           <CardHeader className="pb-4">
