@@ -20,11 +20,15 @@ import { Label } from "@/components/ui/label";
 import { NumberInput } from "@/components/ui/number-input";
 import { readNumericInput } from "@/lib/utils/numericInput";
 import {
+  countablePresentDaysInMonth,
+  cycleCollapsedToWholeMonth,
   evaluateSundayRuleForCycle,
   evaluateSundayRuleForMonth,
   getCycleBlocksForRule,
-  getSundayRuleCycleBlocks,
+  longestCountableWindowDays,
+  matchSundayRulePreset,
   normalizeSundayRule,
+  SUNDAY_RULE_PRESETS,
   LEGACY_CYCLE_DAYS,
   LEGACY_EARNED_DAY_PAY_DAYS,
   LEGACY_MAX_PER_CYCLE,
@@ -32,18 +36,21 @@ import {
   LEGACY_SUNDAY_WORKED_PAY_DAYS,
   MAX_CYCLE_DAYS,
   MAX_PAY_DAY_VALUE,
+  MAX_TYPED_CYCLE_DAYS,
   type SundayRule,
+  type SundayRulePresetId,
 } from "@/lib/utils/sundayRule";
 import { DEFAULT_APP_SETTINGS } from "@/lib/services/appSettingsService";
 import {
   AlertTriangle,
+  Check,
   Infinity as InfinityIcon,
+  Pencil,
   ListOrdered,
   Plus,
   Layers,
   Repeat,
   Ruler,
-  Scissors,
   Star,
   Sun,
   Undo2,
@@ -67,22 +74,6 @@ function num(value: number): string {
 
 const PREMIUM_DEFAULT_DAYS = DEFAULT_APP_SETTINGS.defaultSundayPremiumRequiredDays;
 const PREMIUM_DEFAULT_TIMES = DEFAULT_APP_SETTINGS.defaultSundayPremiumMultiplier;
-
-/**
- * The longest stretch this rule actually produces in the given month.
- *
- * `cycleDays` is *not* that number. The month splitter rounds, so `cycleDays:
- * 25` yields one 31-day stretch and `cycleDays: 20` yields 1–20 then 21–31.
- * Everything the editor says about "a stretch" is measured from the real
- * windows, straight out of the function the pay engine walks, so the screen and
- * the wage can never disagree.
- */
-function longestWindowDays(rule: SundayRule, year: number, monthIndex: number): number {
-  return getCycleBlocksForRule(rule, year, monthIndex).reduce(
-    (longest, block) => Math.max(longest, block.end - block.start + 1),
-    1,
-  );
-}
 
 /**
  * The preview rows: every present-day count from 0 to the longest stretch, with
@@ -111,10 +102,19 @@ export function SundayRuleEditor({
   value,
   onChange,
   t,
+  startExpanded = false,
 }: {
   value: SundayRule;
   onChange: (next: SundayRule) => void;
   t: Translate;
+  /**
+   * Skip the preset chooser and open the full editor straight away.
+   *
+   * True when the owner is editing a rule that already exists: they came to
+   * change one number, and bouncing them through a list of named starting
+   * points would ask them to re-decide something they decided months ago.
+   */
+  startExpanded?: boolean;
 }) {
   const rule = value;
   // The month on screen is the month the owner is standing in: the windows and
@@ -126,16 +126,20 @@ export function SundayRuleEditor({
     () => getCycleBlocksForRule(rule, year, monthIndex),
     [rule, year, monthIndex],
   );
-  // The leftover question only exists when the two answers differ. At the
-  // ordinary 15-day stretch they are identical for every month length, so
-  // asking would be two more buttons that change nothing.
-  const leftoverMatters = useMemo(() => {
-    const merged = getSundayRuleCycleBlocks(year, monthIndex, rule.cycleDays, "merge");
-    const split = getSundayRuleCycleBlocks(year, monthIndex, rule.cycleDays, "separate");
-    return JSON.stringify(merged) !== JSON.stringify(split);
-  }, [year, monthIndex, rule.cycleDays]);
+  // Sundays are not counted towards any of this, so the longest stretch holds
+  // fewer present days than it holds calendar days. Everything the editor
+  // measures a rule against — the preview axis, the "can never be reached"
+  // warning — is this number, the one the pay engine will actually see.
   const windowDays = useMemo(
-    () => longestWindowDays(rule, year, monthIndex),
+    () => longestCountableWindowDays(rule, year, monthIndex),
+    [rule, year, monthIndex],
+  );
+  const monthDays = useMemo(
+    () => countablePresentDaysInMonth(year, monthIndex),
+    [year, monthIndex],
+  );
+  const cycleCollapsed = useMemo(
+    () => cycleCollapsedToWholeMonth(rule, year, monthIndex),
     [rule, year, monthIndex],
   );
   const month = useMemo(
@@ -160,9 +164,26 @@ export function SundayRuleEditor({
     rule.sundayWorkedPayDays === LEGACY_SUNDAY_WORKED_PAY_DAYS &&
     rule.earnedDayPayDays === LEGACY_EARNED_DAY_PAY_DAYS;
   const [worthOpen, setWorthOpen] = useState(!worthIsDefault);
+  // Mounted fresh per category (the form passes a `key`), so this initial read
+  // is taken against the rule actually being edited. It used to survive from
+  // one category to the next, which could show this panel folded away while it
+  // asserted a worth the category on screen did not have.
+  const [full, setFull] = useState(startExpanded);
+  const preset = matchSundayRulePreset(rule);
 
   const patch = (next: Partial<SundayRule>) =>
     onChange(normalizeSundayRule({ ...rule, ...next }));
+
+  if (!full) {
+    return (
+      <SundayRulePresetChooser
+        selected={preset}
+        onPick={(next) => onChange(normalizeSundayRule(next))}
+        onCustomise={() => setFull(true)}
+        t={t}
+      />
+    );
+  }
 
   const setBracket = (index: number, field: "whenPresentDaysAtLeast" | "give", raw: string) => {
     // Kept unsorted here: re-sorting mid-keystroke would move the row the owner
@@ -388,14 +409,17 @@ export function SundayRuleEditor({
             <NumberInput
               id="ruleCycleDays"
               min={1}
-              max={MAX_CYCLE_DAYS}
+              // A stretch never crosses a month boundary — the pay engine walks
+              // one calendar month at a time — so a number past the longest
+              // month cannot mean what it says.
+              max={MAX_TYPED_CYCLE_DAYS}
               className={FIELD}
               value={String(rule.cycleDays)}
               onChange={(e) =>
                 patch({
                   cycleDays: readNumericInput(e.target.value, LEGACY_CYCLE_DAYS, {
                     min: 1,
-                    max: MAX_CYCLE_DAYS,
+                    max: MAX_TYPED_CYCLE_DAYS,
                   }),
                 })
               }
@@ -436,49 +460,23 @@ export function SundayRuleEditor({
               .join(t("ruleCycleWindowJoin")),
           })}
         </p>
-        {/* Asked only when the month really has days left over — at the
-            ordinary 15-day stretch both answers give the same windows, so the
-            question never appears and the screen stays as short as it was. */}
-        {leftoverMatters ? (
-          <div className="flex flex-col gap-2">
-            <p
-              id="ruleLeftoverLabel"
-              className="text-sm font-medium text-foreground"
-            >
-              {t("ruleLeftoverLabel")}
-            </p>
-            <div
-              role="group"
-              aria-labelledby="ruleLeftoverLabel"
-              className="flex flex-wrap gap-3"
-            >
-              <Button
-                type="button"
-                variant={rule.cycleRemainder === "merge" ? "default" : "outline"}
-                className="min-h-[44px] px-5 py-3 text-base"
-                aria-pressed={rule.cycleRemainder === "merge"}
-                onClick={() => patch({ cycleRemainder: "merge" })}
-              >
-                <Layers data-icon="inline-start" aria-hidden />
-                {t("ruleLeftoverMerge")}
-              </Button>
-              <Button
-                type="button"
-                variant={rule.cycleRemainder === "separate" ? "default" : "outline"}
-                className="min-h-[44px] px-5 py-3 text-base"
-                aria-pressed={rule.cycleRemainder === "separate"}
-                onClick={() => patch({ cycleRemainder: "separate" })}
-              >
-                <Scissors data-icon="inline-start" aria-hidden />
-                {t("ruleLeftoverSeparate")}
-              </Button>
-            </div>
-            <p className="text-base leading-relaxed text-muted-foreground">
-              {rule.cycleRemainder === "separate"
-                ? t("ruleLeftoverSeparateHint")
-                : t("ruleLeftoverMergeHint")}
-            </p>
-          </div>
+        {/* "The days left at the end of the month" used to be a question here.
+            It is a calendar artefact no owner has a policy about, and one of
+            its two answers cut a dead one-day stretch off every 31-day month —
+            which is seven months a year, on the default stretch length nobody
+            changed. The field stays on the rule at its "merge" default, so no
+            stored rule moved; only the question is gone. */}
+        {/* The splitter rounds, so past roughly two thirds of a month every
+            stretch length means the same single window. Say so, rather than let
+            the owner believe the number they typed did something. */}
+        {cycleCollapsed ? (
+          <p className="flex items-start gap-2 rounded-lg border border-warning bg-surface-4 p-3 text-base leading-relaxed text-foreground">
+            <AlertTriangle
+              className="mt-0.5 size-5 shrink-0 text-warning"
+              aria-hidden
+            />
+            <span>{t("ruleCycleCollapsed", { n: num(rule.cycleDays) })}</span>
+          </p>
         ) : null}
       </div>
 
@@ -505,6 +503,14 @@ export function SundayRuleEditor({
                 })}
               </p>
             )}
+            {/* "Off" is not the whole truth. `resolveSundayPremiumForEmployee`
+                falls through to the factory defaults for anyone paid by output,
+                so those workers get extra Sunday pay from Settings whatever this
+                rule says — and the sentence explaining that used to be rendered
+                only in the ON state, hidden in exactly the state that needs it. */}
+            <p className="text-base leading-relaxed text-muted-foreground">
+              {t("rulePremiumOffOperators")}
+            </p>
             <div>
               <Button
                 type="button"
@@ -582,6 +588,19 @@ export function SundayRuleEditor({
                 {t("rulePremiumOff")}
               </Button>
             </div>
+            {/* The counter runs over one calendar month and Sundays never add
+                to it, so anything past the month's countable days can never
+                fire. A bracket one panel away gets this warning; a premium that
+                can never pay was printed in the category list without one. */}
+            {rule.sundayPremium.requiredPresentDays > monthDays ? (
+              <p className="flex items-start gap-2 rounded-lg border border-warning bg-surface-4 p-3 text-base leading-relaxed text-foreground">
+                <AlertTriangle
+                  className="mt-0.5 size-5 shrink-0 text-warning"
+                  aria-hidden
+                />
+                <span>{t("rulePremiumUnreachable", { n: num(monthDays) })}</span>
+              </p>
+            ) : null}
             <p className="text-base leading-relaxed text-muted-foreground">
               {t("rulePremiumPrecedence")}
             </p>
@@ -690,6 +709,13 @@ export function SundayRuleEditor({
         <p className="text-base font-semibold text-foreground">
           {t("rulePreviewTitle")}
         </p>
+        {/* The counts below stop short of the stretch's calendar length because
+            the pay engine never counts a Sunday towards them. Saying so is the
+            difference between a table the owner can trust and one that pays
+            fewer days than it shows. */}
+        <p className="text-base leading-relaxed text-muted-foreground">
+          {t("rulePreviewSundaysNotCounted", { n: num(windowDays) })}
+        </p>
         <p className="text-base leading-relaxed text-foreground">
           {example && example.earned > 0
             ? t("rulePreviewSentence", {
@@ -749,7 +775,7 @@ export function SundayRuleEditor({
             <thead>
               <tr className="text-left text-muted-foreground">
                 <th scope="col" className="py-2 pr-4 font-medium">
-                  {t("rulePreviewColDays")}
+                  {t("rulePreviewColDaysCountable")}
                 </th>
                 <th scope="col" className="py-2 font-medium">
                   {t("rulePreviewColEarned")}
@@ -777,6 +803,97 @@ export function SundayRuleEditor({
           </table>
         </div>
       </div>
+    </div>
+  );
+}
+
+/** The three named starting points, plus the door to the full editor. */
+const PRESET_TEXT: Record<
+  SundayRulePresetId,
+  { title: MessageKey; body: MessageKey }
+> = {
+  common: { title: "rulePresetCommon", body: "rulePresetCommonBody" },
+  asYouGo: { title: "rulePresetAsYouGo", body: "rulePresetAsYouGoBody" },
+  none: { title: "rulePresetNone", body: "rulePresetNoneBody" },
+};
+
+/**
+ * The first thing an owner writing a new rule sees.
+ *
+ * Not a simpler rule model — the same {@link SundayRule} comes out of every
+ * button here, and "Set it up myself" opens the full editor with nothing taken
+ * away. It exists because the full editor asks eleven questions at once, and an
+ * owner who cannot answer eleven questions does not answer one: they leave the
+ * pre-filled numbers alone and never come back. Three outcomes stated in money
+ * and days is a choice this audience can actually make.
+ */
+function SundayRulePresetChooser({
+  selected,
+  onPick,
+  onCustomise,
+  t,
+}: {
+  selected: SundayRulePresetId | null;
+  onPick: (rule: SundayRule) => void;
+  onCustomise: () => void;
+  t: Translate;
+}) {
+  return (
+    <div className="flex w-full min-w-0 flex-col gap-3">
+      <p id="rulePresetLabel" className="text-sm font-medium text-foreground">
+        {t("rulePresetLabel")}
+      </p>
+      <div
+        role="group"
+        aria-labelledby="rulePresetLabel"
+        className="flex w-full min-w-0 flex-col gap-3"
+      >
+        {SUNDAY_RULE_PRESETS.map((preset) => {
+          const text = PRESET_TEXT[preset.id];
+          const isSelected = selected === preset.id;
+          return (
+            <Button
+              key={preset.id}
+              type="button"
+              variant={isSelected ? "default" : "outline"}
+              aria-pressed={isSelected}
+              // `h-auto` because the default button height would clip the
+              // second line, and the second line is the whole point: the
+              // outcome in days and money, not just a name.
+              className="h-auto min-h-[44px] w-full min-w-0 flex-col items-start justify-start gap-1 whitespace-normal px-4 py-3 text-left text-base"
+              onClick={() => onPick(preset.rule)}
+            >
+              <span className="flex items-center gap-2 font-semibold">
+                {isSelected ? (
+                  <Check className="size-5 shrink-0" aria-hidden />
+                ) : (
+                  <Sun className="size-5 shrink-0" aria-hidden />
+                )}
+                {t(text.title)}
+              </span>
+              <span className="w-full min-w-0 text-base font-normal leading-relaxed">
+                {t(text.body)}
+              </span>
+            </Button>
+          );
+        })}
+      </div>
+      {/* Nothing is hidden behind this — every number the editor ever offered is
+          still here, one press away. */}
+      <div>
+        <Button
+          type="button"
+          variant="outline"
+          className="min-h-[44px] px-5 py-3 text-base"
+          onClick={onCustomise}
+        >
+          <Pencil data-icon="inline-start" aria-hidden />
+          {t("rulePresetCustom")}
+        </Button>
+      </div>
+      <p className="text-base leading-relaxed text-muted-foreground">
+        {t("rulePresetCustomHint")}
+      </p>
     </div>
   );
 }

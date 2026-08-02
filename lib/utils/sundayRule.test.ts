@@ -4,6 +4,13 @@ import {
   evaluateSundayRuleForCycle,
   evaluateSundayRuleForMonth,
   getSundayRuleCycleBlocks,
+  countablePresentDaysInMonth,
+  countablePresentDaysInWindow,
+  cycleCollapsedToWholeMonth,
+  longestCountableWindowDays,
+  matchSundayRulePreset,
+  SUNDAY_RULE_PRESETS,
+  MAX_TYPED_CYCLE_DAYS,
   normalizeSundayRule,
   type SundayRule,
 } from "./sundayRule";
@@ -841,5 +848,115 @@ describe("guards on absurd input", () => {
     });
     expect(rule.sundayWorkedPayDays).toBe(0);
     expect(rule.earnedDayPayDays).toBe(1);
+  });
+});
+
+/**
+ * The unit the whole screen is measured in.
+ *
+ * `countPresentDaysInMonthWindow` in the pay engine skips Sundays, so a
+ * window's calendar length always over-states what it can hold. Two earlier
+ * rounds of fixes closed this in the roster and in the day rows; this is the
+ * third place it lived — the rule editor's own arithmetic.
+ */
+describe("present days a window can actually hold", () => {
+  it("does not count Sundays", () => {
+    // August 2026: Sundays fall on the 2nd, 9th, 16th, 23rd and 30th, so each
+    // half of the month runs 15 or 16 calendar days and holds only 13.
+    expect(countablePresentDaysInWindow(2026, 7, 1, 15)).toBe(13);
+    expect(countablePresentDaysInWindow(2026, 7, 16, 31)).toBe(13);
+    expect(countablePresentDaysInMonth(2026, 7)).toBe(26);
+  });
+
+  it("measures a rule's longest stretch in the same unit", () => {
+    // 16 calendar days in the second half, 13 present days in it.
+    expect(longestCountableWindowDays(DEFAULT_SUNDAY_RULE, 2026, 7)).toBe(13);
+  });
+
+  it("never pays a line the engine could not reach", () => {
+    // "Present at least 14" in a 16-calendar-day window: the calendar length
+    // says yes, the engine can never say yes, and the month must agree.
+    const rule = normalizeSundayRule({
+      ...DEFAULT_SUNDAY_RULE,
+      brackets: [{ whenPresentDaysAtLeast: 14, give: 3 }],
+    });
+    expect(rule.brackets[0].whenPresentDaysAtLeast).toBeGreaterThan(
+      longestCountableWindowDays(rule, 2026, 7),
+    );
+    expect(evaluateSundayRuleForMonth(rule, 2026, 7).earned).toBe(0);
+  });
+
+  it("still pays the shipped default, which was only ever right by luck", () => {
+    // 12 <= 13, so the number does not move — but it now agrees with the
+    // engine for a reason rather than by coincidence.
+    expect(evaluateSundayRuleForMonth(DEFAULT_SUNDAY_RULE, 2026, 7).earned).toBe(4);
+  });
+});
+
+describe("a stretch length that has stopped meaning anything", () => {
+  it("reports when the month has collapsed to one window", () => {
+    const long = normalizeSundayRule({ ...DEFAULT_SUNDAY_RULE, cycleDays: 25 });
+    expect(cycleCollapsedToWholeMonth(long, 2026, 2)).toBe(true);
+    // 25, 30, 60 and 366 are all the same single window; the owner cannot tell
+    // from the number they typed, so the screen has to say it.
+    for (const cycleDays of [25, 30, 60, 366]) {
+      const rule = normalizeSundayRule({ ...DEFAULT_SUNDAY_RULE, cycleDays });
+      expect(getSundayRuleCycleBlocks(2026, 2, rule.cycleDays)).toEqual([
+        { start: 1, end: 31 },
+      ]);
+    }
+  });
+
+  it("says nothing about an ordinary stretch that really splits the month", () => {
+    expect(cycleCollapsedToWholeMonth(DEFAULT_SUNDAY_RULE, 2026, 2)).toBe(false);
+  });
+
+  it("keeps the model's ceiling wider than what may be typed", () => {
+    // Typing stops at the longest month; the model still holds a longer number
+    // so a rule already stored with one is never rewritten.
+    expect(MAX_TYPED_CYCLE_DAYS).toBe(31);
+    expect(normalizeSundayRule({ ...DEFAULT_SUNDAY_RULE, cycleDays: 60 }).cycleDays).toBe(60);
+  });
+});
+
+describe("named starting points", () => {
+  it("hands back ordinary rules, and the first one is the shipped default", () => {
+    expect(SUNDAY_RULE_PRESETS.map((p) => p.id)).toEqual([
+      "common",
+      "asYouGo",
+      "none",
+    ]);
+    expect(normalizeSundayRule(SUNDAY_RULE_PRESETS[0].rule)).toEqual(
+      DEFAULT_SUNDAY_RULE,
+    );
+    for (const preset of SUNDAY_RULE_PRESETS) {
+      // Every preset survives a round trip through the normalizer unchanged,
+      // so what the owner picked is exactly what gets stored.
+      expect(normalizeSundayRule(preset.rule)).toEqual(
+        normalizeSundayRule(normalizeSundayRule(preset.rule)),
+      );
+    }
+  });
+
+  it("recognises a preset, and refuses to name a rule that has been changed", () => {
+    expect(matchSundayRulePreset(DEFAULT_SUNDAY_RULE)).toBe("common");
+    expect(
+      matchSundayRulePreset(
+        normalizeSundayRule({ ...DEFAULT_SUNDAY_RULE, maxPerMonth: 6 }),
+      ),
+    ).toBeNull();
+  });
+
+  it("earns as you go without a cap the owner never typed", () => {
+    const asYouGo = SUNDAY_RULE_PRESETS[1].rule;
+    expect(evaluateSundayRuleForCycle(asYouGo, 12).earned).toBe(2);
+    expect(asYouGo.maxPerCycle).toBeNull();
+    expect(asYouGo.maxPerMonth).toBeNull();
+  });
+
+  it("pays nothing extra, but still pays a Sunday worked", () => {
+    const none = SUNDAY_RULE_PRESETS[2].rule;
+    expect(evaluateSundayRuleForCycle(none, 31).earned).toBe(0);
+    expect(none.sundayWorkedPayDays).toBe(1);
   });
 });

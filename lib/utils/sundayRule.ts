@@ -41,7 +41,7 @@
  * month) are preserved exactly, so migrating an install changes no pay.
  */
 
-import { getCalendarDaysInMonth } from "./date";
+import { getCalendarDaysInMonth, isSunday } from "./date";
 
 /** One row of a bracket table: reach `whenPresentDaysAtLeast`, earn `give`. */
 export interface SundayRuleBracket {
@@ -136,15 +136,28 @@ export const LEGACY_REQUIRED_PRESENT = 12;
 export const LEGACY_EARNED_SUNDAYS = 2;
 
 /**
- * Longest stretch a rule may declare, in calendar days.
+ * Longest stretch a rule may hold, in calendar days.
  *
- * The editor used to stop at 31 while the model accepted anything, so a
- * quarterly attendance bonus — a perfectly ordinary thing to want — could not
- * be typed even though the engine would have run it. A little over a year is
- * long enough for any stretch a factory means and short enough that a slipped
- * digit is still caught.
+ * This is the *model's* ceiling, kept wide only so a rule already stored with a
+ * long stretch keeps the number it was saved with. It is NOT a promise that a
+ * long stretch does anything useful: the pay engine walks one calendar month at
+ * a time (`computeEarnedExtraPayDaysForCalendarScope`), so no window can ever
+ * cross a month boundary and a "quarterly bonus" — which an earlier version of
+ * this comment claimed as the reason for 366 — is structurally impossible to
+ * express. Past roughly two thirds of a month length the splitter rounds down
+ * to a single whole-month window and every larger number means exactly the same
+ * thing. What the owner may *type* is {@link MAX_TYPED_CYCLE_DAYS}.
  */
 export const MAX_CYCLE_DAYS = 366;
+
+/**
+ * Longest stretch the editor lets an owner type, in calendar days.
+ *
+ * A stretch never crosses a month boundary, so anything past the longest month
+ * is a number that cannot mean what it says. Deliberately smaller than
+ * {@link MAX_CYCLE_DAYS}, which stays wide so no stored rule is rewritten.
+ */
+export const MAX_TYPED_CYCLE_DAYS = 31;
 
 /**
  * Most days' pay any single "what is this worth" number may claim.
@@ -443,11 +456,106 @@ export function evaluateSundayRuleForMonth(
 ): { earned: number; uncapped: number; cappedByMonth: boolean } {
   let uncapped = 0;
   for (const block of getCycleBlocksForRule(rule, year, monthIndex)) {
-    uncapped += evaluateSundayRuleForCycle(rule, block.end - block.start + 1).earned;
+    // Countable days, not calendar days. `countPresentDaysInMonthWindow` skips
+    // Sundays, so a 16-day window can only ever hold 13 or 14 present days.
+    // Feeding it `end - start + 1` promised money for a count nobody can reach.
+    uncapped += evaluateSundayRuleForCycle(
+      rule,
+      countablePresentDaysInWindow(year, monthIndex, block.start, block.end),
+    ).earned;
   }
   const earned =
     rule.maxPerMonth === null ? uncapped : Math.min(rule.maxPerMonth, uncapped);
   return { earned, uncapped, cappedByMonth: earned < uncapped };
+}
+
+function pad2(n: number): string {
+  return String(n).padStart(2, "0");
+}
+
+/**
+ * The most present days a window can hold — its length minus its Sundays.
+ *
+ * The one number every "can this line ever be reached?" question must be asked
+ * against. `countPresentDaysInMonthWindow` in the pay engine skips Sundays, so
+ * the window's calendar length is always an over-count: in August 2026 both
+ * halves of the month run 15 and 16 calendar days but hold at most 13 present
+ * days each. A screen that measured a rule against the calendar length showed
+ * lines paying that the engine would never pay.
+ */
+export function countablePresentDaysInWindow(
+  year: number,
+  monthIndex: number,
+  start: number,
+  end: number,
+): number {
+  let count = 0;
+  for (let d = start; d <= end; d += 1) {
+    if (!isSunday(`${year}-${pad2(monthIndex + 1)}-${pad2(d)}`)) count += 1;
+  }
+  return count;
+}
+
+/**
+ * The most present days any one of a rule's windows can hold in a month.
+ *
+ * What a bracket has to beat to be reachable, and how far the editor's preview
+ * axis can honestly run.
+ */
+export function longestCountableWindowDays(
+  rule: SundayRule,
+  year: number,
+  monthIndex: number,
+): number {
+  return getCycleBlocksForRule(rule, year, monthIndex).reduce(
+    (longest, block) =>
+      Math.max(
+        longest,
+        countablePresentDaysInWindow(year, monthIndex, block.start, block.end),
+      ),
+    1,
+  );
+}
+
+/**
+ * The most present days a whole calendar month can hold.
+ *
+ * The Sunday premium counts across the month rather than per window, so its
+ * "after this many present days" figure is measured against this and not
+ * against a window.
+ */
+export function countablePresentDaysInMonth(
+  year: number,
+  monthIndex: number,
+): number {
+  return countablePresentDaysInWindow(
+    year,
+    monthIndex,
+    1,
+    getCalendarDaysInMonth(year, monthIndex),
+  );
+}
+
+/**
+ * True when the rule's stretch length has collapsed to one whole-month window.
+ *
+ * The splitter rounds, so every stretch length past roughly two thirds of the
+ * month gives the same single window — 25, 30, 60 and 366 are all "the whole
+ * month" and the owner has no way to tell from the number they typed.
+ */
+export function cycleCollapsedToWholeMonth(
+  rule: SundayRule,
+  year: number,
+  monthIndex: number,
+): boolean {
+  const blocks = getCycleBlocksForRule(rule, year, monthIndex);
+  const lastDay = getCalendarDaysInMonth(year, monthIndex);
+  return (
+    blocks.length === 1 &&
+    blocks[0].start === 1 &&
+    blocks[0].end === lastDay &&
+    rule.cycleDays < lastDay
+  );
 }
 
 /**
@@ -463,11 +571,14 @@ export function evaluateSundayRuleForMonth(
  *   expresses here.
  * - `"separate"` — the tail stands on its own as a shorter window.
  *
- * At the legacy `cycleDays = 15` **both** answers yield exactly `1–15` and
- * `16–end` for every month length from 28 to 31, matching the previous
- * hardcoded split and the first-half / second-half correction periods the
- * salary sheet already uses. The two only diverge once the owner has changed
- * the stretch length.
+ * An earlier version of this comment claimed the two answers agree at the
+ * legacy `cycleDays = 15` for every month length from 28 to 31. They do not: a
+ * 31-day month rounds to two windows when merging (`1–15`, `16–31`) and ceils
+ * to three when splitting (`1–15`, `16–30`, `31–31`), and that third window is
+ * a single day that no ordinary rule can ever earn in. Seven months a year, at
+ * the default stretch length, the choice is real and one of its answers is
+ * simply worse. That is why the editor no longer asks it: `cycleRemainder`
+ * stays on the rule, at its `"merge"` default, and no stored rule moved.
  */
 export function getSundayRuleCycleBlocks(
   year: number,
@@ -509,4 +620,63 @@ export function getCycleBlocksForRule(
   monthIndex: number,
 ): { start: number; end: number }[] {
   return getSundayRuleCycleBlocks(year, monthIndex, rule.cycleDays, rule.cycleRemainder);
+}
+
+/**
+ * The three rules an owner is offered by name, before any editing.
+ *
+ * The full editor presents eleven decisions on a fresh category. Both users are
+ * non-technical, so eleven decisions with no guidance is not a decision they
+ * can make — they accept whatever is pre-filled and never open it again. These
+ * are the shapes a factory actually asks for, each stated as an outcome rather
+ * than as a set of fields.
+ *
+ * A preset is only an *entry point*: picking one writes an ordinary rule that
+ * the full editor can then change in every way it always could. Nothing here
+ * removes a capability, and nothing here is a new kind of rule the engine has
+ * to know about.
+ */
+export type SundayRulePresetId = "common" | "asYouGo" | "none";
+
+export const SUNDAY_RULE_PRESETS: {
+  id: SundayRulePresetId;
+  rule: SundayRule;
+}[] = [
+  // Exactly the shipped default, so a fresh category starts on a preset that
+  // is already selected rather than on an unnamed rule.
+  { id: "common", rule: DEFAULT_SUNDAY_RULE },
+  {
+    id: "asYouGo",
+    // No caps: "one day for every six" is a promise, and a cap the owner never
+    // typed silently breaking it is the defect this whole rework exists to fix.
+    rule: {
+      ...DEFAULT_SUNDAY_RULE,
+      kind: "repeat",
+      brackets: [],
+      repeatEveryPresentDays: 6,
+      repeatGive: 1,
+      maxPerCycle: null,
+      maxPerMonth: null,
+    },
+  },
+  { id: "none", rule: EARNS_NO_EXTRA_DAYS_RULE },
+];
+
+/**
+ * Which preset a rule *is*, or `null` for a rule that has been customised.
+ *
+ * Compared on the whole normalized rule so a rule differing anywhere — a cap, a
+ * Sunday premium, what a day is worth — reads as custom rather than being shown
+ * back to the owner under a name that no longer describes it.
+ */
+export function matchSundayRulePreset(
+  rule: SundayRule,
+): SundayRulePresetId | null {
+  const target = JSON.stringify(normalizeSundayRule(rule));
+  for (const preset of SUNDAY_RULE_PRESETS) {
+    if (JSON.stringify(normalizeSundayRule(preset.rule)) === target) {
+      return preset.id;
+    }
+  }
+  return null;
 }

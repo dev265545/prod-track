@@ -1709,6 +1709,26 @@ const en = {
   ruleCycleWindowJoin: ", then ",
   ruleBracketUnreachable:
     "This line can never be reached — the longest stretch is only {n} days.",
+  rulePremiumUnreachable:
+    "This can never happen — a month has at most {n} days that count towards it. Lower the number of days.",
+  ruleCycleCollapsed:
+    "A stretch of {n} days works out to the whole month in one go. Every longer number does the same thing. Use a shorter stretch if you want two or more in a month.",
+  rulePreviewColDaysCountable: "Days present in a stretch (Sundays not counted)",
+  rulePreviewSundaysNotCounted:
+    "Sundays are never counted here, so the longest stretch holds at most {n} days.",
+  rulePresetLabel: "Choose how extra days are earned",
+  rulePresetCommon: "The usual one",
+  rulePresetCommonBody:
+    "Be present 12 days in half a month and earn 2 extra days’ pay — up to 4 extra days’ pay in a month.",
+  rulePresetAsYouGo: "Earn as you go",
+  rulePresetAsYouGoBody:
+    "1 extra day’s pay for every 6 days present. No upper limit.",
+  rulePresetNone: "No extra days",
+  rulePresetNoneBody:
+    "Nobody earns extra days’ pay. A Sunday actually worked is still paid.",
+  rulePresetCustom: "Set it up myself",
+  rulePresetCustomHint:
+    "Opens every setting: your own steps, the length of a stretch, the limits, and extra pay for Sundays worked.",
   ruleCapWarning:
     "At {days} days present your rule gives {uncapped} days, but the limit pays only {earned}. Raise the limit or lower the rule.",
   ruleMonthMost:
@@ -1718,7 +1738,9 @@ const en = {
   ruleKeepsLines:
     "Your typed lines are kept. Switch back to see them again.",
   rulePremiumTitle: "Extra pay for Sundays worked",
-  rulePremiumHint: "Off. Every Sunday worked is paid one day's pay.",
+  rulePremiumHint: "Off for this rule. A Sunday worked is paid one day's pay.",
+  rulePremiumOffOperators:
+    "Operators are the exception: they always get the factory's Sunday extra pay, set in Settings, even when this is off. This rule decides it for everyone else.",
   rulePremiumOn: "Add Sunday extra pay",
   rulePremiumOff: "Remove",
   rulePremiumAfter: "After (present days)",
@@ -1726,7 +1748,6 @@ const en = {
   rulePremiumPrecedence:
     "A number set on one worker's own page wins over this. If neither is set, the factory default in Settings is used.",
   rulePreviewTitle: "What this pays",
-  rulePreviewColDays: "Days present in a stretch",
   rulePreviewColEarned: "Extra days' pay earned",
   rulePreviewSentence:
     "Someone present {days} days in a stretch earns {earned} extra days' pay.",
@@ -2015,15 +2036,10 @@ const en = {
   ux3ReportsIntro: "How much of each item was made in a period.",
   ux3EmployeeIntro: "Attendance, work done and pay for this person.",
 
-  // The days left over at the end of a month, when the stretch length does
-  // not divide it evenly. Only asked when the two answers really differ.
-  ruleLeftoverLabel: "The days left at the end of the month",
-  ruleLeftoverMerge: "Add them to the last stretch",
-  ruleLeftoverSeparate: "Count them on their own",
-  ruleLeftoverMergeHint:
-    "The last stretch of the month is longer than the others.",
-  ruleLeftoverSeparateHint:
-    "The last few days are a short stretch of their own. Fewer days means fewer chances to earn in them.",
+  // The days left over at the end of a month. The editor no longer asks about
+  // them — it is a calendar artefact, not a policy, and one of its two answers
+  // cut a dead one-day stretch off every 31-day month. Only the sentence that
+  // describes a rule already stored that way survives.
   ruleSummaryLeftoverSeparate: "leftover days counted on their own",
 
   // What a person with no Sunday rule of their own earns.
@@ -3734,6 +3750,28 @@ const hi: Record<MessageKey, string> = {
   ruleCycleWindowJoin: ", \u092b\u093f\u0930 ",
   ruleBracketUnreachable:
     "\u092f\u0939 \u0932\u093e\u0907\u0928 \u0915\u092d\u0940 \u092a\u0942\u0930\u0940 \u0928\u0939\u0940\u0902 \u0939\u094b \u0938\u0915\u0924\u0940 \u2014 \u0938\u092c\u0938\u0947 \u0932\u0902\u092c\u093e \u0926\u094c\u0930 \u0938\u093f\u0930\u094d\u092b\u093c {n} \u0926\u093f\u0928 \u0915\u093e \u0939\u0948\u0964",
+  rulePremiumUnreachable:
+    "यह कभी नहीं हो सकता — एक महीने में गिनने लायक़ ज़्यादा से ज़्यादा {n} दिन ही होते हैं। दिन घटाएँ।",
+  ruleCycleCollapsed:
+    "{n} दिन का दौर मतलब पूरा महीना एक ही दौर में। इससे बड़ा हर नंबर भी यही करेगा। महीने में दो या ज़्यादा दौर चाहिए तो छोटा दौर रखें।",
+  rulePreviewColDaysCountable:
+    "दौर में हाज़िर दिन (रविवार नहीं गिने जाते)",
+  rulePreviewSundaysNotCounted:
+    "यहाँ रविवार कभी नहीं गिने जाते, इसलिए सबसे लंबे दौर में ज़्यादा से ज़्यादा {n} दिन ही आते हैं।",
+  rulePresetLabel:
+    "तय करें कि अतिरिक्त दिन कैसे मिलेंगे",
+  rulePresetCommon: "आम तौर पर यही",
+  rulePresetCommonBody:
+    "आधे महीने में 12 दिन हाज़िर — 2 दिन का अतिरिक्त पैसा। महीने में ज़्यादा से ज़्यादा 4 दिन का।",
+  rulePresetAsYouGo: "जितना काम, उतना पैसा",
+  rulePresetAsYouGoBody:
+    "हर 6 हाज़िर दिन पर 1 दिन का अतिरिक्त पैसा। कोई सीमा नहीं।",
+  rulePresetNone: "कोई अतिरिक्त दिन नहीं",
+  rulePresetNoneBody:
+    "किसी को अतिरिक्त दिन का पैसा नहीं। काम वाले रविवार का पैसा फिर भी मिलता है।",
+  rulePresetCustom: "मैं खुद सेट करूँगा",
+  rulePresetCustomHint:
+    "सभी सेटिंग खुलेंगी: अपनी लाइनें, दौर के दिन, सीमा, और रविवार के काम पर ज़्यादा पैसा।",
   ruleCapWarning:
     "{days} \u0939\u093e\u091c\u093c\u093f\u0930 \u0926\u093f\u0928 \u092a\u0930 \u0906\u092a\u0915\u093e \u0928\u093f\u092f\u092e {uncapped} \u0926\u093f\u0928 \u0926\u0947\u0924\u093e \u0939\u0948, \u092a\u0930 \u0938\u0940\u092e\u093e \u0938\u093f\u0930\u094d\u092b\u093c {earned} \u0926\u0947\u0917\u0940\u0964 \u0938\u0940\u092e\u093e \u092c\u0922\u093c\u093e\u090f\u0901 \u092f\u093e \u0928\u093f\u092f\u092e \u0918\u091f\u093e\u090f\u0901\u0964",
   ruleMonthMost:
@@ -3744,15 +3782,16 @@ const hi: Record<MessageKey, string> = {
     "\u0906\u092a\u0915\u0940 \u0932\u093f\u0916\u0940 \u0932\u093e\u0907\u0928\u0947\u0902 \u0938\u0941\u0930\u0915\u094d\u0937\u093f\u0924 \u0939\u0948\u0902\u0964 \u0935\u093e\u092a\u0938 \u092c\u0926\u0932\u0928\u0947 \u092a\u0930 \u0935\u0947 \u092b\u093f\u0930 \u0926\u093f\u0916\u0947\u0902\u0917\u0940\u0964",
   rulePremiumTitle: "\u0930\u0935\u093f\u0935\u093e\u0930 \u0915\u0947 \u0915\u093e\u092e \u092a\u0930 \u091c\u093c\u094d\u092f\u093e\u0926\u093e \u092a\u0948\u0938\u093e",
   rulePremiumHint:
-    "\u092c\u0902\u0926 \u0939\u0948\u0964 \u0939\u0930 \u0915\u093e\u092e \u0935\u093e\u0932\u0947 \u0930\u0935\u093f\u0935\u093e\u0930 \u0915\u093e \u090f\u0915 \u0926\u093f\u0928 \u0915\u093e \u092a\u0948\u0938\u093e \u092e\u093f\u0932\u0924\u093e \u0939\u0948\u0964",
-  rulePremiumOn: "\u0930\u0935\u093f\u0935\u093e\u0930 \u0915\u093e \u090f\u0915\u094d\u0938\u091f\u094d\u0930\u093e \u091c\u094b\u0921\u093c\u0947\u0902",
+    "इस नियम में बंद है। काम वाले रविवार का एक दिन का पैसा मिलता है।",
+  rulePremiumOffOperators:
+    "ऑपरेटर अलग हैं: बंद होने पर भी उन्हें सेटिंग में तय फैक्ट्री वाला रविवार का ज़्यादा पैसा मिलता है। यह नियम बाकी सबके लिए है।",
+  rulePremiumOn: "रविवार का अतिरिक्त पैसा जोड़ें",
   rulePremiumOff: "\u0939\u091f\u093e\u090f\u0901",
   rulePremiumAfter: "\u0907\u0924\u0928\u0947 \u0939\u093e\u091c\u093c\u093f\u0930 \u0926\u093f\u0928 \u0915\u0947 \u092c\u093e\u0926",
-  rulePremiumTimes: "\u0930\u0935\u093f\u0935\u093e\u0930 \u0915\u093e \u092d\u0941\u0917\u0924\u093e\u0928 (\u0917\u0941\u0928\u093e)",
+  rulePremiumTimes: "रविवार का पैसा (गुना)",
   rulePremiumPrecedence:
-    "\u0915\u093f\u0938\u0940 \u090f\u0915 \u092e\u091c\u093c\u0926\u0942\u0930 \u0915\u0947 \u092a\u0928\u094d\u0928\u0947 \u092a\u0930 \u0932\u093f\u0916\u093e \u0928\u0902\u092c\u0930 \u0907\u0938\u0938\u0947 \u090a\u092a\u0930 \u0939\u0948\u0964 \u0926\u094b\u0928\u094b\u0902 \u0928 \u0939\u094b\u0902 \u0924\u094b \u0938\u0947\u091f\u093f\u0902\u0917 \u0915\u093e \u0921\u093f\u092b\u093c\u0949\u0932\u094d\u091f \u091a\u0932\u0924\u093e \u0939\u0948\u0964",
+    "किसी एक मज़दूर के पन्ने पर लिखा नंबर इससे ऊपर है। दोनों न हों तो सेटिंग में तय फैक्ट्री का नियम चलता है।",
   rulePreviewTitle: "\u0907\u0938\u0938\u0947 \u0915\u093f\u0924\u0928\u093e \u092e\u093f\u0932\u0947\u0917\u093e",
-  rulePreviewColDays: "\u0926\u094c\u0930 \u092e\u0947\u0902 \u0939\u093e\u091c\u093c\u093f\u0930 \u0926\u093f\u0928",
   rulePreviewColEarned: "\u092e\u093f\u0932\u0928\u0947 \u0935\u093e\u0932\u0947 \u0905\u0924\u093f\u0930\u093f\u0915\u094d\u0924 \u0926\u093f\u0928",
   rulePreviewSentence:
     "\u091c\u094b \u0926\u094c\u0930 \u092e\u0947\u0902 {days} \u0926\u093f\u0928 \u0939\u093e\u091c\u093c\u093f\u0930 \u0930\u0939\u093e, \u0909\u0938\u0947 {earned} \u0926\u093f\u0928 \u0915\u093e \u0905\u0924\u093f\u0930\u093f\u0915\u094d\u0924 \u092a\u0948\u0938\u093e \u092e\u093f\u0932\u0947\u0917\u093e\u0964",
@@ -3801,11 +3840,11 @@ const hi: Record<MessageKey, string> = {
   ruleWorthSummary:
     "\u0915\u093e\u092e \u0935\u093e\u0932\u093e \u0930\u0935\u093f\u0935\u093e\u0930 {sunday} \u0926\u093f\u0928 \u0915\u093e \u092a\u0948\u0938\u093e \u0926\u0947\u0924\u093e \u0939\u0948\u0964 \u0939\u0930 \u0905\u0924\u093f\u0930\u093f\u0915\u094d\u0924 \u0926\u093f\u0928 {earned} \u0926\u093f\u0928 \u0915\u093e \u092a\u0948\u0938\u093e \u0926\u0947\u0924\u093e \u0939\u0948\u0964",
   ruleMonthMostMoney:
-    "\u092f\u093e\u0928\u0940 \u092a\u0942\u0930\u0947 \u092e\u0939\u0940\u0928\u0947 \u092e\u0947\u0902 {pay} \u0926\u093f\u0928 \u0915\u093e \u092a\u0948\u0938\u093e, \u091c\u092c \u0939\u0930 \u0905\u0930\u094d\u091c\u093f\u0924 \u0926\u093f\u0928 {earned} \u0926\u093f\u0928 \u0915\u093e \u0917\u093f\u0928\u093e \u091c\u093e\u090f\u0964",
+    "यानी पूरे महीने में {pay} दिन का पैसा, जब हर अतिरिक्त दिन {earned} दिन का गिना जाए।",
   ruleSummaryBracketEach:
     "\u091c\u093f\u0924\u0928\u0940 \u0932\u093e\u0907\u0928\u0947\u0902 \u092a\u093e\u0930, \u0938\u092c \u091c\u0941\u0921\u093c\u0947\u0902\u0917\u0940",
   ruleSummaryWorth:
-    "\u0930\u0935\u093f\u0935\u093e\u0930 {sunday} \u0926\u093f\u0928 \u0915\u093e \u092a\u0948\u0938\u093e, \u0939\u0930 \u0905\u0930\u094d\u091c\u093f\u0924 \u0926\u093f\u0928 {earned} \u0926\u093f\u0928 \u0915\u093e \u092a\u0948\u0938\u093e",
+    "रविवार {sunday} दिन का पैसा, हर अतिरिक्त दिन {earned} दिन का पैसा",
 
   capCardTitle: "\u090f\u0915 \u0926\u093f\u0928 \u092e\u0947\u0902 \u0938\u092c\u0938\u0947 \u091c\u093c\u094d\u092f\u093e\u0926\u093e \u0915\u093f\u0924\u0928\u093e",
   capCardSubtitle:
@@ -4040,12 +4079,6 @@ const hi: Record<MessageKey, string> = {
   ux3ReportsIntro: "एक पीरियड में हर आइटम कितना बना।",
   ux3EmployeeIntro: "इस व्यक्ति की हाजिरी, काम और पगार।",
 
-  ruleLeftoverLabel: "महीने के आखिर में बचे दिन",
-  ruleLeftoverMerge: "उन्हें आखिरी दौर में जोड़ें",
-  ruleLeftoverSeparate: "उन्हें अलग से गिनें",
-  ruleLeftoverMergeHint: "महीने का आखिरी दौर बाकी दौरों से लंबा रहेगा।",
-  ruleLeftoverSeparateHint:
-    "आखिरी कुछ दिन अपना छोटा दौर बनेंगे। कम दिन यानी उनमें कमाने के कम मौके।",
   ruleSummaryLeftoverSeparate: "बचे दिन अलग से गिने जाते हैं",
 
   noRuleTitle: "जिनका कोई रविवार नियम नहीं है",

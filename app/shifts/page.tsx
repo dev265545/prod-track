@@ -525,7 +525,19 @@ export default function ShiftsPage() {
               />
             </div>
 
-            <SundayRuleEditor value={categoryRule} onChange={setCategoryRule} t={t} />
+            {/* Keyed so the editor is a fresh component per category. Its
+                fold-away panels are local state seeded from the rule it was
+                first handed; without this, editing category B after A kept A's
+                folds and could assert A's numbers over B's rule. The key also
+                sends an existing rule straight into the full editor, and a new
+                one back to the named starting points. */}
+            <SundayRuleEditor
+              key={editingId ?? "new"}
+              value={categoryRule}
+              onChange={setCategoryRule}
+              startExpanded={editingId !== null}
+              t={t}
+            />
 
             <div className="flex flex-wrap gap-3">
               <Button type="submit" className={btnPrimaryClass}>
