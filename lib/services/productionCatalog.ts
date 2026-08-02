@@ -230,7 +230,19 @@ export async function readLegacyItemMap(): Promise<LegacyItemMap> {
     return row?.map && typeof row.map === "object"
       ? (row.map as LegacyItemMap)
       : {};
-  } catch {
+  } catch (error) {
+    // An empty map is the correct answer for a fresh install, so `{}` stays the
+    // fallback. But it is NOT the same as a failed read: this map is the only
+    // link between the pay item and the stock item, and `saveProductionEntry`
+    // treats "no stock counterpart" as an ordinary state. So a read failure here
+    // silently skips the stock deduction for every entry until it recovers —
+    // production recorded, stock untouched, nothing said. That is the exact
+    // failure this connector already had once. Say it out loud.
+    console.error(
+      "[productionCatalog] could not read the item pairing map; " +
+        "production entries will not draw down stock until this succeeds",
+      error,
+    );
     return {};
   }
 }
