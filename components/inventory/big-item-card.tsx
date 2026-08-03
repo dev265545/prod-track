@@ -7,7 +7,6 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/components/language-provider";
 import { stockStatus, stockStatusMeta } from "@/components/inventory/shared";
-import { CATEGORY_THEME } from "@/components/inventory/category-theme";
 import { ItemActionsMenu } from "@/components/inventory/category/item-actions-menu";
 import { formatInventoryQuantity } from "@/lib/services/inventoryCatalog";
 import { stockMeter } from "@/lib/utils/stockLevel";
@@ -51,10 +50,8 @@ export interface BigItemCardProps {
  *  4. ACTIONS — the two things an operator actually does, side by side and
  *     labelled in words. Everything rarer is in the overflow menu.
  *
- * Colour is split on purpose: the left stripe is the CATEGORY identity (a
- * chart token, mark only, never behind text) while the bar and the badge carry
- * STATUS. The two never mix, so a green bar always means "stock is fine" and
- * never "this is the green category".
+ * Colour carries STATUS only, on the bar and the badge, so a green bar always
+ * means "stock is fine" and nothing else competes with that reading.
  */
 export function BigItemCard({
   item,
@@ -85,16 +82,8 @@ export function BigItemCard({
         className,
       )}
     >
-      <span
-        className={cn(
-          "absolute inset-y-0 left-0 w-1",
-          CATEGORY_THEME[item.category].stripe,
-        )}
-        aria-hidden
-      />
-
       {/* 1. Identity */}
-      <div className="flex min-w-0 items-start gap-2 py-4 pl-6 pr-4">
+      <div className="flex min-w-0 items-start gap-2 py-4 pl-4 pr-4">
         <div className="flex min-w-0 flex-1 flex-col">
           <div className="flex min-w-0 items-center gap-1.5">
             {item.isFavorite && (
@@ -133,7 +122,7 @@ export function BigItemCard({
       </div>
 
       {/* 2. The level — the one dominant element on the card */}
-      <div className="min-w-0 pb-1 pl-6 pr-5">
+      <div className="min-w-0 pb-1 pl-4 pr-4">
         <div className="flex min-w-0 flex-wrap items-baseline gap-x-2">
           <span className="font-heading text-[2.5rem] font-bold leading-none tabular-nums text-foreground">
             {stockText}
@@ -180,7 +169,7 @@ export function BigItemCard({
       </div>
 
       {/* 3. Movement — quiet tertiary detail, deliberately not boxed */}
-      <div className="mt-4 flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1.5 border-t border-border py-3 pl-6 pr-5 text-xs text-muted-foreground">
+      <div className="mt-4 flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1.5 border-t border-border py-3 pl-4 pr-4 text-xs text-muted-foreground">
         <span className="inline-flex min-w-0 items-center gap-1.5">
           <ArrowDownToLine className="size-3.5 shrink-0" aria-hidden />
           {t("invCardCameIn")}
@@ -205,7 +194,7 @@ export function BigItemCard({
       </div>
 
       {/* 4. Actions */}
-      <div className="mt-auto flex min-w-0 flex-wrap gap-2 pb-4 pl-6 pr-5">
+      <div className="mt-auto flex min-w-0 flex-wrap gap-2 pb-4 pl-4 pr-4">
         <Button
           type="button"
           size="lg"
