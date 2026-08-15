@@ -39,6 +39,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuthGuard } from "@/lib/hooks/useAuthGuard";
 import { saveEmployeeSortOrder } from "@/lib/services/employeeService";
+import { moveInVisibleOrder } from "@/lib/utils/employeeOrder";
 import {
   getSalarySheetForRange,
   salarySheetRowHasAdjustment,
@@ -94,10 +95,9 @@ function getMonthOptions(
   return options;
 }
 
-type SalarySheetCategory = "all" | "salaried" | "production" | "operator";
+type SalarySheetCategory = "salaried" | "production" | "operator";
 
 const CATEGORY_TABS: { value: SalarySheetCategory; labelKey: MessageKey }[] = [
-  { value: "all", labelKey: "salarySheetTabAll" },
   { value: "salaried", labelKey: "employeeTypeSalaried" },
   { value: "production", labelKey: "employeeTypeProduction" },
   { value: "operator", labelKey: "employeeTypeOperator" },
@@ -127,7 +127,7 @@ export default function SalarySheetPage() {
   const [, setTo] = useState("");
   const [reorderMode, setReorderMode] = useState(false);
   const [savingOrder, setSavingOrder] = useState(false);
-  const [category, setCategory] = useState<SalarySheetCategory>("all");
+  const [category, setCategory] = useState<SalarySheetCategory>("salaried");
   const [loadFailed, setLoadFailed] = useState(false);
 
   const monthOptions = useMemo(() => getMonthOptions(24, locale), [locale]);
@@ -227,15 +227,12 @@ export default function SalarySheetPage() {
   // (the service leaves them out), so the Production tab shows their own
   // work record instead of an empty table.
   const showSalaryTable = category !== "production";
-  const showProductionRecord = category === "all" || category === "production";
+  const showProductionRecord = category === "production";
   // Filtering is one O(n) pass over ~150 rows and never rebuilds the sheet —
   // switching tabs must not re-run the payroll engine. Memoised so the row
   // objects handed to the memoised cells keep a stable array identity too.
   const visibleRows = useMemo(
-    () =>
-      category === "all"
-        ? rows
-        : rows.filter((r) => r.employeeType === category),
+    () => rows.filter((r) => r.employeeType === category),
     [rows, category],
   );
 
@@ -265,14 +262,10 @@ export default function SalarySheetPage() {
       toast.error(tr("plainSalarySheetLoadFailed"));
       return;
     }
-    const freshVisibleRows =
-      category === "all"
-        ? fresh.rows
-        : fresh.rows.filter((r) => r.employeeType === category);
-    const categoryLabel =
-      category === "all"
-        ? ""
-        : ` – ${tr(CATEGORY_TABS.find((c) => c.value === category)!.labelKey)}`;
+    const freshVisibleRows = fresh.rows.filter(
+      (r) => r.employeeType === category,
+    );
+    const categoryLabel = ` – ${tr(CATEGORY_TABS.find((c) => c.value === category)!.labelKey)}`;
     const html = buildPrintableHtml({
       rows: showSalaryTable ? freshVisibleRows : null,
       productionSheet: showProductionRecord ? freshProduction : null,
@@ -322,6 +315,41 @@ export default function SalarySheetPage() {
       await saveEmployeeSortOrder(nextRows.map((row) => row.id));
     } catch {
       setRows(previousRows);
+      toast.error(tr("salarySheetToastOrderFail"));
+    } finally {
+      setSavingOrder(false);
+    }
+  };
+
+  /**
+   * Same idea as `moveRow`, for the Production tab. Production workers never
+   * appear in `rows` at all (they're off the attendance sheet entirely), so
+   * there is no hidden neighbour to skip — every row in `productionSheet` is
+   * on screen, in both of its tables at once, and the order written here
+   * feeds the same per-employee `sortOrder` field the other tabs use.
+   */
+  const moveProductionRow = async (rowId: string, direction: -1 | 1) => {
+    if (savingOrder || !productionSheet) return;
+    const ids = productionSheet.rows.map((row) => row.id);
+    const nextIds = moveInVisibleOrder({
+      orderedIds: ids,
+      visibleIds: ids,
+      id: rowId,
+      direction,
+    });
+    if (!nextIds) return;
+
+    const rowById = new Map(productionSheet.rows.map((row) => [row.id, row]));
+    const previousSheet = productionSheet;
+    setProductionSheet({
+      ...productionSheet,
+      rows: nextIds.map((id) => rowById.get(id)!),
+    });
+    setSavingOrder(true);
+    try {
+      await saveEmployeeSortOrder(nextIds);
+    } catch {
+      setProductionSheet(previousSheet);
       toast.error(tr("salarySheetToastOrderFail"));
     } finally {
       setSavingOrder(false);
@@ -425,17 +453,15 @@ export default function SalarySheetPage() {
                 </div>
               </>
             )}
-            {showSalaryTable && (
-              <Button
-                type="button"
-                variant={reorderMode ? "secondary" : "outline"}
-                onClick={() => setReorderMode((value) => !value)}
-                className="min-h-12 px-6"
-              >
-                <GripVertical data-icon="inline-start" className="size-4" />
-                {reorderMode ? tr("salarySheetReorderDone") : tr("salarySheetReorderStart")}
-              </Button>
-            )}
+            <Button
+              type="button"
+              variant={reorderMode ? "secondary" : "outline"}
+              onClick={() => setReorderMode((value) => !value)}
+              className="min-h-12 px-6"
+            >
+              <GripVertical data-icon="inline-start" className="size-4" />
+              {reorderMode ? tr("salarySheetReorderDone") : tr("salarySheetReorderStart")}
+            </Button>
             <Button
               type="button"
               onClick={handlePrint}
@@ -615,6 +641,9 @@ export default function SalarySheetPage() {
               periodLabel={
                 rangeMode === "full-month" ? monthLabel : selectedRange.label
               }
+              reorderMode={reorderMode}
+              savingOrder={savingOrder}
+              onMoveRow={moveProductionRow}
             />
           )}
 

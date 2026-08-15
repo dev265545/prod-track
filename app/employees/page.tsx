@@ -287,44 +287,58 @@ export default function EmployeesPage() {
                         </Link>
                       </TableHead>
                       <TableCell className="text-muted-foreground">
-                        <Select
-                          value={(e.employeeType as string) ?? "salaried"}
-                          // Changing this changes how the person is paid, so
-                          // it confirms like every other write on this screen.
-                          // It used to be silent on both paths: a failed save
-                          // just snapped the box back with no explanation.
-                          onValueChange={async (v) => {
-                            try {
-                              await saveEmployee({
-                                ...e,
-                                employeeType: v,
-                                employeeTypeConfirmed: true,
-                              });
-                              await load();
-                              toast.success(t("ux2PayTypeSaved"));
-                            } catch (err) {
-                              console.error("people: pay type save failed", err);
-                              toast.error(t("ux2PayTypeSaveFailed"));
-                            }
-                          }}
-                        >
-                          <SelectTrigger className="w-36 min-h-[44px]">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="salaried">
-                              {t("employeeTypeSalaried")}
-                            </SelectItem>
-                            <SelectItem value="production">
-                              {t("employeeTypeProduction")}
-                            </SelectItem>
-                            {(admin || e.employeeType === "operator") && (
-                              <SelectItem value="operator">
-                                {t("employeeTypeOperator")}
+                        {/* Operator pay is an admin-only concept elsewhere
+                            (see hideRates in employeeDetail.ts) — a worker
+                            session must not be able to switch someone into
+                            or out of it. Hiding the SelectItem alone left an
+                            operator row's dropdown looking broken (the
+                            trigger has no item to render a label from), so a
+                            worker viewing an operator row gets read-only
+                            text instead of a live control. */}
+                        {!admin && e.employeeType === "operator" ? (
+                          <span className="inline-block w-36 text-muted-foreground">
+                            {t("employeeTypeOperator")}
+                          </span>
+                        ) : (
+                          <Select
+                            value={(e.employeeType as string) ?? "salaried"}
+                            // Changing this changes how the person is paid, so
+                            // it confirms like every other write on this screen.
+                            // It used to be silent on both paths: a failed save
+                            // just snapped the box back with no explanation.
+                            onValueChange={async (v) => {
+                              try {
+                                await saveEmployee({
+                                  ...e,
+                                  employeeType: v,
+                                  employeeTypeConfirmed: true,
+                                });
+                                await load();
+                                toast.success(t("ux2PayTypeSaved"));
+                              } catch (err) {
+                                console.error("people: pay type save failed", err);
+                                toast.error(t("ux2PayTypeSaveFailed"));
+                              }
+                            }}
+                          >
+                            <SelectTrigger className="w-36 min-h-[44px]">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="salaried">
+                                {t("employeeTypeSalaried")}
                               </SelectItem>
-                            )}
-                          </SelectContent>
-                        </Select>
+                              <SelectItem value="production">
+                                {t("employeeTypeProduction")}
+                              </SelectItem>
+                              {admin && (
+                                <SelectItem value="operator">
+                                  {t("employeeTypeOperator")}
+                                </SelectItem>
+                              )}
+                            </SelectContent>
+                          </Select>
+                        )}
                       </TableCell>
                       <TableCell className="text-muted-foreground">
                         {(e.shiftId as string)

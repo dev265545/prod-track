@@ -1,6 +1,7 @@
 "use client";
 
-import { Package } from "lucide-react";
+import { ArrowDown, ArrowUp, Package } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -34,11 +35,20 @@ import { useLanguage } from "@/components/language-provider";
 export function ProductionPayRecord({
   sheet,
   periodLabel,
+  reorderMode = false,
+  savingOrder = false,
+  onMoveRow,
 }: {
   sheet: ProductionPaySheet;
   periodLabel: string;
+  /** Show the move-up/move-down controls used by both tables below. */
+  reorderMode?: boolean;
+  savingOrder?: boolean;
+  onMoveRow?: (rowId: string, direction: -1 | 1) => void;
 }) {
   const { t: tr } = useLanguage();
+  const firstRowId = sheet.rows[0]?.id;
+  const lastRowId = sheet.rows[sheet.rows.length - 1]?.id;
 
   if (sheet.rows.length === 0) {
     return (
@@ -60,6 +70,36 @@ export function ProductionPayRecord({
 
   const noWorkAtAll = sheet.rows.every((r) => r.items.length === 0);
 
+  /** Shared by both tables below: one employee, one pair of arrows. */
+  function MoveButtons({ rowId, name }: { rowId: string; name: string }) {
+    return (
+      <div className="flex items-center gap-1">
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          className="size-11"
+          disabled={savingOrder || firstRowId === rowId}
+          onClick={() => onMoveRow?.(rowId, -1)}
+          aria-label={tr("salarySheetMoveUpAria", { name })}
+        >
+          <ArrowUp className="size-4" />
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          className="size-11"
+          disabled={savingOrder || lastRowId === rowId}
+          onClick={() => onMoveRow?.(rowId, 1)}
+          aria-label={tr("salarySheetMoveDownAria", { name })}
+        >
+          <ArrowDown className="size-4" />
+        </Button>
+      </div>
+    );
+  }
+
   return (
     <Card className="p-6 sm:p-8">
       <CardHeader className="p-0 mb-5">
@@ -68,6 +108,11 @@ export function ProductionPayRecord({
           {tr("prepTitle")} — {periodLabel}
         </CardTitle>
         <p className="text-sm text-muted-foreground mt-1">{tr("prepIntro")}</p>
+        {reorderMode ? (
+          <p className="text-sm text-muted-foreground mt-2">
+            {tr("salarySheetReorderHint")}
+          </p>
+        ) : null}
       </CardHeader>
       <CardContent className="p-0 flex flex-col gap-8">
         <section className="flex flex-col gap-3">
@@ -78,6 +123,11 @@ export function ProductionPayRecord({
             <Table>
               <TableHeader>
                 <TableRow>
+                  {reorderMode && (
+                    <TableHead scope="col" className="w-[104px]">
+                      {tr("salarySheetColOrder")}
+                    </TableHead>
+                  )}
                   <TableHead>{tr("colEmployee")}</TableHead>
                   <TableHead className="text-right tabular-nums whitespace-nowrap">
                     {tr("prepColDayShift")}
@@ -105,6 +155,11 @@ export function ProductionPayRecord({
               <TableBody>
                 {sheet.rows.map((r) => (
                   <TableRow key={r.id}>
+                    {reorderMode && (
+                      <TableCell className="w-[104px]">
+                        <MoveButtons rowId={r.id} name={r.name} />
+                      </TableCell>
+                    )}
                     <TableCell className="font-medium">{r.name}</TableCell>
                     <TableCell className="text-right tabular-nums">
                       {number(r.dayQuantity)}
@@ -148,6 +203,7 @@ export function ProductionPayRecord({
                   </TableRow>
                 ))}
                 <TableRow className="bg-surface-2 font-semibold">
+                  {reorderMode && <TableCell />}
                   <TableCell>{tr("salarySheetPrintTotal")}</TableCell>
                   <TableCell className="text-right tabular-nums">
                     {number(sheet.totals.dayQuantity)}
@@ -189,6 +245,11 @@ export function ProductionPayRecord({
               <Table>
                 <TableHeader>
                   <TableRow>
+                    {reorderMode && (
+                      <TableHead scope="col" className="w-[104px]">
+                        {tr("salarySheetColOrder")}
+                      </TableHead>
+                    )}
                     <TableHead>{tr("colEmployee")}</TableHead>
                     <TableHead>{tr("prepColItem")}</TableHead>
                     <TableHead className="text-right tabular-nums whitespace-nowrap">
@@ -212,6 +273,11 @@ export function ProductionPayRecord({
                   {sheet.rows.map((r) =>
                     r.items.length === 0 ? (
                       <TableRow key={r.id}>
+                        {reorderMode && (
+                          <TableCell className="w-[104px]">
+                            <MoveButtons rowId={r.id} name={r.name} />
+                          </TableCell>
+                        )}
                         <TableCell className="font-medium">{r.name}</TableCell>
                         <TableCell colSpan={6} className="text-muted-foreground">
                           {tr("prepNoWork")}
@@ -220,6 +286,13 @@ export function ProductionPayRecord({
                     ) : (
                       r.items.map((item, index) => (
                         <TableRow key={`${r.id}-${item.itemName}-${item.rate}`}>
+                          {reorderMode && (
+                            <TableCell className="w-[104px]">
+                              {index === 0 ? (
+                                <MoveButtons rowId={r.id} name={r.name} />
+                              ) : null}
+                            </TableCell>
+                          )}
                           <TableCell className="font-medium">
                             {index === 0 ? r.name : ""}
                           </TableCell>

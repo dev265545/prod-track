@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { Check, Clock3, MinusCircle, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { NumberInput } from "@/components/ui/number-input";
@@ -139,9 +140,13 @@ export function RosterRowCard({
           {index + 1}
         </span>
         <div className="min-w-0 flex-1">
-          <p className="truncate font-heading text-base font-semibold leading-tight text-foreground">
+          <Link
+            href={`/employee?id=${encodeURIComponent(row.employeeId)}`}
+            aria-label={t("employeesViewAria", { name: row.name })}
+            className="block truncate rounded-sm font-heading text-base font-semibold leading-tight text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
             {row.name}
-          </p>
+          </Link>
           <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
             {row.mark === null ? (
               <span className="rounded-md border border-dashed border-border px-1.5 py-0.5 font-medium">

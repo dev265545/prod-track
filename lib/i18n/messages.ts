@@ -495,7 +495,6 @@ const en = {
     "Extra paid days = days added to the pay because the worker came in enough days (the Sunday rule for their group). Sunday bonus days = days added for actually working on a Sunday. Total paid days = present days + worked on holiday + extra paid days + Sunday bonus days.",
   salarySheetReorderHint:
     "Use the arrows to move employees. Order saves at once and stays until you change it again.",
-  salarySheetTabAll: "All",
   salarySheetEmptyTitle: "No employees",
   salarySheetEmptyDesc:
     "Add employees on the Employees page to see this month's salary sheet.",
@@ -2562,7 +2561,6 @@ const hi: Record<MessageKey, string> = {
     "एक्स्ट्रा पैसे वाले दिन = कर्मचारी ने पूरे दिन काम किया इसलिए पैसे में जोड़े गए दिन (उसके ग्रुप का रविवार नियम)। रविवार बोनस दिन = रविवार को सच में काम करने पर जुड़े दिन। कुल पैसे वाले दिन = हाजिर दिन + छुट्टी में काम + एक्स्ट्रा पैसे वाले दिन + रविवार बोनस दिन।",
   salarySheetReorderHint:
     "तीर से ऊपर-नीचे करें। क्रम तुरंत सेव हो जाता है जब तक फिर न बदलें।",
-  salarySheetTabAll: "सभी",
   salarySheetEmptyTitle: "कोई कर्मचारी नहीं",
   salarySheetEmptyDesc:
     "इस महीने की शीट देखने के लिए कर्मचारी पेज से लोग जोड़ें।",
