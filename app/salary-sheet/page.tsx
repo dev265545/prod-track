@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import { ArrowDown, ArrowUp, FileSpreadsheet, GripVertical, Printer } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/page-header";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Card,
@@ -39,6 +39,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuthGuard } from "@/lib/hooks/useAuthGuard";
 import { saveEmployeeSortOrder } from "@/lib/services/employeeService";
+import { moveInVisibleOrder } from "@/lib/utils/employeeOrder";
 import {
   getSalarySheetForRange,
   salarySheetRowHasAdjustment,
@@ -53,11 +54,25 @@ import {
   formatMonthYear,
   type DisplayLocale,
 } from "@/lib/utils/date";
-import { currency, number } from "@/lib/utils/formatter";
 import { printHtml } from "@/lib/utils/print";
+import {
+  AUDIT_ACTIONS,
+  record as auditRecord,
+} from "@/lib/services/auditService";
+import {
+  SALARY_SHEET_COLUMNS,
+  buildPrintableHtml,
+} from "@/lib/print/salarySheet";
+import {
+  getProductionPaySheetForRange,
+  type ProductionPaySheet,
+} from "@/lib/services/productionPaySheetService";
+import { ProductionPayRecord } from "@/components/salary-sheet/production-pay-record";
+import { SalarySheetRowCells } from "@/components/salary-sheet/salary-sheet-row-cells";
 import { DatePicker } from "@/components/ui/date-picker";
 import { toast } from "sonner";
 import { useLanguage } from "@/components/language-provider";
+import { cn } from "@/lib/utils";
 import type { MessageKey } from "@/lib/i18n/messages";
 
 function getMonthOptions(
@@ -80,68 +95,15 @@ function getMonthOptions(
   return options;
 }
 
-type SalarySheetCategory = "all" | "salaried" | "production" | "operator";
+type SalarySheetCategory = "salaried" | "production" | "operator";
 
 const CATEGORY_TABS: { value: SalarySheetCategory; labelKey: MessageKey }[] = [
-  { value: "all", labelKey: "salarySheetTabAll" },
   { value: "salaried", labelKey: "employeeTypeSalaried" },
   { value: "production", labelKey: "employeeTypeProduction" },
   { value: "operator", labelKey: "employeeTypeOperator" },
 ];
 
-function buildPrintableHtml(
-  rows: SalarySheetRow[],
-  monthLabel: string,
-  from: string,
-  to: string,
-  tr: (key: MessageKey, vars?: Record<string, string | number>) => string,
-): string {
-  const printStyles =
-    "body{margin:0;font-family:system-ui,sans-serif;font-size:12px;color:#0a0a0a;background:#fff;padding:16px}.mb-4{margin-bottom:12px}.mb-6{margin-bottom:20px}.text-2xl{font-size:1.5rem;font-weight:700}.text-sm{font-size:0.75rem}.text-gray-600{color:#52525b}.border{border:1px solid #e4e4e7}.w-full{width:100%}.table{width:100%;font-size:10px;border-collapse:collapse}.table th,.table td{padding:5px 6px;text-align:left;border:1px solid #e4e4e7}.table th{background:#f4f4f5;font-weight:600}.text-right{text-align:right}.no-print{display:none!important}";
-
-  const colCount = 13;
-  const rowsHtml =
-    rows.length === 0
-      ? `<tr><td colspan="${colCount}" class="border" style="padding:12px;color:#71717a;text-align:center">${tr("salarySheetPrintEmpty")}</td></tr>`
-      : rows
-          .map(
-            (r) =>
-              `<tr>
-                <td class="border" style="padding:5px 6px">${r.name}</td>
-                <td class="border text-right" style="padding:5px 6px">${number(r.presentDays)}</td>
-                <td class="border text-right" style="padding:5px 6px">${number(r.absentDays)}</td>
-                <td class="border text-right" style="padding:5px 6px">${number(r.holidayPresentDays)}</td>
-                <td class="border text-right" style="padding:5px 6px">${number(r.earnedSundayPayDays)}</td>
-                <td class="border text-right" style="padding:5px 6px">${number(r.sundayPresentBonusDays)}</td>
-                <td class="border text-right" style="padding:5px 6px">${number(r.totalPaidDays)}</td>
-                <td class="border text-right" style="padding:5px 6px">${currency(r.monthlySalary)}</td>
-                <td class="border text-right" style="padding:5px 6px">${currency(r.ratePerDay)}</td>
-                <td class="border text-right" style="padding:5px 6px">${currency(r.ratePerHour)}</td>
-                <td class="border text-right" style="padding:5px 6px">${number(r.hoursExtraTotal)}</td>
-                <td class="border text-right" style="padding:5px 6px">${number(r.hoursReducedTotal)}</td>
-                <td class="border text-right font-semibold" style="padding:5px 6px">${currency(r.calculatedSalary)}</td>
-              </tr>`,
-          )
-          .join("");
-
-  const totalSalary = rows.reduce((sum, r) => sum + r.calculatedSalary, 0);
-  const totalRow =
-    rows.length > 0
-      ? `<tr class="border-t-2" style="border-top:2px solid #0a0a0a">
-          <td class="border font-semibold" style="padding:8px">${tr("salarySheetPrintTotal")}</td>
-          <td class="border text-right" colspan="${colCount - 2}" style="padding:8px"></td>
-          <td class="border text-right font-bold" style="padding:8px">${currency(totalSalary)}</td>
-        </tr>`
-      : "";
-
-  const head = `<tr class="border"><th class="border" style="padding:5px 6px">${tr("colEmployee")}</th><th class="border text-right" style="padding:5px 6px">${tr("calTitlePresent")}</th><th class="border text-right" style="padding:5px 6px">${tr("calTitleAbsent")}</th><th class="border text-right" style="padding:5px 6px">${tr("salarySheetColHolidayPresent")}</th><th class="border text-right" style="padding:5px 6px">${tr("salarySheetColEarnedSun")}</th><th class="border text-right" style="padding:5px 6px">${tr("salarySheetColSunPlus")}</th><th class="border text-right" style="padding:5px 6px">${tr("salarySheetColPaidDays")}</th><th class="border text-right" style="padding:5px 6px">${tr("salarySheetColMonthly")}</th><th class="border text-right" style="padding:5px 6px">${tr("salarySheetColPerDay")}</th><th class="border text-right" style="padding:5px 6px">${tr("salarySheetColPerHr")}</th><th class="border text-right" style="padding:5px 6px">${tr("salarySheetColPlusHrs")}</th><th class="border text-right" style="padding:5px 6px">${tr("salarySheetColMinusHrs")}</th><th class="border text-right" style="padding:5px 6px">${tr("salarySheetColSalary")}</th></tr>`;
-
-  const title = `${tr("navSalarySheet")} – ${monthLabel}`;
-  return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><style>${printStyles}</style></head><body id="printArea"><div style="max-width:100%;margin:0 auto"><div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px"><div><h1 class="text-2xl">ProdTrack Lite</h1><p class="text-sm text-gray-600">${title}</p></div><div class="text-sm text-right"><p><strong>${tr("salarySheetPrintMonth")}</strong> ${monthLabel}</p><p><strong>${tr("salarySheetPrintPeriod")}</strong> ${from} – ${to}</p></div></div><table class="table w-full"><thead>${head}</thead><tbody>${rowsHtml}${totalRow}</tbody></table></div></body></html>`;
-}
-
 export default function SalarySheetPage() {
-  const router = useRouter();
   const { t: tr, locale } = useLanguage();
   const { ready } = useAuthGuard({ requireAdmin: true });
   const [loading, setLoading] = useState(true);
@@ -157,15 +119,23 @@ export default function SalarySheetPage() {
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
   const [rows, setRows] = useState<SalarySheetRow[]>([]);
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
+  const [productionSheet, setProductionSheet] =
+    useState<ProductionPaySheet | null>(null);
+  // Only the setters are read: the loaded range is echoed back into state so
+  // a later print uses exactly what the sheet on screen was built from.
+  const [, setFrom] = useState("");
+  const [, setTo] = useState("");
   const [reorderMode, setReorderMode] = useState(false);
   const [savingOrder, setSavingOrder] = useState(false);
-  const [category, setCategory] = useState<SalarySheetCategory>("all");
+  const [category, setCategory] = useState<SalarySheetCategory>("salaried");
+  const [loadFailed, setLoadFailed] = useState(false);
 
-  const monthOptions = getMonthOptions(24, locale);
-  const monthBounds = getMonthRange(year, month);
-  const rangePresets = getMonthRangePresets(year, month, locale);
+  const monthOptions = useMemo(() => getMonthOptions(24, locale), [locale]);
+  const monthBounds = useMemo(() => getMonthRange(year, month), [year, month]);
+  const rangePresets = useMemo(
+    () => getMonthRangePresets(year, month, locale),
+    [year, month, locale],
+  );
   const resolvedCustomFrom = clampDateToMonth(
     customFrom || monthBounds.from,
     year,
@@ -176,7 +146,7 @@ export default function SalarySheetPage() {
     year,
     month,
   );
-  const selectedRange =
+  const selectedRange = useMemo(() =>
     rangeMode === "custom"
       ? {
           from:
@@ -197,20 +167,32 @@ export default function SalarySheetPage() {
             locale,
           ),
         }
-      : rangePresets.find((preset) => preset.mode === rangeMode) ?? rangePresets[0];
+      : rangePresets.find((preset) => preset.mode === rangeMode) ?? rangePresets[0],
+    [rangeMode, resolvedCustomFrom, resolvedCustomTo, rangePresets, locale],
+  );
 
   const load = useCallback(async () => {
     setLoading(true);
+    setLoadFailed(false);
     try {
-      const result = await getSalarySheetForRange(
-        year,
-        month,
-        selectedRange.from,
-        selectedRange.to,
-      );
+      const [result, production] = await Promise.all([
+        getSalarySheetForRange(
+          year,
+          month,
+          selectedRange.from,
+          selectedRange.to,
+        ),
+        getProductionPaySheetForRange(selectedRange.from, selectedRange.to),
+      ]);
       setRows(result.rows);
+      setProductionSheet(production);
       setFrom(result.from);
       setTo(result.to);
+    } catch (error) {
+      console.error("[salary-sheet] failed to load", error);
+      setRows([]);
+      setProductionSheet(null);
+      setLoadFailed(true);
     } finally {
       setLoading(false);
     }
@@ -241,6 +223,19 @@ export default function SalarySheetPage() {
     if (nextTo < nextFrom) setCustomFrom(nextTo);
   };
 
+  // Production workers are no longer on this attendance-based sheet at all
+  // (the service leaves them out), so the Production tab shows their own
+  // work record instead of an empty table.
+  const showSalaryTable = category !== "production";
+  const showProductionRecord = category === "production";
+  // Filtering is one O(n) pass over ~150 rows and never rebuilds the sheet —
+  // switching tabs must not re-run the payroll engine. Memoised so the row
+  // objects handed to the memoised cells keep a stable array identity too.
+  const visibleRows = useMemo(
+    () => rows.filter((r) => r.employeeType === category),
+    [rows, category],
+  );
+
   const handlePrint = async () => {
     console.log("[print] Print button clicked (salary sheet)");
     const titleLabel =
@@ -250,38 +245,69 @@ export default function SalarySheetPage() {
             locale,
           )
         : selectedRange.label;
-    const fresh = await getSalarySheetForRange(
-      year,
-      month,
-      selectedRange.from,
-      selectedRange.to,
+    let fresh: Awaited<ReturnType<typeof getSalarySheetForRange>>;
+    let freshProduction: ProductionPaySheet;
+    try {
+      [fresh, freshProduction] = await Promise.all([
+        getSalarySheetForRange(
+          year,
+          month,
+          selectedRange.from,
+          selectedRange.to,
+        ),
+        getProductionPaySheetForRange(selectedRange.from, selectedRange.to),
+      ]);
+    } catch (error) {
+      console.error("[salary-sheet] failed to load for print", error);
+      toast.error(tr("plainSalarySheetLoadFailed"));
+      return;
+    }
+    const freshVisibleRows = fresh.rows.filter(
+      (r) => r.employeeType === category,
     );
-    const freshVisibleRows =
-      category === "all"
-        ? fresh.rows
-        : fresh.rows.filter((r) => r.employeeType === category);
-    const categoryLabel =
-      category === "all"
-        ? ""
-        : ` – ${tr(CATEGORY_TABS.find((c) => c.value === category)!.labelKey)}`;
-    const html = buildPrintableHtml(
-      freshVisibleRows,
-      `${titleLabel}${categoryLabel}`,
-      fresh.from,
-      fresh.to,
+    const categoryLabel = ` – ${tr(CATEGORY_TABS.find((c) => c.value === category)!.labelKey)}`;
+    const html = buildPrintableHtml({
+      rows: showSalaryTable ? freshVisibleRows : null,
+      productionSheet: showProductionRecord ? freshProduction : null,
+      monthLabel: `${titleLabel}${categoryLabel}`,
+      from: fresh.from,
+      to: fresh.to,
       tr,
-    );
+    });
     console.log("[print] Got HTML, length:", html?.length ?? 0);
     await printHtml(html);
+    void auditRecord(
+      AUDIT_ACTIONS.salaryPrint,
+      "salary_records",
+      null,
+      tr("auditWireSalarySheetPrint", { period: `${titleLabel}${categoryLabel}` }),
+      {
+        from: fresh.from,
+        to: fresh.to,
+        employeesOnSheet: freshVisibleRows.length,
+      },
+    );
   };
 
-  const moveRow = async (index: number, direction: -1 | 1) => {
-    const nextIndex = index + direction;
-    if (nextIndex < 0 || nextIndex >= rows.length || savingOrder) return;
+  /**
+   * Swap a row with its neighbour *as displayed*. Under a category tab some
+   * rows are hidden, so the neighbour in `visibleRows` is the one the user
+   * sees — stepping through the unfiltered `rows` would jump a hidden row
+   * and save an order different from the one on screen.
+   */
+  const moveRow = async (rowId: SalarySheetRow["id"], direction: -1 | 1) => {
+    if (savingOrder) return;
+    const visibleIndex = visibleRows.findIndex((row) => row.id === rowId);
+    const neighbour = visibleRows[visibleIndex + direction];
+    if (visibleIndex < 0 || !neighbour) return;
+
+    const fromIndex = rows.findIndex((row) => row.id === rowId);
+    const toIndex = rows.findIndex((row) => row.id === neighbour.id);
+    if (fromIndex < 0 || toIndex < 0) return;
 
     const nextRows = [...rows];
-    const [moved] = nextRows.splice(index, 1);
-    nextRows.splice(nextIndex, 0, moved);
+    nextRows[fromIndex] = rows[toIndex];
+    nextRows[toIndex] = rows[fromIndex];
     const previousRows = rows;
     setRows(nextRows);
     setSavingOrder(true);
@@ -289,6 +315,41 @@ export default function SalarySheetPage() {
       await saveEmployeeSortOrder(nextRows.map((row) => row.id));
     } catch {
       setRows(previousRows);
+      toast.error(tr("salarySheetToastOrderFail"));
+    } finally {
+      setSavingOrder(false);
+    }
+  };
+
+  /**
+   * Same idea as `moveRow`, for the Production tab. Production workers never
+   * appear in `rows` at all (they're off the attendance sheet entirely), so
+   * there is no hidden neighbour to skip — every row in `productionSheet` is
+   * on screen, in both of its tables at once, and the order written here
+   * feeds the same per-employee `sortOrder` field the other tabs use.
+   */
+  const moveProductionRow = async (rowId: string, direction: -1 | 1) => {
+    if (savingOrder || !productionSheet) return;
+    const ids = productionSheet.rows.map((row) => row.id);
+    const nextIds = moveInVisibleOrder({
+      orderedIds: ids,
+      visibleIds: ids,
+      id: rowId,
+      direction,
+    });
+    if (!nextIds) return;
+
+    const rowById = new Map(productionSheet.rows.map((row) => [row.id, row]));
+    const previousSheet = productionSheet;
+    setProductionSheet({
+      ...productionSheet,
+      rows: nextIds.map((id) => rowById.get(id)!),
+    });
+    setSavingOrder(true);
+    try {
+      await saveEmployeeSortOrder(nextIds);
+    } catch {
+      setProductionSheet(previousSheet);
       toast.error(tr("salarySheetToastOrderFail"));
     } finally {
       setSavingOrder(false);
@@ -311,30 +372,23 @@ export default function SalarySheetPage() {
     `${year}-${String(month + 1).padStart(2, "0")}-01`,
     locale,
   );
-  const visibleRows =
-    category === "all" ? rows : rows.filter((r) => r.employeeType === category);
-  const hasNoEmployees = visibleRows.length === 0 && !loading;
+  const hasNoEmployees = visibleRows.length === 0 && !loading && !loadFailed;
 
   return (
     <AppShell>
       <main className="flex flex-col gap-8 animate-fade-in">
-        <div className="flex flex-wrap items-end justify-between gap-4">
-          <div className="space-y-1">
-            <h1 className="text-3xl font-bold text-foreground font-heading">
-              {tr("navSalarySheet")}
-            </h1>
-            <p className="text-sm text-muted-foreground">
-              {tr("salarySheetIntro")}
-            </p>
-          </div>
-          <div className="flex flex-wrap items-end gap-4">
-            <div className="flex flex-col gap-2">
+        <PageHeader
+          title={tr("navSalarySheet")}
+          intro={tr("salarySheetIntro")}
+          action={
+            <>
+            <div className="flex min-w-0 flex-col gap-2">
               <Label htmlFor="salary-month">{tr("dashboardMonth")}</Label>
               <Select
                 value={monthValue}
                 onValueChange={handleMonthChange}
               >
-                <SelectTrigger id="salary-month" className="min-w-[200px] min-h-12">
+                <SelectTrigger id="salary-month" className="w-full min-w-0 min-h-12 sm:min-w-[200px]">
                   <SelectValue placeholder={tr("salarySheetSelectMonth")} />
                 </SelectTrigger>
                 <SelectContent>
@@ -349,7 +403,7 @@ export default function SalarySheetPage() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="flex flex-col gap-2">
+            <div className="flex min-w-0 flex-col gap-2">
               <Label htmlFor="salary-range-mode">{tr("salarySheetRange")}</Label>
               <Select
                 value={rangeMode}
@@ -357,7 +411,7 @@ export default function SalarySheetPage() {
               >
                 <SelectTrigger
                   id="salary-range-mode"
-                  className="min-w-[200px] min-h-12"
+                  className="w-full min-w-0 min-h-12 sm:min-w-[200px]"
                 >
                   <SelectValue placeholder={tr("salarySheetSelectRange")} />
                 </SelectTrigger>
@@ -375,7 +429,7 @@ export default function SalarySheetPage() {
             </div>
             {rangeMode === "custom" && (
               <>
-                <div className="flex flex-col gap-2">
+                <div className="flex min-w-0 flex-col gap-2">
                   <Label htmlFor="salary-range-from">{tr("salarySheetLabelFrom")}</Label>
                   <DatePicker
                     id="salary-range-from"
@@ -383,10 +437,10 @@ export default function SalarySheetPage() {
                     onChange={handleCustomFromChange}
                     min={monthBounds.from}
                     max={monthBounds.to}
-                    className="min-w-[180px] min-h-12"
+                    className="w-full min-w-0 min-h-12 sm:min-w-[180px]"
                   />
                 </div>
-                <div className="flex flex-col gap-2">
+                <div className="flex min-w-0 flex-col gap-2">
                   <Label htmlFor="salary-range-to">{tr("salarySheetLabelTo")}</Label>
                   <DatePicker
                     id="salary-range-to"
@@ -394,7 +448,7 @@ export default function SalarySheetPage() {
                     onChange={handleCustomToChange}
                     min={monthBounds.from}
                     max={monthBounds.to}
-                    className="min-w-[180px] min-h-12"
+                    className="w-full min-w-0 min-h-12 sm:min-w-[180px]"
                   />
                 </div>
               </>
@@ -416,30 +470,46 @@ export default function SalarySheetPage() {
               <Printer data-icon="inline-start" className="size-4" />
               {tr("salarySheetPrint")}
             </Button>
-          </div>
-        </div>
+            </>
+          }
+        />
 
         <Tabs
           value={category}
           onValueChange={(value) => setCategory(value as SalarySheetCategory)}
         >
-          <TabsList>
-            {CATEGORY_TABS.map((tab) => (
-              <TabsTrigger key={tab.value} value={tab.value}>
-                {tr(tab.labelKey)}
-              </TabsTrigger>
-            ))}
-          </TabsList>
+          {/* The four tabs together can be wider than a phone screen, so the
+              strip scrolls on its own instead of widening the page. */}
+          <div className="min-w-0 overflow-x-auto">
+            <TabsList className="h-auto">
+              {CATEGORY_TABS.map((tab) => (
+                <TabsTrigger
+                  key={tab.value}
+                  value={tab.value}
+                  className="min-h-11 px-4"
+                >
+                  {tr(tab.labelKey)}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </div>
         </Tabs>
 
+        {showSalaryTable && (
         <Card className="p-6 sm:p-8">
           <CardHeader className="p-0 mb-5">
             <CardTitle className="text-xl font-semibold font-heading flex items-center gap-2">
-              <FileSpreadsheet className="size-5 text-primary" />
+              <FileSpreadsheet className="size-5 shrink-0 text-primary" />
               {rangeMode === "full-month" ? monthLabel : selectedRange.label}
             </CardTitle>
             <p className="text-sm text-muted-foreground mt-1">
               {tr("salarySheetCardIntro")}
+            </p>
+            <p className="text-xs leading-relaxed text-muted-foreground mt-2 max-w-3xl">
+              {tr("plainSalarySheetLegend")}
+            </p>
+            <p className="text-xs leading-relaxed text-muted-foreground mt-2 max-w-3xl">
+              {tr("prepNoteOnSalarySheet")}
             </p>
             {reorderMode && (
               <p className="text-sm text-muted-foreground mt-2">
@@ -453,6 +523,26 @@ export default function SalarySheetPage() {
                 <Skeleton className="h-12 w-full rounded-lg" />
                 <Skeleton className="h-64 w-full rounded-lg" />
               </div>
+            ) : loadFailed ? (
+              <Empty className="py-12 border-0">
+                <EmptyHeader>
+                  <EmptyMedia variant="icon">
+                    <FileSpreadsheet className="size-6 text-destructive" />
+                  </EmptyMedia>
+                  <EmptyTitle>{tr("plainSalarySheetLoadFailed")}</EmptyTitle>
+                  <EmptyDescription>
+                    {tr("plainSalarySheetLoadFailedDesc")}
+                  </EmptyDescription>
+                </EmptyHeader>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="mt-4 min-h-12 px-6"
+                  onClick={() => void load()}
+                >
+                  {tr("plainTryAgain")}
+                </Button>
+              </Empty>
             ) : hasNoEmployees ? (
               <Empty className="py-12 border-0">
                 <EmptyHeader>
@@ -466,59 +556,50 @@ export default function SalarySheetPage() {
                 </EmptyHeader>
               </Empty>
             ) : (
-              <div className="overflow-x-auto">
-                <Table>
+              <div className="min-w-0 overflow-x-auto">
+                <Table aria-label={tr("navSalarySheet")}>
                   <TableHeader>
                     <TableRow>
                       {reorderMode && (
-                        <TableHead className="w-[88px]">{tr("salarySheetColOrder")}</TableHead>
+                        <TableHead scope="col" className="w-[104px]">
+                          {tr("salarySheetColOrder")}
+                        </TableHead>
                       )}
-                      <TableHead>{tr("colEmployee")}</TableHead>
-                      <TableHead className="text-right tabular-nums">{tr("calTitlePresent")}</TableHead>
-                      <TableHead className="text-right tabular-nums">{tr("calTitleAbsent")}</TableHead>
-                      <TableHead className="text-right tabular-nums whitespace-nowrap">{tr("salarySheetColHolidayPresent")}</TableHead>
-                      <TableHead className="text-right tabular-nums whitespace-nowrap">{tr("salarySheetColEarnedSun")}</TableHead>
-                      <TableHead className="text-right tabular-nums">{tr("salarySheetColSunPlus")}</TableHead>
-                      <TableHead className="text-right tabular-nums">{tr("salarySheetColPaidDays")}</TableHead>
-                      <TableHead className="text-right tabular-nums whitespace-nowrap">{tr("salarySheetColMonthly")}</TableHead>
-                      <TableHead className="text-right tabular-nums">{tr("salarySheetColPerDay")}</TableHead>
-                      <TableHead className="text-right tabular-nums">{tr("salarySheetColPerHr")}</TableHead>
-                      <TableHead className="text-right tabular-nums">{tr("salarySheetColPlusHrs")}</TableHead>
-                      <TableHead className="text-right tabular-nums">{tr("salarySheetColMinusHrs")}</TableHead>
-                      <TableHead className="text-right tabular-nums">{tr("salarySheetColSalary")}</TableHead>
+                      {SALARY_SHEET_COLUMNS.map((col) => (
+                        <TableHead
+                          key={col.key}
+                          scope="col"
+                          className={cn(
+                            col.align === "right" && "text-right tabular-nums",
+                            col.nowrap && "whitespace-nowrap",
+                          )}
+                        >
+                          {tr(col.labelKey)}
+                        </TableHead>
+                      ))}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {visibleRows.map((r) => (
+                      // Not `role="button"` on the row: with the reorder arrows
+                      // and the name link inside it, that was
+                      // nested-interactive markup which flattened every cell
+                      // into one unreadable button label. The link is in the
+                      // name cell, which is also the row's header.
                       <TableRow
                         key={r.id}
-                        className="cursor-pointer hover:bg-muted/50 transition-colors"
-                        onClick={() =>
-                          router.push(`/employee?id=${encodeURIComponent(String(r.id))}`)
-                        }
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" || e.key === " ") {
-                            e.preventDefault();
-                            router.push(`/employee?id=${encodeURIComponent(String(r.id))}`);
-                          }
-                        }}
-                        tabIndex={0}
-                        role="button"
-                        aria-label={tr("viewEmployeeAria", { name: r.name })}
+                        className="transition-colors hover:bg-surface-2"
                       >
                         {reorderMode && (
-                          <TableCell
-                            className="w-[88px]"
-                            onClick={(event) => event.stopPropagation()}
-                            onKeyDown={(event) => event.stopPropagation()}
-                          >
+                          <TableCell className="w-[104px]">
                             <div className="flex items-center gap-1">
                               <Button
                                 type="button"
                                 variant="ghost"
                                 size="icon-sm"
+                                className="size-11"
                                 disabled={savingOrder || visibleRows[0]?.id === r.id}
-                                onClick={() => void moveRow(rows.findIndex((row) => row.id === r.id), -1)}
+                                onClick={() => void moveRow(r.id, -1)}
                                 aria-label={tr("salarySheetMoveUpAria", { name: r.name })}
                               >
                                 <ArrowUp className="size-4" />
@@ -527,8 +608,9 @@ export default function SalarySheetPage() {
                                 type="button"
                                 variant="ghost"
                                 size="icon-sm"
+                                className="size-11"
                                 disabled={savingOrder || visibleRows[visibleRows.length - 1]?.id === r.id}
-                                onClick={() => void moveRow(rows.findIndex((row) => row.id === r.id), 1)}
+                                onClick={() => void moveRow(r.id, 1)}
                                 aria-label={tr("salarySheetMoveDownAria", { name: r.name })}
                               >
                                 <ArrowDown className="size-4" />
@@ -536,26 +618,10 @@ export default function SalarySheetPage() {
                             </div>
                           </TableCell>
                         )}
-                        <TableCell className="font-medium">
-                          {r.name}
-                          {salarySheetRowHasAdjustment(r) ? (
-                            <span className="ml-2 text-xs font-normal text-amber-700 dark:text-amber-400">
-                              ({tr("salarySheetAdjustedBadge")})
-                            </span>
-                          ) : null}
-                        </TableCell>
-                        <TableCell className="text-right tabular-nums">{number(r.presentDays)}</TableCell>
-                        <TableCell className="text-right tabular-nums">{number(r.absentDays)}</TableCell>
-                        <TableCell className="text-right tabular-nums">{number(r.holidayPresentDays)}</TableCell>
-                        <TableCell className="text-right tabular-nums">{number(r.earnedSundayPayDays)}</TableCell>
-                        <TableCell className="text-right tabular-nums">{number(r.sundayPresentBonusDays)}</TableCell>
-                        <TableCell className="text-right tabular-nums">{number(r.totalPaidDays)}</TableCell>
-                        <TableCell className="text-right tabular-nums text-muted-foreground">{currency(r.monthlySalary)}</TableCell>
-                        <TableCell className="text-right tabular-nums text-muted-foreground">{currency(r.ratePerDay)}</TableCell>
-                        <TableCell className="text-right tabular-nums text-muted-foreground">{currency(r.ratePerHour)}</TableCell>
-                        <TableCell className="text-right tabular-nums">{number(r.hoursExtraTotal)}</TableCell>
-                        <TableCell className="text-right tabular-nums">{number(r.hoursReducedTotal)}</TableCell>
-                        <TableCell className="text-right tabular-nums font-semibold">{currency(r.calculatedSalary)}</TableCell>
+                        <SalarySheetRowCells
+                          row={r}
+                          hasAdjustment={salarySheetRowHasAdjustment(r)}
+                        />
                       </TableRow>
                     ))}
                   </TableBody>
@@ -564,6 +630,46 @@ export default function SalarySheetPage() {
             )}
           </CardContent>
         </Card>
+        )}
+
+        {showProductionRecord &&
+          !loading &&
+          !loadFailed &&
+          productionSheet !== null && (
+            <ProductionPayRecord
+              sheet={productionSheet}
+              periodLabel={
+                rangeMode === "full-month" ? monthLabel : selectedRange.label
+              }
+              reorderMode={reorderMode}
+              savingOrder={savingOrder}
+              onMoveRow={moveProductionRow}
+            />
+          )}
+
+        {showProductionRecord && loading && (
+          <Skeleton className="h-64 w-full rounded-lg" />
+        )}
+
+        {category === "production" && loadFailed && (
+          <Empty className="py-12 border-0">
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <FileSpreadsheet className="size-6 text-destructive" />
+              </EmptyMedia>
+              <EmptyTitle>{tr("prepLoadFailed")}</EmptyTitle>
+              <EmptyDescription>{tr("prepLoadFailedDesc")}</EmptyDescription>
+            </EmptyHeader>
+            <Button
+              type="button"
+              variant="outline"
+              className="mt-4 min-h-12 px-6"
+              onClick={() => void load()}
+            >
+              {tr("plainTryAgain")}
+            </Button>
+          </Empty>
+        )}
 
       </main>
     </AppShell>

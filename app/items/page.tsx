@@ -1,16 +1,55 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { AppShell } from "@/components/app-shell";
+/**
+ * Items and their money — the only place an item's *rate* can be set.
+ *
+ * Until this screen existed, `/items` redirected to Inventory, and no screen in
+ * the app had a rate box: an item created anywhere could never be paid, while
+ * the production form told the operator to "open Items and set a rate first" —
+ * naming a screen he could not reach. Pay is quantity × rate
+ * (`salaryService`), so the missing box was missing pay.
+ *
+ * It also matters with the production/inventory link switched OFF: production
+ * then falls back to the legacy `items` store, and this is the only screen that
+ * can add, price or remove those rows.
+ *
+ * The list is deliberately BOTH item lists: the `items` rows, plus every
+ * finished stock item that has no `items` row yet. A thing added on the Stock
+ * screen had no money box there and no row here, so it could be picked in
+ * Production and then refused for want of a rate with nowhere to fix it.
+ * Pricing such a row here creates its `items` row (`priceStockItem`, the same
+ * call production makes on first use) and it becomes an ordinary row. There is
+ * still exactly one place a price is typed — `resolveEntryRate` makes the
+ * `items` row win, so the number read here is always the number paid.
+ *
+ * Nothing here is optimistic. Every change is written first and the list is
+ * then re-read from the database, so the screen can never show a rate the
+ * database does not hold.
+ */
+
+import { useCallback, useEffect, useState } from "react";
 import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+  AlertTriangle,
+  IndianRupee,
+  Info,
+  PackageSearch,
+  Pencil,
+  Plus,
+  Search,
+  Shapes,
+  Trash2,
+} from "lucide-react";
+import { toast } from "sonner";
+import { AppShell } from "@/components/app-shell";
+import { AppLoadingScreen } from "@/components/app-loading-screen";
+import { LoadError } from "@/components/load-error";
+import { useLanguage } from "@/components/language-provider";
+import { useAuthGuard } from "@/lib/hooks/useAuthGuard";
+import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/page-header";
+import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Button } from "@/components/ui/button";
 import {
   Table,
   TableBody,
@@ -19,11 +58,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Package, Trash2 } from "lucide-react";
-import { useAuthGuard } from "@/lib/hooks/useAuthGuard";
-import { getItems, saveItem, deleteItem } from "@/lib/services/itemService";
-import { toast } from "sonner";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -35,138 +69,438 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { AppLoadingScreen } from "@/components/app-loading-screen";
-import { useLanguage } from "@/components/language-provider";
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
+import {
+  ItemEditorDialog,
+  type ItemDraft,
+} from "@/components/items/item-editor-dialog";
+import {
+  countUnpricedItems,
+  filterItemRows,
+  isStockRow,
+  normalizeItemRows,
+  stockItemRow,
+  type ItemRow,
+} from "@/lib/utils/itemCatalog";
+import {
+  deleteItem,
+  getItem,
+  getItems,
+  saveItem,
+} from "@/lib/services/itemService";
+import { getAppSettings } from "@/lib/services/appSettingsService";
+import {
+  loadUnpairedStockItems,
+  priceStockItem,
+} from "@/lib/services/productionCatalog";
+
+/** The search box only earns its space once the list is long enough to scan. */
+const SEARCH_THRESHOLD = 8;
+
+const rateFormat = new Intl.NumberFormat("en-IN", {
+  minimumFractionDigits: 0,
+  maximumFractionDigits: 2,
+});
+
+interface PageData {
+  items: ItemRow[];
+  /** True when production reads the stock list; changes only a help note here. */
+  stockLinked: boolean;
+  /** How many of `items` are stock items still waiting for their first price. */
+  fromStock: number;
+}
+
+/**
+ * The list is the `items` rows *plus* every finished stock item that has no
+ * `items` row yet.
+ *
+ * Without the second half, an item added on the Stock screen was priceable
+ * nowhere: the Stock form has no money box, and this screen only knew about
+ * `items` rows — so production offered the item, refused to save it for want
+ * of a rate, and sent the owner here to a list it was not in. Both halves are
+ * shown together on purpose; the price is still typed in one place, and the
+ * moment it is typed the row becomes an ordinary `items` row.
+ */
+async function fetchPageData(): Promise<PageData> {
+  const [rows, settings, stock] = await Promise.all([
+    getItems(),
+    getAppSettings(),
+    loadUnpairedStockItems().catch(() => []),
+  ]);
+  const stockRows = stock.map(stockItemRow);
+  return {
+    items: [...normalizeItemRows(rows), ...stockRows],
+    stockLinked: settings.productionInventoryLinkEnabled,
+    fromStock: stockRows.length,
+  };
+}
 
 export default function ItemsPage() {
   const { ready: guardReady } = useAuthGuard();
   const { t } = useLanguage();
-  const [dataLoaded, setDataLoaded] = useState(false);
-  const ready = guardReady && dataLoaded;
-  const [items, setItems] = useState<Record<string, unknown>[]>([]);
-  const [itemName, setItemName] = useState("");
-  const [itemRate, setItemRate] = useState(0);
-  const [itemStock, setItemStock] = useState(0);
+  const [data, setData] = useState<PageData | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [query, setQuery] = useState("");
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [editing, setEditing] = useState<ItemRow | null>(null);
 
-  const load = async () => {
-    const list = await getItems();
-    setItems(list);
-  };
+  const load = useCallback(async () => {
+    setData(await fetchPageData());
+  }, []);
+
+  /**
+   * A failed read must NOT become `{ items: [] }` — that renders the empty
+   * state, which tells the owner his item list is empty when in fact the
+   * database threw. Loading, empty and failed stay three separate things.
+   */
+  const reload = useCallback(() => {
+    setLoadFailed(false);
+    setData(null);
+    fetchPageData()
+      .then(setData)
+      .catch((err) => {
+        console.error("items: load failed", err);
+        setLoadFailed(true);
+      });
+  }, []);
 
   useEffect(() => {
     if (!guardReady) return;
-    load().then(() => setDataLoaded(true));
-  }, [guardReady]);
+    reload();
+  }, [guardReady, reload]);
 
-  if (!ready) {
+  if (loadFailed) {
+    return (
+      <AppShell>
+        <main className="flex min-w-0 flex-col gap-6">
+          <LoadError onRetry={reload} />
+        </main>
+      </AppShell>
+    );
+  }
+
+  if (!guardReady || data === null) {
     return (
       <AppLoadingScreen
-        title={t("loadingOpeningItems")}
-        description={t("loadingOpeningItemsDesc")}
+        title={t("itmLoadingTitle")}
+        description={t("itmLoadingDesc")}
       />
     );
   }
 
-  const btnPrimaryClass = "min-h-[44px] px-6 py-3 text-base";
+  const items = data.items;
+  const shown = filterItemRows(items, query);
+  const unpriced = countUnpricedItems(items);
+  const showSearch = items.length >= SEARCH_THRESHOLD;
+
+  const openAdd = () => {
+    setEditing(null);
+    setEditorOpen(true);
+  };
+
+  const openEdit = (item: ItemRow) => {
+    setEditing(item);
+    setEditorOpen(true);
+  };
+
+  /**
+   * Save, then re-read. The stored row is fetched first so fields this screen
+   * does not show (anything an older build or another module wrote) survive
+   * the edit instead of being dropped.
+   */
+  const handleSave = async (draft: ItemDraft): Promise<boolean> => {
+    try {
+      // A stock row has no `items` row to update — pricing it creates one, by
+      // the same call production makes on first use, so an item priced here is
+      // an item production is guaranteed to accept.
+      if (editing && isStockRow(editing) && editing.stockItemId) {
+        const result = await priceStockItem(
+          {
+            id: editing.stockItemId,
+            name: editing.name,
+            code: editing.code,
+          },
+          draft.rate ?? 0,
+        );
+        if (!result.ok) {
+          toast.error(t("rateStockNeedAmount"));
+          return false;
+        }
+        await load();
+        toast.success(t("itmSaveSuccess"));
+        return true;
+      }
+      const existing = editing ? await getItem(editing.id) : null;
+      await saveItem({
+        ...(existing ?? {}),
+        ...(editing ? { id: editing.id } : {}),
+        name: draft.name,
+        code: draft.code ?? "",
+        // `undefined` would be dropped by a structured-clone write and leave an
+        // old rate in place; `null` is what "not priced" is stored as.
+        rate: draft.rate,
+      });
+      await load();
+      toast.success(t("itmSaveSuccess"));
+      return true;
+    } catch {
+      // The list on screen is still the list in the database: nothing was
+      // re-rendered from the draft, so there is nothing to roll back.
+      toast.error(t("itmSaveFail"));
+      return false;
+    }
+  };
+
+  const handleDelete = async (item: ItemRow) => {
+    try {
+      await deleteItem(item.id);
+      await load();
+      toast.success(t("itmDeleteSuccess"));
+    } catch {
+      toast.error(t("itmDeleteFail"));
+      await load().catch(() => {});
+    }
+  };
 
   return (
     <AppShell>
-      <main className="flex flex-col gap-10 animate-fade-in">
-        <header className="flex flex-col gap-2">
-          <h1 className="font-heading text-3xl font-bold tracking-tight text-foreground md:text-4xl">
-            {t("itemsPageTitle")}
-          </h1>
-          <p className="max-w-2xl text-base leading-relaxed text-muted-foreground">
-            {t("itemsPageIntro")}
-          </p>
-        </header>
+      <main className="animate-fade-in flex w-full min-w-0 flex-col gap-6">
+        <PageHeader
+          title={t("itmTitle")}
+          intro={t("itmSubtitle")}
+          action={
+            <Button
+              type="button"
+              className="min-h-[44px] px-6 py-3 text-base"
+              onClick={openAdd}
+            >
+              <Plus data-icon="inline-start" aria-hidden />
+              {t("itmAdd")}
+            </Button>
+          }
+        />
 
-        <Card className="overflow-hidden border-border/80 shadow-sm">
-          <CardHeader className="border-b border-border/60 bg-muted/25 pb-6">
-            <CardTitle className="flex items-center gap-2 text-xl font-semibold font-heading">
-              <Package className="size-5 text-primary" />
-              {t("itemsCardTitle")}
-            </CardTitle>
-            <p className="text-sm text-muted-foreground">
-              {t("itemsCardSubtitle")}
+        <div className="flex max-w-2xl flex-col gap-2 rounded-xl border border-border bg-surface-2 p-4">
+          <p className="flex items-center gap-2 text-base font-semibold text-foreground">
+            <Info className="size-5 shrink-0" aria-hidden />
+            {t("itmWhyTitle")}
+          </p>
+          <p className="text-base leading-relaxed text-muted-foreground">
+            {t("itmWhyBody")}
+          </p>
+          {data.stockLinked ? (
+            <p className="text-base leading-relaxed text-muted-foreground">
+              {t("itmStockLinkNote")}
             </p>
-          </CardHeader>
-          <CardContent className="p-6 sm:p-8">
-            <div className="overflow-x-auto mb-8">
-              <Table>
+          ) : null}
+        </div>
+
+        {unpriced > 0 ? (
+          <div className="flex max-w-2xl flex-col gap-2 rounded-xl border border-border bg-surface-3 p-4">
+            <p className="flex items-center gap-2 text-base font-semibold text-warning">
+              <AlertTriangle className="size-5 shrink-0" aria-hidden />
+              {unpriced === 1
+                ? t("itmNeedRateOneTitle")
+                : t("itmNeedRateTitle", { count: unpriced })}
+            </p>
+            <p className="text-base leading-relaxed text-muted-foreground">
+              {t("itmNeedRateBody")}
+            </p>
+          </div>
+        ) : null}
+
+        {data.fromStock > 0 ? (
+          <div className="flex max-w-2xl flex-col gap-2 rounded-xl border border-border bg-surface-2 p-4">
+            <p className="flex items-center gap-2 text-base font-semibold text-foreground">
+              <PackageSearch className="size-5 shrink-0" aria-hidden />
+              {data.fromStock === 1
+                ? t("rateFromStockOneTitle")
+                : t("rateFromStockTitle", { count: data.fromStock })}
+            </p>
+            <p className="text-base leading-relaxed text-muted-foreground">
+              {t("rateFromStockBody")}
+            </p>
+          </div>
+        ) : null}
+
+        {/* The add button used to live here, beside the search field. It is
+            the screen's action, not the search box's, so it moved to the page
+            header; what is left is the filter for the list below it. */}
+        {showSearch ? (
+          <div className="flex w-full min-w-0 flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+            <div className="flex min-w-0 flex-col gap-2 sm:max-w-sm sm:flex-1">
+              <Label htmlFor="itemSearch">{t("itmSearchLabel")}</Label>
+              <div className="relative min-w-0">
+                <Search
+                  className="pointer-events-none absolute left-3 top-1/2 size-5 -translate-y-1/2 text-muted-foreground"
+                  aria-hidden
+                />
+                <Input
+                  id="itemSearch"
+                  type="search"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder={t("itmSearchPlaceholder")}
+                  className="min-h-[44px] w-full pl-11 text-base"
+                  autoComplete="off"
+                />
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {items.length === 0 ? (
+          <Empty className="border border-border bg-surface-1">
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <Shapes aria-hidden />
+              </EmptyMedia>
+              <EmptyTitle className="text-xl">{t("itmEmptyTitle")}</EmptyTitle>
+              <EmptyDescription className="text-base leading-relaxed">
+                {t("itmEmptyBody")}
+              </EmptyDescription>
+            </EmptyHeader>
+            <Button
+              type="button"
+              className="min-h-[44px] px-6 py-3 text-base"
+              onClick={openAdd}
+            >
+              <Plus data-icon="inline-start" aria-hidden />
+              {t("itmAdd")}
+            </Button>
+          </Empty>
+        ) : shown.length === 0 ? (
+          <Empty className="border border-border bg-surface-1">
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <Search aria-hidden />
+              </EmptyMedia>
+              <EmptyTitle className="text-xl">{t("itmNoMatchTitle")}</EmptyTitle>
+              <EmptyDescription className="text-base leading-relaxed">
+                {t("itmNoMatchBody")}
+              </EmptyDescription>
+            </EmptyHeader>
+            <Button
+              type="button"
+              variant="outline"
+              className="min-h-[44px] px-6 py-3 text-base"
+              onClick={() => setQuery("")}
+            >
+              {t("itmClearSearch")}
+            </Button>
+          </Empty>
+        ) : (
+          <>
+            {/* Live: the count is the only thing that answers "did my typing
+                do anything?", and it changes with no focus moving to it. */}
+            {showSearch ? (
+              <p className="text-base text-muted-foreground" aria-live="polite">
+                {t("itmCountShown", { shown: shown.length, total: items.length })}
+              </p>
+            ) : null}
+            {/* Its own scroller: the page itself must never scroll sideways. */}
+            <div className="w-full overflow-x-auto rounded-xl border border-border">
+              <Table aria-label={t("a11yItemsTableLabel")}>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>{t("itemsColGroup")}</TableHead>
-                    <TableHead className="text-right tabular-nums">
-                      {t("itemsColPrice")}
+                    <TableHead scope="col">{t("itmColName")}</TableHead>
+                    <TableHead scope="col">{t("itmColCode")}</TableHead>
+                    <TableHead scope="col">{t("itmColRate")}</TableHead>
+                    <TableHead className="w-40" scope="col">
+                      {t("itmColActions")}
                     </TableHead>
-                    <TableHead className="text-right tabular-nums">
-                      {t("itemsColStock")}
-                    </TableHead>
-                    <TableHead className="w-16" />
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {items.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={4} className="h-24 text-center">
-                        <div className="flex flex-col items-center gap-2 py-4">
-                          <Skeleton className="h-4 w-48 rounded-md" />
-                          <span className="text-sm text-muted-foreground">
-                            {t("itemsEmptyHint")}
-                          </span>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    items.map((i) => (
-                      <TableRow
-                        key={i.id as string}
-                        className="transition-colors hover:bg-muted/40"
+                  {shown.map((item) => (
+                    <TableRow
+                      key={item.id}
+                      className="transition-colors hover:bg-surface-2"
+                    >
+                      {/* The row IS the item, so its name is the row's header
+                          cell — a screen reader then reads "Bolt, rate ₹4"
+                          instead of a bare "₹4" three cells in. */}
+                      <TableHead
+                        scope="row"
+                        className="h-auto p-4 font-medium text-base text-foreground"
                       >
-                        <TableCell className="font-medium">
-                          {i.name as string}
-                        </TableCell>
-                        <TableCell className="text-right tabular-nums">
-                          {i.rate as number}
-                        </TableCell>
-                        <TableCell className="text-right tabular-nums">
-                          <Input
-                            type="number"
-                            min={0}
-                            step={1}
-                            value={(i.stock as number) ?? 0}
-                            aria-label={t("itemsFormStockLabel")}
-                            onChange={(e) => {
-                              const v = parseFloat(e.target.value) || 0;
-                              setItems((prev) =>
-                                prev.map((it) =>
-                                  it.id === i.id ? { ...it, stock: v } : it,
-                                ),
-                              );
-                            }}
-                            onBlur={async (e) => {
-                              const v = parseFloat(e.target.value) || 0;
-                              try {
-                                await saveItem({ ...i, stock: v });
-                                toast.success(t("itemsStockUpdateSuccess"));
-                              } catch {
-                                toast.error(t("itemsStockUpdateFail"));
-                                await load();
-                              }
-                            }}
-                            className="w-24 min-h-[36px] text-right ml-auto"
-                          />
-                        </TableCell>
-                        <TableCell>
+                        <div className="flex flex-col items-start gap-2">
+                          <span>{item.name}</span>
+                          {isStockRow(item) ? (
+                            <Badge variant="outline">
+                              <PackageSearch
+                                data-icon="inline-start"
+                                aria-hidden
+                              />
+                              {t("rateFromStockBadge")}
+                            </Badge>
+                          ) : null}
+                        </div>
+                      </TableHead>
+                      <TableCell className="text-base text-muted-foreground">
+                        {item.code ?? "—"}
+                      </TableCell>
+                      <TableCell>
+                        {item.rate === null ? (
+                          // `rate == null` is what the picker keys off, so this
+                          // row is genuinely unpayable — say so, and make the
+                          // fix the button right next to it.
+                          <div className="flex flex-col items-start gap-2">
+                            <Badge variant="warning">
+                              {t("itmNoRateBadge")}
+                            </Badge>
+                            <span className="text-sm leading-relaxed text-muted-foreground">
+                              {t("itmNoRateHelp")}
+                            </span>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="min-h-[44px] px-4 py-3 text-base"
+                              onClick={() => openEdit(item)}
+                            >
+                              <IndianRupee data-icon="inline-start" aria-hidden />
+                              {t("itmSetRate")}
+                            </Button>
+                          </div>
+                        ) : (
+                          <span className="whitespace-nowrap text-base font-semibold tabular-nums text-foreground">
+                            {t("itmRateValue", {
+                              amount: rateFormat.format(item.rate),
+                            })}
+                          </span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="min-h-[44px] px-4 py-3 text-base"
+                            onClick={() => openEdit(item)}
+                          >
+                            <Pencil data-icon="inline-start" aria-hidden />
+                            {isStockRow(item) ? t("itmSetRate") : t("itmEdit")}
+                          </Button>
+                          {/* A stock row has no `items` row to delete, and
+                              deleting the stock item itself belongs to the
+                              Stock screen — so this row is priced here, and
+                              removed there. */}
+                          {isStockRow(item) ? null : (
                           <AlertDialog>
                             <AlertDialogTrigger asChild>
                               <Button
                                 type="button"
                                 variant="destructive"
                                 size="icon"
-                                title={t("itemsDeleteTitle")}
-                                aria-label={t("itemsDeleteGroupAria")}
+                                className="size-11"
+                                title={t("itmDelete")}
+                                aria-label={t("itmDeleteTitle")}
                               >
                                 <Trash2 data-icon="inline-start" aria-hidden />
                               </Button>
@@ -174,111 +508,46 @@ export default function ItemsPage() {
                             <AlertDialogContent>
                               <AlertDialogHeader>
                                 <AlertDialogTitle>
-                                  {t("itemsDeleteTitle")}
+                                  {t("itmDeleteTitle")}
                                 </AlertDialogTitle>
                                 <AlertDialogDescription>
-                                  {t("itemsDeleteDesc", {
-                                    name: String(i.name),
-                                  })}
+                                  {t("itmDeleteDesc", { name: item.name })}
                                 </AlertDialogDescription>
                               </AlertDialogHeader>
                               <AlertDialogFooter>
-                                <AlertDialogCancel>{t("commonCancel")}</AlertDialogCancel>
+                                <AlertDialogCancel>
+                                  {t("commonCancel")}
+                                </AlertDialogCancel>
                                 <AlertDialogAction
                                   className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                                  onClick={async () => {
-                                    try {
-                                      await deleteItem(i.id as string);
-                                      await load();
-                                      toast.success(
-                                        t("itemsDeleteSuccess"),
-                                      );
-                                    } catch {
-                                      toast.error(
-                                        t("itemsDeleteFail"),
-                                      );
-                                    }
-                                  }}
+                                  onClick={() => handleDelete(item)}
                                 >
                                   {t("commonDelete")}
                                 </AlertDialogAction>
                               </AlertDialogFooter>
                             </AlertDialogContent>
                           </AlertDialog>
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  )}
+                          )}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
                 </TableBody>
               </Table>
             </div>
-            <form
-              className="flex flex-wrap gap-4 items-end rounded-xl border border-border/60 bg-muted/15 p-4 sm:p-5"
-              onSubmit={async (e) => {
-                e.preventDefault();
-                if (!itemName.trim()) return;
-                try {
-                  await saveItem({
-                    name: itemName.trim(),
-                    rate: itemRate,
-                    stock: itemStock,
-                  });
-                  setItemName("");
-                  setItemRate(0);
-                  setItemStock(0);
-                  await load();
-                  toast.success(t("itemsAddSuccess"));
-                } catch {
-                  toast.error(t("itemsAddFail"));
-                }
-              }}
-            >
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="itemName">{t("itemsFormNameLabel")}</Label>
-                <Input
-                  id="itemName"
-                  type="text"
-                  value={itemName}
-                  onChange={(e) => setItemName(e.target.value)}
-                  placeholder={t("itemsFormNamePlaceholder")}
-                  className="w-64 min-h-[44px]"
-                  required
-                />
-              </div>
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="itemRate">{t("itemsFormRateLabel")}</Label>
-                <Input
-                  id="itemRate"
-                  type="number"
-                  min={0}
-                  step={0.01}
-                  value={itemRate}
-                  onChange={(e) =>
-                    setItemRate(parseFloat(e.target.value) || 0)
-                  }
-                  className="w-28 min-h-[44px]"
-                />
-              </div>
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="itemStock">{t("itemsFormStockLabel")}</Label>
-                <Input
-                  id="itemStock"
-                  type="number"
-                  min={0}
-                  step={1}
-                  value={itemStock}
-                  onChange={(e) =>
-                    setItemStock(parseFloat(e.target.value) || 0)
-                  }
-                  className="w-28 min-h-[44px]"
-                />
-              </div>
-              <Button type="submit" className={btnPrimaryClass}>
-                {t("itemsFormSubmit")}
-              </Button>
-            </form>
-          </CardContent>
-        </Card>
+          </>
+        )}
+
+        {/* Mounted only while open, and keyed by the row being changed, so its
+            boxes are seeded from the stored values every single time. */}
+        {editorOpen ? (
+          <ItemEditorDialog
+            key={editing?.id ?? "new"}
+            item={editing}
+            onOpenChange={setEditorOpen}
+            onSave={handleSave}
+          />
+        ) : null}
       </main>
     </AppShell>
   );

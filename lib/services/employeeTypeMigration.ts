@@ -1,5 +1,7 @@
-import { getEmployees, saveEmployee } from "./employeeService";
+import { getEmployees, saveEmployeeSilently } from "./employeeService";
 import { getProductionsByEmployee } from "./productionService";
+import { AUDIT_ACTIONS, record as auditRecord } from "./auditService";
+import { plural } from "./auditNames";
 
 export type EmployeeType = "salaried" | "production" | "operator";
 
@@ -21,12 +23,27 @@ export function inferEmployeeType(input: {
   return "salaried";
 }
 
+/**
+ * Gives every untyped employee a *guessed* type so the salary sheet stops
+ * silently treating them as salaried.
+ *
+ * The guess is never a confirmation: `employeeTypeConfirmed` is always written
+ * as `false`, so the dashboard keeps asking a human to review it. Only an
+ * explicit human action (employees page, or the dashboard review dialog) sets
+ * `employeeTypeConfirmed: true`.
+ *
+ * Safe to call repeatedly — employees that already have a type, or that a human
+ * already confirmed, are skipped.
+ */
 export async function backfillEmployeeTypes(): Promise<{ updated: string[] }> {
   const employees = await getEmployees();
   const updated: string[] = [];
 
   for (const emp of employees) {
+    // Idempotent: anything already typed, or already signed off by a human,
+    // is left exactly as-is so this is safe to run on every dashboard load.
     if (emp.employeeType) continue;
+    if (emp.employeeTypeConfirmed === true) continue;
 
     const hasMonthlySalary =
       typeof emp.monthlySalary === "number" && emp.monthlySalary > 0;
@@ -43,13 +60,25 @@ export async function backfillEmployeeTypes(): Promise<{ updated: string[] }> {
       hasProductionRecords,
     });
 
-    await saveEmployee({
+    // Silent per person: this runs on every dashboard load, so one entry per
+    // employee would bury the log. The single entry below carries the count.
+    await saveEmployeeSilently({
       ...emp,
       employeeType,
       employeeTypeConfirmed: false,
     });
 
     updated.push(emp.id as string);
+  }
+
+  if (updated.length > 0) {
+    void auditRecord(
+      AUDIT_ACTIONS.employeeTypeChange,
+      "employees",
+      null,
+      `${plural(updated.length, "person was", "people were")} given a guessed job type, waiting for someone to confirm it`,
+      { count: updated.length },
+    );
   }
 
   return { updated };

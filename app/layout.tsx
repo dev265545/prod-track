@@ -22,7 +22,7 @@ const spaceGrotesk = Space_Grotesk({
 });
 
 export const metadata: Metadata = {
-  title: "ProdTrack Lite",
+  title: "Factory",
   description: "Production tracking - offline first",
 };
 

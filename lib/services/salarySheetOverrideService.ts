@@ -1,14 +1,50 @@
 import { getAll, put, remove, STORES } from "@/lib/db/adapter";
 import { getHolidaysInRange } from "@/lib/services/factoryHolidayService";
 import { getAdvancesByEmployee } from "@/lib/services/advanceService";
+import { getAppSettings } from "@/lib/services/appSettingsService";
 import {
-  clampPayrollDriverFieldsToPeriod,
+  normalizeDayPayCap,
+  reportPayrollDriverClamp,
   getMonthRange,
   getMonthRangePresets,
   getYearMonthFromIsoDate,
+  type PayrollDriverClampReport,
 } from "@/lib/utils/date";
+import { AUDIT_ACTIONS, diffEntity, record as auditRecord } from "@/lib/services/auditService";
+import { employeeName } from "@/lib/services/auditNames";
 
 const STORE = STORES.SALARY_SHEET_OVERRIDES;
+
+/**
+ * The driver values a human can type over the computed payroll numbers. This
+ * is the highest-value diff in the app: it is the only place where somebody
+ * replaces what the app worked out with what they say it should be, so every
+ * field a person can move is listed, and nothing else is.
+ */
+const OVERRIDE_AUDIT_FIELDS = [
+  "presentDays",
+  "absentDays",
+  "holidayPresentDays",
+  "earnedSundayPayDays",
+  "sundayPresentBonusDays",
+  "totalPaidDays",
+  "hoursExtraTotal",
+  "hoursReducedTotal",
+  "calculatedSalary",
+  "advanceDeduction",
+  "netCalculatedSalary",
+  "notes",
+] as const;
+
+/** Flatten a record so the override values sit next to `notes` for diffing. */
+function overrideDiffShape(
+  row: Pick<SalarySheetOverrideRecord, "overrides" | "notes"> | null,
+): Record<string, unknown> | null {
+  if (!row) return null;
+  // An empty note is "no note", not a change from nothing to nothing —
+  // otherwise every first save reports a `notes` change nobody made.
+  return { ...row.overrides, notes: row.notes || undefined };
+}
 
 export interface SalarySheetOverrideValues {
   presentDays?: number;
@@ -232,9 +268,17 @@ export async function saveSalarySheetOverride(
 ): Promise<SalarySheetOverrideRecord> {
   const anchored = anchorOverrideMonthFromDates(input);
   const sanitized = sanitizeSalarySheetOverrideValues(anchored.overrides);
-  const holidays = await getHolidaysInRange(anchored.fromDate, anchored.toDate);
+  const [holidays, appSettings] = await Promise.all([
+    getHolidaysInRange(anchored.fromDate, anchored.toDate),
+    getAppSettings(),
+  ]);
   const holidayDates = holidays.map((h) => h.date as string);
-  const cappedDrivers = clampPayrollDriverFieldsToPeriod(
+  // The present-days ceiling is the configured per-day pay limit times the
+  // number of non-Sunday dates, not the constant 2 it used to be. A factory
+  // that has turned the limit off has no ceiling here either — clamping a
+  // correction to a number the owner has explicitly removed would be the same
+  // silent trim this rework exists to end.
+  const clampReport = reportPayrollDriverClamp(
     anchored.fromDate,
     anchored.toDate,
     holidayDates,
@@ -255,7 +299,9 @@ export async function saveSalarySheetOverride(
           ? sanitized.sundayPresentBonusDays
           : 0,
     },
+    normalizeDayPayCap(appSettings.maxDayPayFraction),
   );
+  const cappedDrivers = clampReport.values;
   if (typeof sanitized.presentDays === "number") {
     sanitized.presentDays = cappedDrivers.presentDays;
   }
@@ -284,6 +330,7 @@ export async function saveSalarySheetOverride(
   }
   const notes = anchored.notes?.trim() ?? "";
   const id = buildSalarySheetOverrideId(anchored);
+  const previous = await readPreviousOverride(anchored);
 
   if (Object.keys(sanitized).length === 0 && !notes) {
     await remove(STORE, id);
@@ -297,6 +344,17 @@ export async function saveSalarySheetOverride(
     if (stale && stale.id !== id) {
       await remove(STORE, stale.id);
     }
+    // Saving an empty set of overrides is how the sheet cancels a correction.
+    void logOverride(
+      AUDIT_ACTIONS.salaryOverrideClear,
+      id,
+      anchored.employeeId,
+      anchored.fromDate,
+      anchored.toDate,
+      previous,
+      null,
+      "hand-entered payroll corrections were removed, so the calculated figures apply again",
+    );
     return {
       id,
       employeeId: anchored.employeeId,
@@ -322,7 +380,89 @@ export async function saveSalarySheetOverride(
     overrides: sanitized,
   };
   await put(STORE, record as unknown as Record<string, unknown>);
+  void logOverride(
+    AUDIT_ACTIONS.salaryOverrideSet,
+    id,
+    record.employeeId,
+    record.fromDate,
+    record.toDate,
+    previous,
+    record,
+    describeOverrideSave(clampReport),
+  );
   return record;
+}
+
+/**
+ * The audit sentence for a saved correction, naming any figure the period
+ * ceilings trimmed.
+ *
+ * A correction is a deliberate statement, so quietly reducing one and logging
+ * "figures were entered by hand" would describe something that did not happen.
+ */
+export function describeOverrideSave(report: PayrollDriverClampReport): string {
+  const base =
+    "payroll figures were entered by hand, replacing what the app calculated";
+  const trimmed: string[] = [];
+  if (report.trimmed.presentDays) {
+    trimmed.push(`present days down to ${report.limits.presentDays}`);
+  }
+  if (report.trimmed.earnedSundayPayDays) {
+    trimmed.push(`earned Sunday days down to ${report.limits.earnedSundayPayDays}`);
+  }
+  if (report.trimmed.sundayPresentBonusDays) {
+    trimmed.push(`Sundays present down to ${report.limits.sundayPresentBonusDays}`);
+  }
+  return trimmed.length === 0
+    ? base
+    : `${base}; the period limits trimmed ${trimmed.join(", ")}`;
+}
+
+/**
+ * The before-image for the audit diff. Swallows its own failures: reading the
+ * old row is only ever for the log, and a save must not fail because the log
+ * could not describe it.
+ */
+async function readPreviousOverride(
+  anchored: SaveSalarySheetOverrideInput,
+): Promise<SalarySheetOverrideRecord | null> {
+  try {
+    return await getSalarySheetOverride(
+      anchored.employeeId,
+      anchored.year,
+      anchored.month,
+      anchored.fromDate,
+      anchored.toDate,
+    );
+  } catch {
+    return null;
+  }
+}
+
+async function logOverride(
+  action:
+    | typeof AUDIT_ACTIONS.salaryOverrideSet
+    | typeof AUDIT_ACTIONS.salaryOverrideClear,
+  id: string,
+  employeeId: string,
+  fromDate: string,
+  toDate: string,
+  before: Pick<SalarySheetOverrideRecord, "overrides" | "notes"> | null,
+  after: Pick<SalarySheetOverrideRecord, "overrides" | "notes"> | null,
+  what: string,
+): Promise<void> {
+  const who = await employeeName(employeeId);
+  void auditRecord(
+    action,
+    "salary_sheet_overrides",
+    id,
+    `For ${who}, ${what} for ${fromDate} to ${toDate}`,
+    diffEntity(
+      overrideDiffShape(before),
+      overrideDiffShape(after),
+      OVERRIDE_AUDIT_FIELDS,
+    ),
+  );
 }
 
 export async function clearSalarySheetOverride(
@@ -347,8 +487,24 @@ export async function clearSalarySheetOverride(
     anchored.fromDate,
     anchored.toDate,
   );
+  const cleared = (
+    id: string,
+    before: Pick<SalarySheetOverrideRecord, "overrides" | "notes"> | null,
+  ) =>
+    void logOverride(
+      AUDIT_ACTIONS.salaryOverrideClear,
+      id,
+      anchored.employeeId,
+      anchored.fromDate,
+      anchored.toDate,
+      before,
+      null,
+      "hand-entered payroll corrections were removed, so the calculated figures apply again",
+    );
+
   if (exact) {
     await remove(STORE, exact.id);
+    cleared(exact.id, exact);
     return;
   }
   const all = await getAll(STORE);
@@ -358,7 +514,9 @@ export async function clearSalarySheetOverride(
       (row.fromDate as string) === anchored.fromDate &&
       (row.toDate as string) === anchored.toDate
     ) {
+      const stale = mapOverrideRow(row);
       await remove(STORE, row.id as string);
+      cleared(row.id as string, stale);
     }
   }
 }

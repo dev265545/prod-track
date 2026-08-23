@@ -7,8 +7,24 @@ import { CalendarIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
+import { useHydrated } from "@/lib/hooks/useClientValue";
 
 const DATE_FORMAT = "yyyy-MM-dd";
+
+/** Breathing room kept between the popup and either edge of the screen. */
+const EDGE_GAP = 8;
+
+/**
+ * Where the popup sits for the one frame before it is measured. Off-screen but
+ * laid out, so its natural width can be read; without a fixed position here the
+ * first measurement would be of a block stretched across the whole page.
+ */
+const OFFSCREEN: React.CSSProperties = {
+  position: "fixed",
+  top: -9999,
+  left: -9999,
+  zIndex: 1000,
+};
 
 type ContainsTarget = {
   contains: (target: Node | null) => boolean;
@@ -24,6 +40,10 @@ export function isDatePickerInteractionOutside(input: {
   const insidePopup = popup?.contains(target) ?? false;
   return !insideContainer && !insidePopup;
 }
+
+/** `useLayoutEffect` on the client, `useEffect` when prerendering (no DOM, no warning). */
+const useIsomorphicLayoutEffect =
+  typeof window !== "undefined" ? React.useLayoutEffect : React.useEffect;
 
 function formatDateForDisplay(dateStr: string): string {
   if (!dateStr) return "Pick a date";
@@ -55,7 +75,7 @@ export interface DatePickerProps {
   max?: string;
 }
 
-/** Calendar popup on click - no portal, works in Tauri and web */
+/** Calendar popup on click. Portalled to `<body>`, so no ancestor `overflow` can clip it. */
 export function DatePicker({
   value,
   onChange,
@@ -69,8 +89,12 @@ export function DatePicker({
   const [open, setOpen] = React.useState(false);
   const containerRef = React.useRef<HTMLDivElement>(null);
   const popupRef = React.useRef<HTMLDivElement>(null);
-  const [mounted, setMounted] = React.useState(false);
-  const [popupStyle, setPopupStyle] = React.useState<React.CSSProperties>({});
+  // The popup is portalled into document.body, which only exists on the
+  // client. This was state set from an effect, i.e. a whole extra render pass
+  // whose only job was to flip a boolean React can hand us directly.
+  const mounted = useHydrated();
+  const [popupStyle, setPopupStyle] =
+    React.useState<React.CSSProperties>(OFFSCREEN);
   const selected = toDate(value);
   const minDate = min ? toDate(min) : undefined;
   const maxDate = max ? toDate(max) : undefined;
@@ -80,26 +104,30 @@ export function DatePicker({
     if (!button) return;
     const rect = button.getBoundingClientRect();
     const viewportWidth = window.innerWidth;
-    const desiredWidth = Math.max(rect.width, 280);
-    const width = Math.min(desiredWidth, viewportWidth - 16);
+    // The popup takes its width from the calendar inside it (`w-max`, capped by
+    // `max-w`), so it has to be *measured*. Forcing a width here — it used to be
+    // a flat 280px — was narrower than the seven 44px day columns, and since the
+    // month is a table it overflowed instead of shrinking: the "Sa" column and
+    // the last date landed outside the panel.
+    const width = Math.min(
+      popupRef.current?.getBoundingClientRect().width ?? rect.width,
+      viewportWidth - EDGE_GAP * 2,
+    );
     const left = Math.min(
-      Math.max(8, rect.left),
-      Math.max(8, viewportWidth - width - 8),
+      Math.max(EDGE_GAP, rect.left),
+      Math.max(EDGE_GAP, viewportWidth - width - EDGE_GAP),
     );
     setPopupStyle({
       position: "fixed",
       top: rect.bottom + 4,
       left,
-      width,
       zIndex: 1000,
     });
   }, []);
 
-  React.useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  React.useEffect(() => {
+  // Layout effect: the popup is measured and moved into place before the browser
+  // paints, so it is never seen at its off-screen starting position.
+  useIsomorphicLayoutEffect(() => {
     if (!open) return;
     updatePopupPosition();
     function handleClickOutside(e: MouseEvent) {
@@ -148,7 +176,10 @@ export function DatePicker({
         createPortal(
           <div
             ref={popupRef}
-            className="rounded-xl border border-border bg-popover p-0 shadow-xl"
+            // `w-max` lets the calendar decide the width instead of being told
+            // one it does not fit in; `max-w` keeps it inside the screen, and
+            // the calendar's own cells shrink to match on very narrow phones.
+            className="w-max max-w-[calc(100vw-1rem)] rounded-xl border border-border bg-popover p-0 shadow-xl"
             style={popupStyle}
           >
             <Calendar

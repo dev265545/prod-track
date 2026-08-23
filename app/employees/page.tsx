@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { AppShell } from "@/components/app-shell";
+import { LoadError } from "@/components/load-error";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Card,
@@ -25,6 +26,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/page-header";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
@@ -45,10 +47,17 @@ import {
 import { getShifts } from "@/lib/services/shiftService";
 import {
   getSundayCategories,
+  resolveUnassignedSundayRule,
   type SundayCategory,
 } from "@/lib/services/sundayCategoryService";
+import {
+  DEFAULT_APP_SETTINGS,
+  getAppSettings,
+  type AppSettings,
+} from "@/lib/services/appSettingsService";
+import { describeSundayRule } from "@/components/rules/sunday-rule-editor";
 import { toast } from "sonner";
-import { Trash2 } from "lucide-react";
+import { CalendarCheck, Trash2 } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -66,10 +75,10 @@ const HEADING_CLASS =
   "text-lg sm:text-xl font-semibold text-foreground font-heading";
 
 export default function EmployeesPage() {
-  const router = useRouter();
   const { t } = useLanguage();
   const { ready: guardReady } = useAuthGuard();
   const [dataLoaded, setDataLoaded] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
   const ready = guardReady && dataLoaded;
   const [employees, setEmployees] = useState<Record<string, unknown>[]>([]);
   const [shifts, setShifts] = useState<Record<string, unknown>[]>([]);
@@ -83,21 +92,49 @@ export default function EmployeesPage() {
   const [submitting, setSubmitting] = useState(false);
   const admin = isAdmin();
 
+  const [settings, setSettings] = useState<AppSettings>(DEFAULT_APP_SETTINGS);
+
   const load = async () => {
-    const [list, shiftList, sundayCategoryList] = await Promise.all([
+    const [list, shiftList, sundayCategoryList, appSettings] = await Promise.all([
       getEmployees(false),
       getShifts(),
       getSundayCategories(),
+      getAppSettings(),
     ]);
     setEmployees(list);
     setShifts(shiftList);
     setSundayCategories(sundayCategoryList);
+    setSettings(appSettings);
   };
+
+  /**
+   * `load()` had no catch, and `ready` waits on `dataLoaded` — so a failed read
+   * showed the skeleton for ever. Failed is now its own state with a retry.
+   */
+  const retry = useCallback(() => {
+    setLoadFailed(false);
+    load()
+      .then(() => setDataLoaded(true))
+      .catch((err) => {
+        console.error("people: load failed", err);
+        setLoadFailed(true);
+      });
+  }, []);
 
   useEffect(() => {
     if (!guardReady) return;
-    load().then(() => setDataLoaded(true));
-  }, [guardReady]);
+    retry();
+  }, [guardReady, retry]);
+
+  if (loadFailed) {
+    return (
+      <AppShell>
+        <main id="main" className="flex flex-col gap-8">
+          <LoadError onRetry={retry} />
+        </main>
+      </AppShell>
+    );
+  }
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -142,16 +179,60 @@ export default function EmployeesPage() {
     sundayCategories.map((c) => [c.id as string, c]),
   ) as Record<string, SundayCategory>;
 
+  // Nobody was ever told that a person with no Sunday rule is still earning
+  // extra paid days by a rule chosen somewhere else. Count them and say it.
+  // Production people are left out: they are paid for output, not for days,
+  // so no Sunday rule touches their pay and including them would inflate a
+  // number the owner is meant to act on.
+  const unassigned = employees.filter(
+    (e) =>
+      !e.sundayCategoryId &&
+      (e.isActive as boolean) !== false &&
+      e.employeeType !== "production",
+  );
+  const unassignedRule = resolveUnassignedSundayRule(settings, sundayCategories);
+
   return (
     <AppShell>
       <main id="main" className="flex flex-col gap-10 animate-fade-in">
-        <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground font-heading">
-          {t("employeesPageTitle")}
-        </h1>
+        {/* Setup screen, not a daily one: say so, and point the daily job at
+            the roster so this page stops reading as "attendance". */}
+        <PageHeader
+          title={t("rostPeopleTitle")}
+          intro={t("rostPeopleIntro")}
+          action={
+            <Button asChild variant="outline" className="min-h-[44px] px-4">
+              <Link href="/attendance">
+                <CalendarCheck data-icon="inline-start" aria-hidden />
+                {t("rostPeopleToRoster")}
+              </Link>
+            </Button>
+          }
+        />
 
-        <Card className="border-border">
+        <Card>
           <CardHeader className="pb-4">
             <CardTitle className={HEADING_CLASS}>{t("employeesListTitle")}</CardTitle>
+            {/* A quiet line, not a banner: it is not an error that somebody has
+                no Sunday rule, but it must never be invisible that they are
+                being paid by one anyway. The rule is spelled out in full and
+                the link goes to the screen that changes it. */}
+            {unassigned.length > 0 ? (
+              <p className="text-base leading-relaxed text-muted-foreground">
+                {t("employeesNoRuleCount", { n: unassigned.length })}{" "}
+                {unassignedRule.source === "nothing"
+                  ? t("employeesNoRuleNothing")
+                  : t("employeesNoRulePaidBy", {
+                      rule: describeSundayRule(unassignedRule.rule, t),
+                    })}{" "}
+                <Link
+                  href="/shifts"
+                  className="min-h-[44px] rounded-md underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  {t("employeesNoRuleChange")}
+                </Link>
+              </p>
+            ) : null}
           </CardHeader>
           <CardContent>
           {employees.length === 0 ? (
@@ -173,71 +254,91 @@ export default function EmployeesPage() {
                     <TableHead scope="col">{t("employeesColShift")}</TableHead>
                     <TableHead scope="col">{t("employeesColSundayCat")}</TableHead>
                     <TableHead scope="col">{t("employeesColStatus")}</TableHead>
-                    <TableHead className="w-[52px]" scope="col">
+                    <TableHead className="w-[64px]" scope="col">
                       <span className="sr-only">{t("commonActions")}</span>
                     </TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {employees.map((e) => (
+                    // The whole row used to be `role="button"` with a Select
+                    // and a delete dialog nested inside it — invalid
+                    // nested-interactive markup that destroyed the row/cell
+                    // semantics (a screen reader read six cells as one button
+                    // label) and needed stopPropagation on every cell to stop
+                    // changing a pay type from navigating away. The link now
+                    // lives in the one cell that names the person.
                     <TableRow
                       key={e.id as string}
-                      className="cursor-pointer hover:bg-muted/50 transition-colors"
-                      tabIndex={0}
-                      role="button"
-                      aria-label={t("employeesViewAria", {
-                        name: String(e.name),
-                      })}
-                      onClick={() =>
-                        router.push(
-                          `/employee?id=${encodeURIComponent(String(e.id))}`,
-                        )
-                      }
-                      onKeyDown={(ev) => {
-                        if (ev.key === "Enter" || ev.key === " ") {
-                          ev.preventDefault();
-                          router.push(
-                            `/employee?id=${encodeURIComponent(String(e.id))}`,
-                          );
-                        }
-                      }}
+                      className="transition-colors hover:bg-surface-2"
                     >
-                      <TableCell className="font-medium">
-                        {e.name as string}
-                      </TableCell>
-                      <TableCell
-                        className="text-muted-foreground"
-                        onClick={(ev) => ev.stopPropagation()}
-                        onKeyDown={(ev) => ev.stopPropagation()}
+                      <TableHead
+                        scope="row"
+                        className="h-auto p-4 font-medium text-foreground"
                       >
-                        <Select
-                          value={(e.employeeType as string) ?? "salaried"}
-                          onValueChange={async (v) => {
-                            await saveEmployee({
-                              ...e,
-                              employeeType: v,
-                              employeeTypeConfirmed: true,
-                            });
-                            await load();
-                          }}
+                        <Link
+                          href={`/employee?id=${encodeURIComponent(String(e.id))}`}
+                          aria-label={t("employeesViewAria", {
+                            name: String(e.name),
+                          })}
+                          className="flex min-h-[44px] items-center rounded-md underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                         >
-                          <SelectTrigger className="w-36 min-h-9">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="salaried">
-                              {t("employeeTypeSalaried")}
-                            </SelectItem>
-                            <SelectItem value="production">
-                              {t("employeeTypeProduction")}
-                            </SelectItem>
-                            {(admin || e.employeeType === "operator") && (
-                              <SelectItem value="operator">
-                                {t("employeeTypeOperator")}
+                          {e.name as string}
+                        </Link>
+                      </TableHead>
+                      <TableCell className="text-muted-foreground">
+                        {/* Operator pay is an admin-only concept elsewhere
+                            (see hideRates in employeeDetail.ts) — a worker
+                            session must not be able to switch someone into
+                            or out of it. Hiding the SelectItem alone left an
+                            operator row's dropdown looking broken (the
+                            trigger has no item to render a label from), so a
+                            worker viewing an operator row gets read-only
+                            text instead of a live control. */}
+                        {!admin && e.employeeType === "operator" ? (
+                          <span className="inline-block w-36 text-muted-foreground">
+                            {t("employeeTypeOperator")}
+                          </span>
+                        ) : (
+                          <Select
+                            value={(e.employeeType as string) ?? "salaried"}
+                            // Changing this changes how the person is paid, so
+                            // it confirms like every other write on this screen.
+                            // It used to be silent on both paths: a failed save
+                            // just snapped the box back with no explanation.
+                            onValueChange={async (v) => {
+                              try {
+                                await saveEmployee({
+                                  ...e,
+                                  employeeType: v,
+                                  employeeTypeConfirmed: true,
+                                });
+                                await load();
+                                toast.success(t("ux2PayTypeSaved"));
+                              } catch (err) {
+                                console.error("people: pay type save failed", err);
+                                toast.error(t("ux2PayTypeSaveFailed"));
+                              }
+                            }}
+                          >
+                            <SelectTrigger className="w-36 min-h-[44px]">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="salaried">
+                                {t("employeeTypeSalaried")}
                               </SelectItem>
-                            )}
-                          </SelectContent>
-                        </Select>
+                              <SelectItem value="production">
+                                {t("employeeTypeProduction")}
+                              </SelectItem>
+                              {admin && (
+                                <SelectItem value="operator">
+                                  {t("employeeTypeOperator")}
+                                </SelectItem>
+                              )}
+                            </SelectContent>
+                          </Select>
+                        )}
                       </TableCell>
                       <TableCell className="text-muted-foreground">
                         {(e.shiftId as string)
@@ -245,27 +346,28 @@ export default function EmployeesPage() {
                           : "—"}
                       </TableCell>
                       <TableCell className="text-muted-foreground">
+                        {/* Was "Default (12 → 2)" — a hardcoded promise that
+                            stops being true the moment the owner changes what
+                            an unassigned worker earns. Say only what is
+                            certain; the line above says what they get. */}
                         {(e.sundayCategoryId as string)
                           ? (sundayCategoryMap[e.sundayCategoryId as string]
-                              ?.name as string) ?? t("employeesSundayDefault")
-                          : t("employeesSundayDefault")}
+                              ?.name as string) ?? t("employeesSundayNone")
+                          : t("employeesSundayNone")}
                       </TableCell>
                       <TableCell className="text-muted-foreground">
                         {(e.isActive as boolean) !== false
                           ? t("employeesStatusActive")
                           : t("employeesStatusInactive")}
                       </TableCell>
-                      <TableCell
-                        className="w-[52px]"
-                        onClick={(ev) => ev.stopPropagation()}
-                        onKeyDown={(ev) => ev.stopPropagation()}
-                      >
+                      <TableCell className="w-[64px]">
                         <AlertDialog>
                           <AlertDialogTrigger asChild>
                             <Button
                               type="button"
                               variant="destructive"
                               size="icon"
+                              className="size-11"
                               title={t("employeesDeleteTitle")}
                               aria-label={t("employeesDeleteEmployeeAria", {
                                 name: String(e.name),
@@ -289,8 +391,7 @@ export default function EmployeesPage() {
                               </AlertDialogCancel>
                               <AlertDialogAction
                                 className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                                onClick={async (ev) => {
-                                  ev.stopPropagation();
+                                onClick={async () => {
                                   try {
                                     await deleteEmployee(e.id as string);
                                     await load();

@@ -64,7 +64,9 @@ The old `js/`, `build.js`, and root `index.html` are unchanged and can be remove
    npm run dev
   ```
    Next.js runs (e.g. [http://localhost:3000](http://localhost:3000)). Open it in a browser. The app uses IndexedDB; no Tauri or Rust needed.
-3. **Default login password:** `1968` (see `lib/auth.ts`). Master password for “delete all data” / “change app password”: `9319123410`.
+3. **Login password:** there is no default and no master/backdoor password. On first run the onboarding wizard asks you to choose an admin password (minimum 6 characters); an install with no stored password always routes to onboarding. Changing the password or deleting all data from Settings requires re-entering the **current** admin password, and changing it signs out every active session.
+
+   **Forgot the password?** The only recovery is to restore from a backup: wipe the workspace (delete the IndexedDB origin data, or the `.db` file for SQLite/Tauri installs), run onboarding again to set a new password, then import your most recent JSON/SQLite export. There is deliberately no reset code — take regular backups from Settings → Export.
 
 ---
 

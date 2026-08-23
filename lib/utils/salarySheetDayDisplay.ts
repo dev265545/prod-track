@@ -4,6 +4,15 @@ import type {
 } from "@/lib/utils/attendanceStats";
 import type { SalarySheetRow } from "@/lib/services/salarySheetService";
 import { salarySheetRowHasAdjustment } from "@/lib/services/salarySheetService";
+import { translate, type Translate } from "@/lib/i18n/translate";
+
+/**
+ * Every day-status word here reaches paper (`lib/print` via `salaryService`),
+ * so none of them may be written in English by hand: half the workers handed
+ * the sheet read Hindi. There is no hook this deep in a util, so the default
+ * translator reads the language the operator picked out of `localStorage`; a
+ * caller that already has `t()` can pass it in instead.
+ */
 
 function round2(value: number): number {
   return Math.round(value * 100) / 100;
@@ -40,11 +49,14 @@ export interface SalarySheetDayTargets {
   hoursReducedTotal?: number;
 }
 
-function resetAdjustableDayRow(row: MonthSalaryDayRow): MonthSalaryDayRow {
+function resetAdjustableDayRow(
+  row: MonthSalaryDayRow,
+  tr: Translate,
+): MonthSalaryDayRow {
   if (row.rowKind === "sunday") {
     return {
       ...row,
-      statusLabel: "Sunday",
+      statusLabel: tr("dayStatusSunday"),
       hoursWorked: null,
       hoursExtra: null,
       hoursReduced: null,
@@ -56,7 +68,7 @@ function resetAdjustableDayRow(row: MonthSalaryDayRow): MonthSalaryDayRow {
   if (row.rowKind === "holiday") {
     return {
       ...row,
-      statusLabel: "Factory holiday",
+      statusLabel: tr("calTitleFactoryHoliday"),
       hoursWorked: null,
       hoursExtra: null,
       hoursReduced: null,
@@ -67,7 +79,7 @@ function resetAdjustableDayRow(row: MonthSalaryDayRow): MonthSalaryDayRow {
   }
   return {
     ...row,
-    statusLabel: "Absent",
+    statusLabel: tr("calTitleAbsent"),
     hoursWorked: null,
     hoursExtra: null,
     hoursReduced: null,
@@ -80,10 +92,11 @@ function resetAdjustableDayRow(row: MonthSalaryDayRow): MonthSalaryDayRow {
 function markSundayBonus(
   row: MonthSalaryDayRow,
   ratePerDay: number,
+  tr: Translate,
 ): MonthSalaryDayRow {
   return {
     ...row,
-    statusLabel: "Sunday (marked present — bonus day)",
+    statusLabel: tr("dayStatusSundayWorked"),
     paidFraction: 1,
     basePay: round2(ratePerDay),
     effectiveHours: row.effectiveHours,
@@ -93,10 +106,11 @@ function markSundayBonus(
 function markHolidayPresent(
   row: MonthSalaryDayRow,
   ratePerDay: number,
+  tr: Translate,
 ): MonthSalaryDayRow {
   return {
     ...row,
-    statusLabel: "Present (factory holiday)",
+    statusLabel: tr("dayStatusPresentOnHoliday"),
     paidFraction: 1,
     basePay: round2(ratePerDay),
     effectiveHours: row.effectiveHours ?? null,
@@ -108,6 +122,7 @@ function markWorkingPresent(
   paidFraction: number,
   ratePerDay: number,
   hoursPerDay: number,
+  tr: Translate,
 ): MonthSalaryDayRow {
   const effectiveHours =
     paidFraction >= 1
@@ -115,7 +130,7 @@ function markWorkingPresent(
       : round2(Math.max(0, paidFraction * hoursPerDay));
   return {
     ...row,
-    statusLabel: "Present",
+    statusLabel: tr("calTitlePresent"),
     hoursWorked: paidFraction >= 1 ? hoursPerDay : null,
     hoursExtra: null,
     hoursReduced: null,
@@ -135,8 +150,9 @@ export function applySalaryTargetsToDayRows(
   ratePerDay: number,
   hoursPerDay: number,
   seed: string,
+  tr: Translate = translate,
 ): MonthSalaryDayRow[] {
-  const resetRows = dayRows.map(resetAdjustableDayRow);
+  const resetRows = dayRows.map((row) => resetAdjustableDayRow(row, tr));
 
   const sundayRows = resetRows.filter((row) => row.rowKind === "sunday");
   const holidayRows = resetRows.filter((row) => row.rowKind === "holiday");
@@ -181,15 +197,21 @@ export function applySalaryTargetsToDayRows(
 
   return resetRows.map((row) => {
     if (row.rowKind === "sunday" && pickedSundayKeys.has(row.date)) {
-      return markSundayBonus(row, ratePerDay);
+      return markSundayBonus(row, ratePerDay, tr);
     }
     if (row.rowKind === "holiday" && pickedHolidayKeys.has(row.date)) {
-      return markHolidayPresent(row, ratePerDay);
+      return markHolidayPresent(row, ratePerDay, tr);
     }
     if (row.rowKind === "working") {
       const fraction = workingPayByDate.get(row.date);
       if (fraction != null && fraction > 0) {
-        return markWorkingPresent(row, fraction, ratePerDay, hoursPerDay);
+        return markWorkingPresent(
+          row,
+          fraction,
+          ratePerDay,
+          hoursPerDay,
+          tr,
+        );
       }
     }
     return row;
@@ -205,6 +227,7 @@ export function applySalarySheetRowToMonthBreakdown(
   to: string,
   ratePerDay: number,
   hoursPerDay: number,
+  tr: Translate = translate,
 ): MonthSalaryBreakdown {
   if (!salarySheetRowHasAdjustment(salarySheetRow) || !salarySheetRow) {
     return breakdown;
@@ -222,6 +245,7 @@ export function applySalarySheetRowToMonthBreakdown(
     ratePerDay,
     hoursPerDay,
     `${employeeId}:${from}:${to}`,
+    tr,
   );
   const earnedSundayPoolPay = round2(
     salarySheetRow.earnedSundayPayDays * ratePerDay,

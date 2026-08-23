@@ -1,14 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { AppShell } from "@/components/app-shell";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { PageHeader } from "@/components/page-header";
+import { LoadError } from "@/components/load-error";
+import { SettingsSection } from "@/components/settings/shared";
 import { Input } from "@/components/ui/input";
+import { NumberInput } from "@/components/ui/number-input";
+import { readNumericInput } from "@/lib/utils/numericInput";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import {
@@ -19,7 +18,19 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Skeleton } from "@/components/ui/skeleton";
+import {
+  CalendarDays,
+  Clock,
+  Info,
+  ListChecks,
+  Pencil,
+  Plus,
+  Save,
+  Timer,
+  Trash2,
+  Users,
+  X,
+} from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -27,7 +38,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { CalendarDays, Clock, Trash2 } from "lucide-react";
 import { useAuthGuard } from "@/lib/hooks/useAuthGuard";
 import { getShifts, saveShift, deleteShift } from "@/lib/services/shiftService";
 import {
@@ -50,41 +60,149 @@ import {
 } from "@/components/ui/alert-dialog";
 import { AppLoadingScreen } from "@/components/app-loading-screen";
 import { useLanguage } from "@/components/language-provider";
+import {
+  SundayRuleEditor,
+  describeSundayRule,
+} from "@/components/rules/sunday-rule-editor";
+import {
+  DEFAULT_SUNDAY_RULE,
+  normalizeSundayRule,
+  type SundayRule,
+} from "@/lib/utils/sundayRule";
+import {
+  resolveSundayCategoryRule,
+  resolveUnassignedSundayRule,
+} from "@/lib/services/sundayCategoryService";
+import { DayPayCapEditor } from "@/components/rules/day-pay-cap-editor";
+import {
+  getAppSettings,
+  saveAppSettings,
+  type AppSettings,
+} from "@/lib/services/appSettingsService";
+import { normalizeDayPayCap, type DayPayCap } from "@/lib/utils/date";
+
+type NoRuleChoice = {
+  mode: AppSettings["noCategorySundayRule"];
+  categoryId: string;
+};
+
+type PayRules = {
+  shifts: Record<string, unknown>[];
+  sundayCategories: SundayCategory[];
+  /** Most one date may pay, in days. `null` = no limit. */
+  maxDayPayFraction: DayPayCap;
+  /** What a worker with no Sunday rule of their own earns. */
+  noRule: NoRuleChoice;
+};
+
+/** Module scope so the effect can hand the setter straight to the promise
+ * rather than calling setState inside its own body. */
+async function fetchPayRules(): Promise<PayRules> {
+  const [shifts, sundayCategories, settings] = await Promise.all([
+    getShifts(),
+    getSundayCategories(),
+    getAppSettings(),
+  ]);
+  return {
+    shifts,
+    sundayCategories,
+    maxDayPayFraction: normalizeDayPayCap(settings.maxDayPayFraction),
+    noRule: {
+      mode: settings.noCategorySundayRule,
+      categoryId: settings.noCategorySundayCategoryId,
+    },
+  };
+}
 
 export default function ShiftsPage() {
   const { ready: guardReady } = useAuthGuard();
   const { t } = useLanguage();
-  const [dataLoaded, setDataLoaded] = useState(false);
-  const ready = guardReady && dataLoaded;
-  const [shifts, setShifts] = useState<Record<string, unknown>[]>([]);
+  const [data, setData] = useState<PayRules | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const ready = guardReady && data !== null;
+  const shifts = data?.shifts ?? [];
+  const sundayCategories = data?.sundayCategories ?? [];
   const [shiftName, setShiftName] = useState("");
-  const [shiftHours, setShiftHours] = useState(8);
+  // Held as text so an emptied box stays empty while it is being retyped; the
+  // old on-keystroke `parseInt(...) || 8` snapped the field back to 8 the
+  // instant it was cleared. Bounds are applied once, on submit.
+  const [shiftHours, setShiftHours] = useState("8");
 
-  const [sundayCategories, setSundayCategories] = useState<SundayCategory[]>(
-    [],
-  );
   const [categoryName, setCategoryName] = useState("");
-  const [categoryMode, setCategoryMode] = useState<"threshold" | "step">(
-    "threshold",
-  );
-  const [requiredPresent, setRequiredPresent] = useState(12);
-  const [earnedSundays, setEarnedSundays] = useState(2);
-  const [everyPresentDays, setEveryPresentDays] = useState(6);
-  const [earnedPerStep, setEarnedPerStep] = useState(1);
+  // `null` means "adding a new category"; an id means the form is editing that
+  // one. Rules are rich enough now that add-only would strand every mistake.
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [categoryRule, setCategoryRule] = useState<SundayRule>(DEFAULT_SUNDAY_RULE);
+  // Held separately from `data` so typing in the limit box does not need a
+  // database round trip per keystroke; `null` means the form has not been
+  // seeded from storage yet.
+  const [dayPayCapDraft, setDayPayCapDraft] = useState<
+    { value: DayPayCap } | null
+  >(null);
+  const [savingDayPayCap, setSavingDayPayCap] = useState(false);
+  // Same reason as the cap draft: edited locally, saved on its own button.
+  const [noRuleDraft, setNoRuleDraft] = useState<NoRuleChoice | null>(null);
+  const [savingNoRule, setSavingNoRule] = useState(false);
 
-  const load = async () => {
-    const [shiftList, sundayCategoryList] = await Promise.all([
-      getShifts(),
-      getSundayCategories(),
-    ]);
-    setShifts(shiftList);
-    setSundayCategories(sundayCategoryList);
+  // Read from the same resolver the pay engine is given, so the sentence on
+  // screen and the wage can never disagree about which rule these people fall
+  // on. Computed here rather than inline so the JSX stays one short line.
+  const noRuleDescription = noRuleDraft
+    ? describeSundayRule(
+        resolveUnassignedSundayRule(
+          {
+            noCategorySundayRule: noRuleDraft.mode,
+            noCategorySundayCategoryId: noRuleDraft.categoryId,
+          },
+          data?.sundayCategories ?? [],
+        ).rule,
+        t,
+      )
+    : "";
+
+  const resetCategoryForm = () => {
+    setCategoryName("");
+    setEditingId(null);
+    setCategoryRule(DEFAULT_SUNDAY_RULE);
   };
+
+  const load = useCallback(async () => {
+    setData(await fetchPayRules());
+  }, []);
+
+  /**
+   * The old `.catch(() => {})` left `data` null, and `ready` is derived from
+   * it — so a failed read parked the screen on the loading splash for good.
+   */
+  const retry = useCallback(() => {
+    setLoadFailed(false);
+    setData(null);
+    fetchPayRules()
+      .then((next) => {
+        setData(next);
+        setDayPayCapDraft({ value: next.maxDayPayFraction });
+        setNoRuleDraft(next.noRule);
+      })
+      .catch((err) => {
+        console.error("pay rules: load failed", err);
+        setLoadFailed(true);
+      });
+  }, []);
 
   useEffect(() => {
     if (!guardReady) return;
-    load().then(() => setDataLoaded(true));
-  }, [guardReady]);
+    retry();
+  }, [guardReady, retry]);
+
+  if (loadFailed) {
+    return (
+      <AppShell>
+        <main className="flex w-full min-w-0 flex-col gap-6">
+          <LoadError onRetry={retry} />
+        </main>
+      </AppShell>
+    );
+  }
 
   if (!ready) {
     return (
@@ -99,397 +217,525 @@ export default function ShiftsPage() {
 
   return (
     <AppShell>
-      <main className="flex flex-col gap-10 animate-fade-in">
-        <header className="flex flex-col gap-2">
-          <h1 className="font-heading text-3xl font-bold tracking-tight text-foreground md:text-4xl">
-            {t("shiftsPageTitle")}
-          </h1>
-          <p className="max-w-2xl text-base leading-relaxed text-muted-foreground">
-            {t("shiftsPageIntro")}
+      <main className="animate-fade-in flex w-full min-w-0 flex-col gap-6">
+        {/* No `action`: this screen is three independent settings blocks,
+            each with its own save. Promoting any one of them would be
+            arbitrary. */}
+        <PageHeader title={t("shiftsPageTitle")} intro={t("setgShiftsIntro")} />
+
+        {/* The three blocks below are not unrelated settings: together they
+            are the whole answer to "how does a day of work turn into pay?" —
+            how long a day is, what extra days it earns, and the most any one
+            day may pay. */}
+        <div className="flex max-w-2xl flex-col gap-2 rounded-xl border border-border bg-surface-2 p-4">
+          <p className="flex items-center gap-2 text-base font-semibold text-foreground">
+            <Info className="size-5 shrink-0" aria-hidden />
+            {t("setgShiftsWhyTitle")}
           </p>
-        </header>
+          <p className="text-base leading-relaxed text-muted-foreground">
+            {t("setgShiftsWhyBody")}
+          </p>
+        </div>
 
-        <Card className="overflow-hidden border-border/80 shadow-sm">
-          <CardHeader className="border-b border-border/60 bg-muted/25 pb-6">
-            <CardTitle className="flex items-center gap-2 text-xl font-semibold font-heading">
-              <Clock className="size-5 text-primary" />
-              {t("shiftsCardShiftsTitle")}
-            </CardTitle>
-            <p className="text-sm text-muted-foreground">
-              {t("shiftsCardShiftsSubtitle")}
-            </p>
-          </CardHeader>
-          <CardContent className="p-6 sm:p-8">
-            <div className="overflow-x-auto mb-8">
-              <Table>
-                <TableHeader>
+        <SettingsSection
+          icon={Clock}
+          title={`${t("setgShiftsStep", { n: 1 })} · ${t("shiftsCardShiftsTitle")}`}
+          description={t("shiftsCardShiftsSubtitle")}
+        >
+          <div className="w-full overflow-x-auto rounded-xl border border-border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t("shiftsColName")}</TableHead>
+                  <TableHead className="text-right tabular-nums">
+                    {t("shiftsColHoursPerDay")}
+                  </TableHead>
+                  <TableHead className="w-16" />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {shifts.length === 0 ? (
                   <TableRow>
-                    <TableHead>{t("shiftsColName")}</TableHead>
-                    <TableHead className="text-right tabular-nums">
-                      {t("shiftsColHoursPerDay")}
-                    </TableHead>
-                    <TableHead className="w-16" />
+                    <TableCell
+                      colSpan={3}
+                      className="h-24 text-center text-base text-muted-foreground"
+                    >
+                      {t("shiftsEmptyHint")}
+                    </TableCell>
                   </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {shifts.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={3} className="h-24 text-center">
-                        <div className="flex flex-col items-center gap-2 py-4">
-                          <Skeleton className="h-4 w-40 rounded-md" />
-                          <span className="text-sm text-muted-foreground">
-                            {t("shiftsEmptyHint")}
-                          </span>
+                ) : (
+                  shifts.map((s) => (
+                    <TableRow
+                      key={s.id as string}
+                      className="transition-colors hover:bg-surface-2"
+                    >
+                      <TableCell className="font-medium">
+                        {s.name as string}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {s.hoursPerDay as number}
+                      </TableCell>
+                      <TableCell>
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button
+                              type="button"
+                              variant="destructive"
+                              size="icon"
+                              className="size-11"
+                              title={t("shiftsDeleteTitle")}
+                              aria-label={t("shiftsDeleteShiftAria")}
+                            >
+                              <Trash2 data-icon="inline-start" aria-hidden />
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>
+                                {t("shiftsDeleteTitle")}
+                              </AlertDialogTitle>
+                              <AlertDialogDescription>
+                                {t("shiftsDeleteDesc", {
+                                  name: String(s.name),
+                                })}
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>
+                                {t("commonCancel")}
+                              </AlertDialogCancel>
+                              <AlertDialogAction
+                                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                onClick={async () => {
+                                  try {
+                                    await deleteShift(s.id as string);
+                                    await load();
+                                    toast.success(t("shiftsDeleteSuccess"));
+                                  } catch {
+                                    toast.error(t("shiftsDeleteFail"));
+                                  }
+                                }}
+                              >
+                                {t("commonDelete")}
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
+          <form
+            className="flex flex-wrap gap-4 items-end rounded-xl border border-border bg-surface-2 p-4"
+            onSubmit={async (e) => {
+              e.preventDefault();
+              if (!shiftName.trim()) return;
+              try {
+                await saveShift({
+                  name: shiftName.trim(),
+                  hoursPerDay: readNumericInput(shiftHours, 8, { min: 1, max: 24 }),
+                });
+                setShiftName("");
+                setShiftHours("8");
+                await load();
+                toast.success(t("shiftsAddSuccess"));
+              } catch {
+                toast.error(t("shiftsAddFail"));
+              }
+            }}
+          >
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="shiftName">{t("shiftsFormNameLabel")}</Label>
+              <Input
+                id="shiftName"
+                type="text"
+                value={shiftName}
+                onChange={(e) => setShiftName(e.target.value)}
+                placeholder={t("shiftsFormNamePlaceholder")}
+                className="w-48 min-h-[44px]"
+                required
+              />
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="shiftHours">{t("shiftsFormHoursLabel")}</Label>
+              <NumberInput
+                id="shiftHours"
+                min={1}
+                max={24}
+                value={shiftHours}
+                onChange={(e) => setShiftHours(e.target.value)}
+                className="w-24 min-h-[44px]"
+              />
+            </div>
+            <Button type="submit" className={btnPrimaryClass}>
+              {t("shiftsFormSubmit")}
+            </Button>
+          </form>
+        </SettingsSection>
+
+        <SettingsSection
+          icon={CalendarDays}
+          title={`${t("setgShiftsStep", { n: 2 })} · ${t("shiftsSundayCardTitle")}`}
+          description={t("shiftsSundayCardSubtitle")}
+        >
+          <div className="w-full overflow-x-auto rounded-xl border border-border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t("shiftsSundayColName")}</TableHead>
+                  <TableHead>{t("shiftsSundayColRule")}</TableHead>
+                  <TableHead className="w-16" />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {sundayCategories.length === 0 ? (
+                  <TableRow>
+                    <TableCell
+                      colSpan={3}
+                      className="h-24 text-center text-base text-muted-foreground"
+                    >
+                      {t("shiftsSundayEmptyHint")}
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  sundayCategories.map((c) => (
+                    <TableRow
+                      key={c.id as string}
+                      className="transition-colors hover:bg-surface-2"
+                    >
+                      <TableCell className="font-medium">
+                        {c.name as string}
+                      </TableCell>
+                      <TableCell className="text-base leading-relaxed">
+                        {describeSundayRule(resolveSundayCategoryRule(c), t)}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex flex-wrap gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="min-h-[44px] px-4 py-3 text-base"
+                          onClick={() => {
+                            setEditingId(c.id);
+                            setCategoryName(c.name);
+                            setCategoryRule(resolveSundayCategoryRule(c));
+                          }}
+                        >
+                          <Pencil data-icon="inline-start" aria-hidden />
+                          {t("ruleEdit")}
+                        </Button>
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button
+                              type="button"
+                              variant="destructive"
+                              size="icon"
+                              className="size-11"
+                              title={t("shiftsSundayDeleteTitle")}
+                              aria-label={t("shiftsSundayDeleteCatAria")}
+                            >
+                              <Trash2 data-icon="inline-start" aria-hidden />
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>
+                                {t("shiftsSundayDeleteTitle")}
+                              </AlertDialogTitle>
+                              <AlertDialogDescription>
+                                {t("shiftsSundayDeleteDesc", {
+                                  name: String(c.name),
+                                })}
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>
+                                {t("commonCancel")}
+                              </AlertDialogCancel>
+                              <AlertDialogAction
+                                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                onClick={async () => {
+                                  try {
+                                    await deleteSundayCategory(c.id as string);
+                                    await load();
+                                    toast.success(
+                                      t("shiftsSundayDeleteSuccess"),
+                                    );
+                                  } catch {
+                                    toast.error(t("shiftsSundayDeleteFail"));
+                                  }
+                                }}
+                              >
+                                {t("commonDelete")}
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
                         </div>
                       </TableCell>
                     </TableRow>
-                  ) : (
-                    shifts.map((s) => (
-                      <TableRow
-                        key={s.id as string}
-                        className="transition-colors hover:bg-muted/40"
-                      >
-                        <TableCell className="font-medium">
-                          {s.name as string}
-                        </TableCell>
-                        <TableCell className="text-right tabular-nums">
-                          {s.hoursPerDay as number}
-                        </TableCell>
-                        <TableCell>
-                          <AlertDialog>
-                            <AlertDialogTrigger asChild>
-                              <Button
-                                type="button"
-                                variant="destructive"
-                                size="icon"
-                                title={t("shiftsDeleteTitle")}
-                                aria-label={t("shiftsDeleteShiftAria")}
-                              >
-                                <Trash2 data-icon="inline-start" aria-hidden />
-                              </Button>
-                            </AlertDialogTrigger>
-                            <AlertDialogContent>
-                              <AlertDialogHeader>
-                                <AlertDialogTitle>{t("shiftsDeleteTitle")}</AlertDialogTitle>
-                                <AlertDialogDescription>
-                                  {t("shiftsDeleteDesc", { name: String(s.name) })}
-                                </AlertDialogDescription>
-                              </AlertDialogHeader>
-                              <AlertDialogFooter>
-                                <AlertDialogCancel>{t("commonCancel")}</AlertDialogCancel>
-                                <AlertDialogAction
-                                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                                  onClick={async () => {
-                                    try {
-                                      await deleteShift(s.id as string);
-                                      await load();
-                                      toast.success(t("shiftsDeleteSuccess"));
-                                    } catch {
-                                      toast.error(t("shiftsDeleteFail"));
-                                    }
-                                  }}
-                                >
-                                  {t("commonDelete")}
-                                </AlertDialogAction>
-                              </AlertDialogFooter>
-                            </AlertDialogContent>
-                          </AlertDialog>
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  )}
-                </TableBody>
-              </Table>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
+          <form
+            className="flex w-full min-w-0 flex-col gap-5 rounded-xl border border-border bg-surface-2 p-4"
+            onSubmit={async (e) => {
+              e.preventDefault();
+              if (!categoryName.trim()) return;
+              try {
+                // The rule is stored whole. Legacy `mode` fields are never
+                // written for a row saved here — an edited legacy category
+                // keeps them alongside so an older build can still read it.
+                const existing = editingId
+                  ? sundayCategories.find((c) => c.id === editingId)
+                  : undefined;
+                await saveSundayCategory({
+                  ...(existing ?? {}),
+                  id: editingId ?? undefined,
+                  name: categoryName.trim(),
+                  rule: normalizeSundayRule(categoryRule),
+                });
+                resetCategoryForm();
+                await load();
+                toast.success(
+                  editingId
+                    ? t("ruleSaveSuccess")
+                    : t("shiftsSundayAddSuccess"),
+                );
+              } catch {
+                toast.error(t("shiftsSundayAddFail"));
+              }
+            }}
+          >
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="catName">{t("shiftsSundayFormNameLabel")}</Label>
+              <Input
+                id="catName"
+                type="text"
+                value={categoryName}
+                onChange={(e) => setCategoryName(e.target.value)}
+                placeholder={t("shiftsSundayFormNamePlaceholder")}
+                className="w-full max-w-sm min-h-[44px]"
+                required
+              />
             </div>
-            <form
-              className="flex flex-wrap gap-4 items-end rounded-xl border border-border/60 bg-muted/15 p-4 sm:p-5"
-              onSubmit={async (e) => {
-                e.preventDefault();
-                if (!shiftName.trim()) return;
-                try {
-                  await saveShift({
-                    name: shiftName.trim(),
-                    hoursPerDay: shiftHours,
-                  });
-                  setShiftName("");
-                  setShiftHours(8);
-                  await load();
-                  toast.success(t("shiftsAddSuccess"));
-                } catch {
-                  toast.error(t("shiftsAddFail"));
-                }
-              }}
-            >
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="shiftName">{t("shiftsFormNameLabel")}</Label>
-                <Input
-                  id="shiftName"
-                  type="text"
-                  value={shiftName}
-                  onChange={(e) => setShiftName(e.target.value)}
-                  placeholder={t("shiftsFormNamePlaceholder")}
-                  className="w-48 min-h-[44px]"
-                  required
-                />
-              </div>
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="shiftHours">{t("shiftsFormHoursLabel")}</Label>
-                <Input
-                  id="shiftHours"
-                  type="number"
-                  min={1}
-                  max={24}
-                  value={shiftHours}
-                  onChange={(e) =>
-                    setShiftHours(
-                      Math.max(
-                        1,
-                        Math.min(24, parseInt(e.target.value, 10) || 8),
-                      ),
-                    )
-                  }
-                  className="w-24 min-h-[44px]"
-                />
-              </div>
+
+            {/* Keyed so the editor is a fresh component per category. Its
+                fold-away panels are local state seeded from the rule it was
+                first handed; without this, editing category B after A kept A's
+                folds and could assert A's numbers over B's rule. The key also
+                sends an existing rule straight into the full editor, and a new
+                one back to the named starting points. */}
+            <SundayRuleEditor
+              key={editingId ?? "new"}
+              value={categoryRule}
+              onChange={setCategoryRule}
+              startExpanded={editingId !== null}
+              t={t}
+            />
+
+            <div className="flex flex-wrap gap-3">
               <Button type="submit" className={btnPrimaryClass}>
-                {t("shiftsFormSubmit")}
+                {editingId ? (
+                  <Save data-icon="inline-start" aria-hidden />
+                ) : (
+                  <Plus data-icon="inline-start" aria-hidden />
+                )}
+                {editingId ? t("ruleSaveEdit") : t("shiftsSundayFormSubmit")}
               </Button>
-            </form>
-          </CardContent>
-        </Card>
-
-        <Card className="overflow-hidden border-border/80 shadow-sm">
-          <CardHeader className="border-b border-border/60 bg-muted/25 pb-6">
-            <CardTitle className="flex items-center gap-2 text-xl font-semibold font-heading">
-              <CalendarDays className="size-5 text-primary" />
-              {t("shiftsSundayCardTitle")}
-            </CardTitle>
-            <p className="text-sm text-muted-foreground">
-              {t("shiftsSundayCardSubtitle")}
-            </p>
-          </CardHeader>
-          <CardContent className="p-6 sm:p-8">
-            <div className="overflow-x-auto mb-8">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>{t("shiftsSundayColName")}</TableHead>
-                    <TableHead>{t("shiftsSundayColRule")}</TableHead>
-                    <TableHead className="w-16" />
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {sundayCategories.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={3} className="h-24 text-center">
-                        <div className="flex flex-col items-center gap-2 py-4">
-                          <Skeleton className="h-4 w-48 rounded-md" />
-                          <span className="text-sm text-muted-foreground">
-                            {t("shiftsSundayEmptyHint")}
-                          </span>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    sundayCategories.map((c) => (
-                      <TableRow
-                        key={c.id as string}
-                        className="transition-colors hover:bg-muted/40"
-                      >
-                        <TableCell className="font-medium">
-                          {c.name as string}
-                        </TableCell>
-                        <TableCell>
-                          {(c.mode as string) === "step"
-                            ? t("shiftsSundayRuleStep", {
-                                every: c.everyPresentDays as number,
-                                earned: c.earnedPerStep as number,
-                              })
-                            : t("shiftsSundayRuleThreshold", {
-                                required: c.requiredPresent as number,
-                                earned: c.earnedSundays as number,
-                              })}
-                        </TableCell>
-                        <TableCell>
-                          <AlertDialog>
-                            <AlertDialogTrigger asChild>
-                              <Button
-                                type="button"
-                                variant="destructive"
-                                size="icon"
-                                title={t("shiftsSundayDeleteTitle")}
-                                aria-label={t("shiftsSundayDeleteCatAria")}
-                              >
-                                <Trash2 data-icon="inline-start" aria-hidden />
-                              </Button>
-                            </AlertDialogTrigger>
-                            <AlertDialogContent>
-                              <AlertDialogHeader>
-                                <AlertDialogTitle>{t("shiftsSundayDeleteTitle")}</AlertDialogTitle>
-                                <AlertDialogDescription>
-                                  {t("shiftsSundayDeleteDesc", {
-                                    name: String(c.name),
-                                  })}
-                                </AlertDialogDescription>
-                              </AlertDialogHeader>
-                              <AlertDialogFooter>
-                                <AlertDialogCancel>{t("commonCancel")}</AlertDialogCancel>
-                                <AlertDialogAction
-                                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                                  onClick={async () => {
-                                    try {
-                                      await deleteSundayCategory(c.id as string);
-                                      await load();
-                                      toast.success(t("shiftsSundayDeleteSuccess"));
-                                    } catch {
-                                      toast.error(t("shiftsSundayDeleteFail"));
-                                    }
-                                  }}
-                                >
-                                  {t("commonDelete")}
-                                </AlertDialogAction>
-                              </AlertDialogFooter>
-                            </AlertDialogContent>
-                          </AlertDialog>
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  )}
-                </TableBody>
-              </Table>
+              {editingId ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={btnPrimaryClass}
+                  onClick={resetCategoryForm}
+                >
+                  <X data-icon="inline-start" aria-hidden />
+                  {t("ruleCancelEdit")}
+                </Button>
+              ) : null}
             </div>
-            <form
-              className="flex flex-wrap gap-4 items-end rounded-xl border border-border/60 bg-muted/15 p-4 sm:p-5"
-              onSubmit={async (e) => {
-                e.preventDefault();
-                if (!categoryName.trim()) return;
-                try {
-                  if (categoryMode === "threshold") {
-                    await saveSundayCategory({
-                      name: categoryName.trim(),
-                      mode: "threshold",
-                      requiredPresent: Math.max(1, requiredPresent),
-                      earnedSundays: Math.max(1, earnedSundays),
-                    });
-                  } else {
-                    await saveSundayCategory({
-                      name: categoryName.trim(),
-                      mode: "step",
-                      everyPresentDays: Math.max(1, everyPresentDays),
-                      earnedPerStep: Math.max(1, earnedPerStep),
-                    });
-                  }
-                  setCategoryName("");
-                  setCategoryMode("threshold");
-                  setRequiredPresent(12);
-                  setEarnedSundays(2);
-                  setEveryPresentDays(6);
-                  setEarnedPerStep(1);
-                  await load();
-                  toast.success(t("shiftsSundayAddSuccess"));
-                } catch {
-                  toast.error(t("shiftsSundayAddFail"));
-                }
-              }}
+          </form>
+
+          {/* Until this existed, a person nobody gave a rule to was quietly
+              paid by a rule written into the code — up to 4 extra paid days a
+              month the owner never chose and could not see anywhere. */}
+          <form
+            className="flex w-full min-w-0 flex-col gap-4 rounded-xl border border-border bg-surface-2 p-4"
+            onSubmit={async (e) => {
+              e.preventDefault();
+              if (!noRuleDraft) return;
+              setSavingNoRule(true);
+              try {
+                await saveAppSettings({
+                  noCategorySundayRule: noRuleDraft.mode,
+                  noCategorySundayCategoryId:
+                    noRuleDraft.mode === "category" ? noRuleDraft.categoryId : "",
+                });
+                await load();
+                toast.success(t("noRuleSaveSuccess"));
+              } catch {
+                toast.error(t("noRuleSaveFail"));
+              } finally {
+                setSavingNoRule(false);
+              }
+            }}
+          >
+            <p className="flex items-center gap-2 text-base font-semibold text-foreground">
+              <Users className="size-5 shrink-0" aria-hidden />
+              {t("noRuleTitle")}
+            </p>
+            <p className="text-base leading-relaxed text-muted-foreground">
+              {t("noRuleIntro")}
+            </p>
+            <div
+              role="group"
+              aria-label={t("noRuleTitle")}
+              className="flex flex-wrap gap-3"
             >
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="catName">{t("shiftsSundayFormNameLabel")}</Label>
-                <Input
-                  id="catName"
-                  type="text"
-                  value={categoryName}
-                  onChange={(e) => setCategoryName(e.target.value)}
-                  placeholder={t("shiftsSundayFormNamePlaceholder")}
-                  className="w-64 min-h-[44px]"
-                  required
-                />
-              </div>
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="catMode">{t("shiftsSundayFormModeLabel")}</Label>
-                <Select
-                  value={categoryMode}
-                  onValueChange={(v) =>
-                    setCategoryMode(v as "threshold" | "step")
+              <Button
+                type="button"
+                variant={noRuleDraft?.mode === "asBefore" ? "default" : "outline"}
+                className="min-h-[44px] px-5 py-3 text-base"
+                aria-pressed={noRuleDraft?.mode === "asBefore"}
+                onClick={() =>
+                  setNoRuleDraft((prev) => ({
+                    mode: "asBefore",
+                    categoryId: prev?.categoryId ?? "",
+                  }))
+                }
+              >
+                <CalendarDays data-icon="inline-start" aria-hidden />
+                {t("noRuleAsBefore")}
+              </Button>
+              <Button
+                type="button"
+                variant={noRuleDraft?.mode === "nothing" ? "default" : "outline"}
+                className="min-h-[44px] px-5 py-3 text-base"
+                aria-pressed={noRuleDraft?.mode === "nothing"}
+                onClick={() =>
+                  setNoRuleDraft((prev) => ({
+                    mode: "nothing",
+                    categoryId: prev?.categoryId ?? "",
+                  }))
+                }
+              >
+                <X data-icon="inline-start" aria-hidden />
+                {t("noRuleNothing")}
+              </Button>
+              {/* Offered only when there is something to point at: a picker
+                  with no choices in it is a dead end. */}
+              {sundayCategories.length > 0 ? (
+                <Button
+                  type="button"
+                  variant={noRuleDraft?.mode === "category" ? "default" : "outline"}
+                  className="min-h-[44px] px-5 py-3 text-base"
+                  aria-pressed={noRuleDraft?.mode === "category"}
+                  onClick={() =>
+                    setNoRuleDraft((prev) => ({
+                      mode: "category",
+                      categoryId: prev?.categoryId || sundayCategories[0].id,
+                    }))
                   }
                 >
-                  <SelectTrigger id="catMode" className="w-48 min-h-[44px]">
+                  <ListChecks data-icon="inline-start" aria-hidden />
+                  {t("noRuleUseOne")}
+                </Button>
+              ) : null}
+            </div>
+            {noRuleDraft?.mode === "category" ? (
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="noRuleCategory">{t("noRulePickLabel")}</Label>
+                <Select
+                  value={noRuleDraft.categoryId}
+                  onValueChange={(v) =>
+                    setNoRuleDraft({ mode: "category", categoryId: v })
+                  }
+                >
+                  <SelectTrigger
+                    id="noRuleCategory"
+                    className="w-full max-w-sm min-h-[44px]"
+                  >
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="threshold">{t("shiftsSundayModeThreshold")}</SelectItem>
-                    <SelectItem value="step">{t("shiftsSundayModeStep")}</SelectItem>
+                    {sundayCategories.map((c) => (
+                      <SelectItem key={c.id} value={c.id}>
+                        {c.name}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
-
-              {categoryMode === "threshold" ? (
-                <>
-                  <div className="flex flex-col gap-2">
-                    <Label htmlFor="requiredPresent">{t("shiftsSundayPresentNeeded")}</Label>
-                    <Input
-                      id="requiredPresent"
-                      type="number"
-                      min={1}
-                      value={requiredPresent}
-                      onChange={(e) =>
-                        setRequiredPresent(Math.max(1, parseInt(e.target.value, 10) || 1))
-                      }
-                      className="w-40 min-h-[44px]"
-                    />
-                  </div>
-                  <div className="flex flex-col gap-2">
-                    <Label htmlFor="earnedSundays">{t("shiftsSundayEarnedLabel")}</Label>
-                    <Input
-                      id="earnedSundays"
-                      type="number"
-                      min={1}
-                      value={earnedSundays}
-                      onChange={(e) =>
-                        setEarnedSundays(Math.max(1, parseInt(e.target.value, 10) || 1))
-                      }
-                      className="w-32 min-h-[44px]"
-                    />
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="flex flex-col gap-2">
-                    <Label htmlFor="everyPresentDays">{t("shiftsSundayEveryPresent")}</Label>
-                    <Input
-                      id="everyPresentDays"
-                      type="number"
-                      min={1}
-                      value={everyPresentDays}
-                      onChange={(e) =>
-                        setEveryPresentDays(
-                          Math.max(1, parseInt(e.target.value, 10) || 1),
-                        )
-                      }
-                      className="w-40 min-h-[44px]"
-                    />
-                  </div>
-                  <div className="flex flex-col gap-2">
-                    <Label htmlFor="earnedPerStep">{t("shiftsSundayPerStep")}</Label>
-                    <Input
-                      id="earnedPerStep"
-                      type="number"
-                      min={1}
-                      value={earnedPerStep}
-                      onChange={(e) =>
-                        setEarnedPerStep(Math.max(1, parseInt(e.target.value, 10) || 1))
-                      }
-                      className="w-32 min-h-[44px]"
-                    />
-                  </div>
-                </>
-              )}
-
-              <Button type="submit" className={btnPrimaryClass}>
-                {t("shiftsSundayFormSubmit")}
+            ) : null}
+            {/* The one line that stops this being a silent rule: it names, in
+                full, what these people will actually be paid by — read from
+                the same resolver the pay engine is given. */}
+            {noRuleDescription ? (
+              <p className="text-base leading-relaxed text-foreground">
+                {t("noRuleEffect", { rule: noRuleDescription })}
+              </p>
+            ) : null}
+            <div>
+              <Button
+                type="submit"
+                className={btnPrimaryClass}
+                disabled={savingNoRule}
+              >
+                <Save data-icon="inline-start" aria-hidden />
+                {t("noRuleSave")}
               </Button>
-            </form>
-          </CardContent>
-        </Card>
+            </div>
+          </form>
+        </SettingsSection>
+
+        <SettingsSection
+          icon={Timer}
+          title={`${t("setgShiftsStep", { n: 3 })} · ${t("capCardTitle")}`}
+          description={t("capCardSubtitle")}
+        >
+          <form
+            className="flex w-full min-w-0 flex-col gap-5 rounded-xl border border-border bg-surface-2 p-4"
+            onSubmit={async (e) => {
+              e.preventDefault();
+              if (!dayPayCapDraft) return;
+              setSavingDayPayCap(true);
+              try {
+                await saveAppSettings({
+                  maxDayPayFraction: normalizeDayPayCap(dayPayCapDraft.value),
+                });
+                await load();
+                toast.success(t("capSaveSuccess"));
+              } catch {
+                toast.error(t("capSaveFail"));
+              } finally {
+                setSavingDayPayCap(false);
+              }
+            }}
+          >
+            <DayPayCapEditor
+              value={dayPayCapDraft?.value ?? null}
+              onChange={(next) => setDayPayCapDraft({ value: next })}
+              exampleHoursPerDay={(shifts[0]?.hoursPerDay as number) ?? 8}
+              t={t}
+            />
+            <div>
+              <Button
+                type="submit"
+                className={btnPrimaryClass}
+                disabled={savingDayPayCap}
+              >
+                <Save data-icon="inline-start" aria-hidden />
+                {t("capSave")}
+              </Button>
+            </div>
+          </form>
+        </SettingsSection>
       </main>
     </AppShell>
   );

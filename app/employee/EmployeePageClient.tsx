@@ -1,46 +1,49 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
 import { useSearchParams, useRouter } from "next/navigation";
+import { toast } from "sonner";
+import { Clock, LayoutGrid, Package, UserCheck } from "lucide-react";
+
 import { AppShell } from "@/components/app-shell";
 import { Skeleton } from "@/components/ui/skeleton";
+import { EmployeeCalendar } from "@/components/employee-calendar";
+import { SalarySheetAdjustDialog } from "@/components/salary-sheet-adjust-dialog";
+import { useLanguage } from "@/components/language-provider";
+import { describeMissingComponents } from "@/components/inventory/forms/produce-form";
+
+import { AddAdvanceForm } from "@/components/employee/add-advance-form";
 import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Label } from "@/components/ui/label";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
+  AddProductionForm,
+  type ProductionDraft,
+} from "@/components/employee/add-production-form";
+import { AdvancesDialog } from "@/components/employee/advances-dialog";
+import { DayAttendanceCard } from "@/components/employee/day-attendance-card";
+import { EmployeePageHeader } from "@/components/employee/employee-page-header";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { DatePicker } from "@/components/ui/date-picker";
+  MonthAttendanceCard,
+  StatTile,
+  hoursTileValue,
+  moneyCaption,
+} from "@/components/employee/employee-stat-tiles";
+import { MissingDataPopover } from "@/components/employee/missing-data-popover";
+import { MonthlyAttendancePrintCard } from "@/components/employee/monthly-attendance-print-card";
+import { OperatorSettingsCard } from "@/components/employee/operator-settings-card";
+import { PaySettingsCards } from "@/components/employee/pay-settings-cards";
+import { ProductionAdvancesCard } from "@/components/employee/production-advances-card";
+import { ProductionsDialog } from "@/components/employee/productions-dialog";
+import { SalaryRangeCard } from "@/components/employee/salary-range-card";
+import { SettlementCard } from "@/components/employee/settlement-card";
+import { StoredSalaryRecordsCard } from "@/components/employee/stored-salary-records-card";
+
 import { isAdmin } from "@/lib/auth";
 import { useAuthGuard } from "@/lib/hooks/useAuthGuard";
-import { getEmployee } from "@/lib/services/employeeService";
+import { getEmployee, saveEmployee } from "@/lib/services/employeeService";
 import {
   getProductionsByEmployee,
-  saveProduction,
   deleteProduction,
 } from "@/lib/services/productionService";
+import { saveProductionEntry } from "@/lib/services/productionEntryService";
 import {
   getAdvancesByEmployee,
   saveAdvance,
@@ -56,27 +59,38 @@ import { getShifts } from "@/lib/services/shiftService";
 import {
   getSundayCategories,
   resolveSundayCategoryRule,
+  resolveUnassignedSundayRule,
   type SundayCategory,
 } from "@/lib/services/sundayCategoryService";
-import { saveEmployee } from "@/lib/services/employeeService";
 import { getSalaryRecordsByEmployee } from "@/lib/services/salaryRecordService";
 import {
+  DEFAULT_REQUIRED_PRESENT_DAYS,
+  DEFAULT_SUNDAY_MULTIPLIER,
   getSalarySheetRowForEmployee,
+  resolveSundayPremiumForEmployee,
+  salarySheetRowHasAdjustment,
   type SalarySheetRow,
 } from "@/lib/services/salarySheetService";
+import {
+  getAppSettings,
+  type AppSettings,
+} from "@/lib/services/appSettingsService";
 import {
   calculateSalary,
   getPrintableAttendanceSalaryRangeHtml,
   getPrintableSalaryHtml,
   getPrintableMonthlyAttendanceSheetHtml,
 } from "@/lib/services/salaryService";
-import { printHtml } from "@/lib/utils/print";
-import { getHolidaysInRange } from "@/lib/services/factoryHolidayService";
+import {
+  getHolidayByDate,
+  getHolidaysInRange,
+} from "@/lib/services/factoryHolidayService";
 import {
   getAttendanceByEmployeeInRange,
   saveAttendance,
   deleteAttendance,
 } from "@/lib/services/attendanceService";
+import { printHtml } from "@/lib/utils/print";
 import {
   getWorkingDaysInMonth,
   getCalendarDaysInMonth,
@@ -85,118 +99,64 @@ import {
 } from "@/lib/utils/salaryRates";
 import {
   buildAttendanceSalarySummaryForRange,
-  buildMonthSalaryBreakdown,
   computeAttendanceStats,
   computeHoursInRange,
 } from "@/lib/utils/attendanceStats";
+import { salarySheetRowToAttendanceSummary } from "@/lib/utils/salarySheetDayDisplay";
 import {
-  applySalaryTargetsToDayRows,
-  salarySheetRowToAttendanceSummary,
-} from "@/lib/utils/salarySheetDayDisplay";
-import { salarySheetRowHasAdjustment } from "@/lib/services/salarySheetService";
-import {
-  clampDateToMonth,
   getMonthRange,
   getMonthRangeLabel,
-  getMonthRangePresets,
   getPeriodForDate,
   getPeriodsWithData,
   getYearMonthFromIsoDate,
   today,
   isRestrictedForEntry,
   formatMonthYear,
-  toISODate,
   type MonthRangeMode,
-  type DisplayLocale,
 } from "@/lib/utils/date";
 import { getMissingDataDays } from "@/lib/utils/missingDataWarnings";
-import { getHolidayByDate } from "@/lib/services/factoryHolidayService";
-import { toast } from "sonner";
-import { currency, dateDisplay, number } from "@/lib/utils/formatter";
-import { EmployeeCalendar } from "@/components/employee-calendar";
-import { SalarySheetAdjustDialog } from "@/components/salary-sheet-adjust-dialog";
-import { PayrollPeriodBadge } from "@/components/payroll-period-badge";
+import { dateDisplay, number } from "@/lib/utils/formatter";
 import {
-  Check,
-  X,
-  Clock,
-  IndianRupee,
-  UserCheck,
-  CalendarDays,
-  Package,
-  LayoutGrid,
-  Wallet,
-  AlertTriangle,
-  Printer,
-  FileSpreadsheet,
-} from "lucide-react";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import { Separator } from "@/components/ui/separator";
-import {
-  Empty,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from "@/components/ui/empty";
-import { useLanguage } from "@/components/language-provider";
+  adjustCustomRange,
+  computeDayHours,
+  findAttendanceForDate,
+  getEmployeeSections,
+  getMonthIsoBounds,
+  indexById,
+  monthPickerOptions,
+  parseHoursInput,
+  pickInitialPeriod,
+  resolveEmployeeType,
+  resolveHoursInputs,
+  resolveSalaryRange,
+  salarySheetRequestKey,
+  sumAdvances,
+  sumProductionValue,
+  sumQuantity,
+  type HoursDraft,
+  type Row,
+} from "@/lib/utils/employeeDetail";
 
-function monthPickerOptions(
-  count = 36,
-  locale: DisplayLocale = "en",
-): { value: string; label: string }[] {
-  const out: { value: string; label: string }[] = [];
-  const now = new Date();
-  for (let i = 0; i < count; i++) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    out.push({
-      value: `${d.getFullYear()}-${d.getMonth()}`,
-      label: formatMonthYear(toISODate(d), locale),
-    });
-  }
-  return out;
-}
+const NO_ROWS: Row[] = [];
+const NO_DATES: string[] = [];
 
-function EmployeePageHeader() {
-  const { t } = useLanguage();
-  return (
-    <Breadcrumb>
-      <BreadcrumbList>
-        <BreadcrumbItem>
-          <BreadcrumbLink asChild>
-            <Link href="/">{t("navDashboard")}</Link>
-          </BreadcrumbLink>
-        </BreadcrumbItem>
-        <BreadcrumbSeparator />
-        <BreadcrumbItem>
-          <BreadcrumbPage>{t("breadcrumbEmployee")}</BreadcrumbPage>
-        </BreadcrumbItem>
-      </BreadcrumbList>
-    </Breadcrumb>
-  );
-}
+/** One month's calendar data, tagged with the month it was loaded for. */
+type CalendarMonthData = {
+  key: string;
+  holidays: string[];
+  productions: Row[];
+  attendance: Row[];
+};
+
+/** A salary-sheet row request; two badges often want the very same one. */
+type SheetRequest = {
+  key: string;
+  employeeId: string;
+  year: number;
+  month: number;
+  from: string;
+  to: string;
+};
 
 export function EmployeePageClient() {
   const searchParams = useSearchParams();
@@ -205,121 +165,92 @@ export function EmployeePageClient() {
   /** Static export: real IDs are passed via ?id= (only /employee is pre-rendered). */
   const id = searchParams?.get("id") ?? "";
   const { ready: guardReady } = useAuthGuard();
+
   const [dataLoaded, setDataLoaded] = useState(false);
-  const ready = guardReady && dataLoaded;
-  const [employee, setEmployee] = useState<Record<string, unknown> | null>(
-    null,
-  );
+  const [employee, setEmployee] = useState<Row | null>(null);
   const [periods, setPeriods] = useState<
     { from: string; to: string; label: string }[]
   >([]);
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
-  const [salary, setSalary] = useState<{
-    gross: number;
-    advance: number;
-    final: number;
-    advanceToCut: number;
-  } | null>(null);
-  const [productions, setProductions] = useState<Record<string, unknown>[]>([]);
-  const [advances, setAdvances] = useState<Record<string, unknown>[]>([]);
-  const [allAdvances, setAllAdvances] = useState<Record<string, unknown>[]>([]);
-  const [deductions, setDeductions] = useState<Record<string, unknown>[]>([]);
-  const [advancesModalOpen, setAdvancesModalOpen] = useState(false);
-  const [advancesModalTab, setAdvancesModalTab] = useState<"advances" | "settlements">("advances");
-  const [productionsModalOpen, setProductionsModalOpen] = useState(false);
-  const [missingDataDays, setMissingDataDays] = useState<{ date: string }[]>([]);
-  const [items, setItems] = useState<Record<string, unknown>[]>([]);
-  const [advanceToCutInput, setAdvanceToCutInput] = useState(0);
-  const [prodItem, setProdItem] = useState("");
-  const [prodShift, setProdShift] = useState<"day" | "night">("day");
-  const [prodQty, setProdQty] = useState(1);
-  const [prodDate, setProdDate] = useState(today());
-  const [advAmount, setAdvAmount] = useState(0);
-  const [advDate, setAdvDate] = useState(today());
-  const [storedSalaryRecords, setStoredSalaryRecords] = useState<
-    Record<string, unknown>[]
-  >([]);
-  const [shifts, setShifts] = useState<Record<string, unknown>[]>([]);
+  const [salary, setSalary] = useState<{ gross: number } | null>(null);
+  const [productions, setProductions] = useState<Row[]>([]);
+  const [allAdvances, setAllAdvances] = useState<Row[]>([]);
+  const [deductions, setDeductions] = useState<Row[]>([]);
+  const [items, setItems] = useState<Row[]>([]);
+  const [shifts, setShifts] = useState<Row[]>([]);
   const [sundayCategories, setSundayCategories] = useState<SundayCategory[]>(
     [],
   );
-  const [factoryHolidays, setFactoryHolidays] = useState<string[]>([]);
-  const [calendarProductions, setCalendarProductions] = useState<
-    Record<string, unknown>[]
-  >([]);
-  const [calendarAttendance, setCalendarAttendance] = useState<
-    Record<string, unknown>[]
-  >([]);
-  const [periodAttendance, setPeriodAttendance] = useState<
-    Record<string, unknown>[]
-  >([]);
+  /**
+   * The factory-wide Sunday premium defaults. Read here rather than assumed,
+   * because this page shows the owner which number applies when a worker has
+   * none of their own — a hint that quoted a hardcoded 26 while Settings said
+   * something else would be a lie in the one place it matters.
+   */
+  const [sundayPremiumDefaults, setSundayPremiumDefaults] = useState({
+    defaultSundayPremiumRequiredDays: DEFAULT_REQUIRED_PRESENT_DAYS,
+    defaultSundayPremiumMultiplier: DEFAULT_SUNDAY_MULTIPLIER,
+  });
+  /**
+   * The owner's answer to "what does a worker with no Sunday rule of their own
+   * earn?". Kept as the raw setting rather than a resolved rule so it can be
+   * re-resolved against the category list this page already loads — resolving
+   * it at load time would freeze a rule that a category edit has since moved.
+   */
+  const [unassignedSundaySettings, setUnassignedSundaySettings] = useState({
+    noCategorySundayRule: "asBefore" as AppSettings["noCategorySundayRule"],
+    noCategorySundayCategoryId: "",
+  });
+  const [storedSalaryRecords, setStoredSalaryRecords] = useState<Row[]>([]);
+  const [missingDataDays, setMissingDataDays] = useState<{ date: string }[]>(
+    [],
+  );
+  const [periodAttendance, setPeriodAttendance] = useState<Row[]>([]);
+  const [advanceToCutInput, setAdvanceToCutInput] = useState(0);
+  const [advancesModalOpen, setAdvancesModalOpen] = useState(false);
+  const [productionsModalOpen, setProductionsModalOpen] = useState(false);
+  const [productionDraft, setProductionDraft] = useState<ProductionDraft>({
+    itemId: "",
+    shift: "day",
+    quantity: 1,
+    date: today(),
+  });
+  const [advAmount, setAdvAmount] = useState(0);
+  const [advDate, setAdvDate] = useState(today());
+
   const now = new Date();
   const [calYear, setCalYear] = useState(now.getFullYear());
   const [calMonth, setCalMonth] = useState(now.getMonth());
+  const monthKey = `${calYear}-${calMonth}`;
+  const [calendarData, setCalendarData] = useState<CalendarMonthData | null>(
+    null,
+  );
+  const [selectedDate, setSelectedDate] = useState<string | null>(today());
+  /** Typed hours, tagged with the day they were typed for. */
+  const [hoursDraft, setHoursDraft] = useState<HoursDraft | null>(null);
+
   const [salaryRangeMode, setSalaryRangeMode] =
     useState<MonthRangeMode>("full-month");
   const [salaryCustomFrom, setSalaryCustomFrom] = useState("");
   const [salaryCustomTo, setSalaryCustomTo] = useState("");
+
+  const [sheetRows, setSheetRows] = useState<
+    Record<string, SalarySheetRow | null>
+  >({});
+  const [sheetVersion, setSheetVersion] = useState(0);
+  const sheetFetched = useRef<Set<string>>(new Set());
+  const sheetInFlight = useRef<Set<string>>(new Set());
+
   /** Ignores stale results when the calendar month changes before fetch completes. */
   const calendarLoadGen = useRef(0);
-  const [selectedDate, setSelectedDate] = useState<string | null>(today());
-  const [hoursReducedInput, setHoursReducedInput] = useState("");
-  const [hoursExtraInput, setHoursExtraInput] = useState("");
-  const [salarySheetRowForPeriod, setSalarySheetRowForPeriod] =
-    useState<SalarySheetRow | null>(null);
-  const [salarySheetRowForSalaryRange, setSalarySheetRowForSalaryRange] =
-    useState<SalarySheetRow | null>(null);
-  const [salarySheetRowLoading, setSalarySheetRowLoading] = useState(false);
-  const [salaryRangeRowLoading, setSalaryRangeRowLoading] = useState(false);
-  const [payrollAdjustOpen, setPayrollAdjustOpen] = useState(false);
-  const [salaryRangeAdjustOpen, setSalaryRangeAdjustOpen] = useState(false);
+  /** Ignores stale missing-data results so the last edit wins, not the last reply. */
+  const missingDataGen = useRef(0);
 
-  const load = async () => {
-    const emp = await getEmployee(id);
-    if (!emp) {
-      setEmployee(null);
-      return;
-    }
-    setEmployee(emp);
-    const [
-      allProds,
-      allAdvs,
-      itemsList,
-      salaryRecs,
-      shiftList,
-      deductionsList,
-      sundayCategoryList,
-    ] =
-      await Promise.all([
-        getProductionsByEmployee(id, "2000-01-01", "2100-12-31"),
-        getAdvancesByEmployee(id, "2000-01-01", "2100-12-31"),
-        getItems(),
-        getSalaryRecordsByEmployee(id),
-        getShifts(),
-        getDeductionsByEmployee(id),
-        getSundayCategories(),
-      ]);
-    setItems(itemsList);
-    setStoredSalaryRecords(salaryRecs);
-    setShifts(shiftList);
-    setSundayCategories(sundayCategoryList);
-    setAllAdvances(allAdvs);
-    setDeductions(deductionsList);
-    const periodsWithData = getPeriodsWithData([...allProds, ...allAdvs], 24, locale);
-    const period = getPeriodForDate(today(), locale);
-    const periodList = periodsWithData.length > 0 ? periodsWithData : [period];
-    setPeriods(periodList);
-    const initialFrom =
-      periodsWithData.length > 0 &&
-      periodsWithData.some((p) => p.from === period.from)
-        ? period.from
-        : (periodList[periodList.length - 1]?.from ?? period.from);
-    const initialTo =
-      periodList.find((p) => p.from === initialFrom)?.to ?? period.to;
-    setFrom(initialFrom);
-    setTo(initialTo);
-  };
+  const ready = guardReady && dataLoaded;
+  const admin = isAdmin();
+
+  // ---------------------------------------------------------------- loading
 
   useEffect(() => {
     if (!id) {
@@ -327,262 +258,748 @@ export function EmployeePageClient() {
       return;
     }
     if (!guardReady) return;
-    load().then(() => setDataLoaded(true));
+    let cancelled = false;
+    const run = async () => {
+      const emp = await getEmployee(id);
+      if (cancelled) return;
+      if (!emp) {
+        setEmployee(null);
+        setDataLoaded(true);
+        return;
+      }
+      const [
+        allProds,
+        allAdvs,
+        itemsList,
+        salaryRecs,
+        shiftList,
+        deductionsList,
+        sundayCategoryList,
+        appSettings,
+      ] = await Promise.all([
+        getProductionsByEmployee(id, "2000-01-01", "2100-12-31"),
+        getAdvancesByEmployee(id, "2000-01-01", "2100-12-31"),
+        getItems(),
+        getSalaryRecordsByEmployee(id),
+        getShifts(),
+        getDeductionsByEmployee(id),
+        getSundayCategories(),
+        getAppSettings(),
+      ]);
+      if (cancelled) return;
+      const initial = pickInitialPeriod(
+        getPeriodsWithData([...allProds, ...allAdvs], 24, locale),
+        getPeriodForDate(today(), locale),
+      );
+      setEmployee(emp);
+      setItems(itemsList);
+      setStoredSalaryRecords(salaryRecs);
+      setShifts(shiftList);
+      setSundayCategories(sundayCategoryList);
+      setSundayPremiumDefaults({
+        defaultSundayPremiumRequiredDays:
+          appSettings.defaultSundayPremiumRequiredDays,
+        defaultSundayPremiumMultiplier:
+          appSettings.defaultSundayPremiumMultiplier,
+      });
+      setUnassignedSundaySettings({
+        noCategorySundayRule: appSettings.noCategorySundayRule,
+        noCategorySundayCategoryId: appSettings.noCategorySundayCategoryId,
+      });
+      setAllAdvances(allAdvs);
+      setDeductions(deductionsList);
+      setPeriods(initial.periods);
+      setFrom(initial.from);
+      setTo(initial.to);
+      setDataLoaded(true);
+    };
+    void run();
+    return () => {
+      cancelled = true;
+    };
   }, [router, id, locale, guardReady]);
 
   useEffect(() => {
     if (!id || !from || !to) return;
-    Promise.all([
+    let cancelled = false;
+    void Promise.all([
       calculateSalary(id, from, to),
       getDeductionForPeriod(id, from, to),
       getProductionsByEmployee(id, from, to),
-      getAdvancesByEmployee(id, from, to),
       getAttendanceByEmployeeInRange(id, from, to),
-    ]).then(([s, ded, prods, advs, periodAtt]) => {
-      const advanceToCut = (ded?.amount as number) ?? 0;
-      setAdvanceToCutInput(advanceToCut);
-      setSalary({
-        gross: s.gross,
-        advance: s.advance,
-        final: Math.max(0, s.gross - advanceToCut),
-        advanceToCut,
-      });
+    ]).then(([s, ded, prods, periodAtt]) => {
+      if (cancelled) return;
+      setAdvanceToCutInput((ded?.amount as number) ?? 0);
+      setSalary({ gross: s.gross });
       setProductions(prods);
-      setAdvances(advs);
       setPeriodAttendance(periodAtt);
     });
+    return () => {
+      cancelled = true;
+    };
   }, [id, from, to]);
 
   const loadCalendarMonth = useCallback(async () => {
     if (!id) return;
     const gen = ++calendarLoadGen.current;
-    const padM = String(calMonth + 1).padStart(2, "0");
-    const monthStart = `${calYear}-${padM}-01`;
-    const lastDay = new Date(calYear, calMonth + 1, 0).getDate();
-    const monthEnd = `${calYear}-${padM}-${lastDay}`;
+    const { monthStart, monthEnd } = getMonthIsoBounds(calYear, calMonth);
     const [holidays, prods, att] = await Promise.all([
       getHolidaysInRange(monthStart, monthEnd),
       getProductionsByEmployee(id, monthStart, monthEnd),
       getAttendanceByEmployeeInRange(id, monthStart, monthEnd),
     ]);
     if (gen !== calendarLoadGen.current) return;
-    setFactoryHolidays(holidays.map((h) => h.date as string));
-    setCalendarProductions(prods);
-    setCalendarAttendance(att);
+    setCalendarData({
+      key: `${calYear}-${calMonth}`,
+      holidays: holidays.map((h) => h.date as string),
+      productions: prods,
+      attendance: att,
+    });
   }, [id, calYear, calMonth]);
 
   useEffect(() => {
-    setCalendarAttendance([]);
-    setCalendarProductions([]);
     void loadCalendarMonth();
   }, [loadCalendarMonth]);
 
-  const refreshMissingData = () => {
+  const employeeCreatedAt = (employee?.createdAt as string) || "";
+
+  /**
+   * Rechecks which days in the period have no data. Generation-guarded: a
+   * slow earlier response can no longer overwrite a newer one.
+   */
+  const refreshMissingData = useCallback(() => {
     if (!id || !employee || !from || !to) return;
-    const start = (employee.createdAt as string) || from;
-    getHolidaysInRange(from, to).then((holidays) =>
-      getMissingDataDays(
-        id,
-        start,
-        from,
-        to,
-        holidays.map((h) => h.date as string)
-      ).then(setMissingDataDays)
-    );
-  };
+    const gen = ++missingDataGen.current;
+    const start = employeeCreatedAt || from;
+    void getHolidaysInRange(from, to)
+      .then((holidays) =>
+        getMissingDataDays(
+          id,
+          start,
+          from,
+          to,
+          holidays.map((h) => h.date as string),
+        ),
+      )
+      .then((days) => {
+        if (gen === missingDataGen.current) setMissingDataDays(days);
+      });
+  }, [id, employee, employeeCreatedAt, from, to]);
 
   useEffect(() => {
     refreshMissingData();
-  }, [id, employee, from, to]);
+  }, [refreshMissingData]);
 
-  useEffect(() => {
-    const rec = calendarAttendance.find(
-      (a) => (a.date as string) === selectedDate,
-    );
-    if (rec?.status === "present") {
-      setHoursReducedInput(
-        rec.hoursReduced != null ? String(rec.hoursReduced) : "",
-      );
-      setHoursExtraInput(rec.hoursExtra != null ? String(rec.hoursExtra) : "");
-    } else {
-      setHoursReducedInput("");
-      setHoursExtraInput("");
-    }
-  }, [selectedDate, calendarAttendance]);
+  // ------------------------------------------------------- derived calendar
 
-  useEffect(() => {
-    setPayrollAdjustOpen(false);
-  }, [from, to, calYear, calMonth]);
+  const monthLoaded = calendarData?.key === monthKey;
+  const factoryHolidays = monthLoaded ? calendarData.holidays : NO_DATES;
+  const calendarProductions = monthLoaded ? calendarData.productions : NO_ROWS;
+  const calendarAttendance = monthLoaded ? calendarData.attendance : NO_ROWS;
 
-  useEffect(() => {
-    if (!id || !from || !to) {
-      setSalarySheetRowForPeriod(null);
-      setSalarySheetRowLoading(false);
-      return;
-    }
-    const ym = getYearMonthFromIsoDate(from);
-    if (!ym) {
-      setSalarySheetRowForPeriod(null);
-      setSalarySheetRowLoading(false);
-      return;
-    }
-    let cancelled = false;
-    setSalarySheetRowLoading(true);
-    void getSalarySheetRowForEmployee(id, ym.year, ym.month, from, to)
-      .then((row) => {
-        if (!cancelled) setSalarySheetRowForPeriod(row);
-      })
-      .finally(() => {
-        if (!cancelled) setSalarySheetRowLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [id, from, to]);
+  const setMonthAttendance = useCallback((attendance: Row[]) => {
+    setCalendarData((prev) => (prev ? { ...prev, attendance } : prev));
+  }, []);
 
-  const salaryRangeBounds = useMemo(
+  // --------------------------------------------------------- derived values
+
+  const employeeType = resolveEmployeeType(employee?.employeeType);
+  const sections = getEmployeeSections(employeeType, {
+    isAdmin: admin,
+    hasStoredSalaryRecords: storedSalaryRecords.length > 0,
+  });
+  const hideRates = sections.hideRates;
+
+  const itemMap = useMemo(() => indexById(items), [items]);
+  const itemRate = useCallback(
+    (itemId: string) => (itemMap[itemId]?.rate as number) || 0,
+    [itemMap],
+  );
+  const shiftMap = useMemo(() => indexById(shifts), [shifts]);
+  const sundayCategoryMap = useMemo(
+    () => indexById(sundayCategories as unknown as Row[]),
+    [sundayCategories],
+  );
+
+  const monthlySalary = (employee?.monthlySalary as number) ?? 0;
+  const shiftId = employee?.shiftId as string | undefined;
+  const selectedShift = shiftId ? shiftMap[shiftId] : null;
+  const sundayCategoryId = employee?.sundayCategoryId as string | undefined;
+  const selectedSundayCategory = sundayCategoryId
+    ? ((sundayCategoryMap[sundayCategoryId] as unknown as SundayCategory) ??
+      null)
+    : null;
+  // A worker with no Sunday rule of their own follows whatever the owner chose
+  // in Settings; the built-in rule is only the default answer, not the only one.
+  const unassignedSundayRule = useMemo(
+    () =>
+      resolveUnassignedSundayRule(unassignedSundaySettings, sundayCategories)
+        .rule,
+    [unassignedSundaySettings, sundayCategories],
+  );
+  const sundayCategoryRule = resolveSundayCategoryRule(
+    selectedSundayCategory,
+    unassignedSundayRule,
+  );
+  /** The extra Sunday pay in force for this worker; `undefined` when none is. */
+  const sundayPremium = resolveSundayPremiumForEmployee(
+    employee ?? {},
+    sundayCategoryRule,
+    sundayPremiumDefaults,
+  );
+  const hoursPerDay = selectedShift
+    ? ((selectedShift.hoursPerDay as number) ?? 8)
+    : 8;
+  const calendarDaysInMonth = getCalendarDaysInMonth(calYear, calMonth);
+  const workingDays = getWorkingDaysInMonth(calYear, calMonth, factoryHolidays);
+  const ratePerDay = getRatePerDay(monthlySalary, calendarDaysInMonth);
+  const ratePerHour = getRatePerHour(
+    monthlySalary,
+    calendarDaysInMonth,
+    hoursPerDay,
+  );
+
+  const monthOptions = useMemo(() => monthPickerOptions(36, locale), [locale]);
+  const monthBounds = useMemo(
     () => getMonthRange(calYear, calMonth),
     [calYear, calMonth],
   );
+  const salaryRange = useMemo(
+    () =>
+      resolveSalaryRange({
+        year: calYear,
+        month: calMonth,
+        mode: salaryRangeMode,
+        customFrom: salaryCustomFrom,
+        customTo: salaryCustomTo,
+        locale,
+      }),
+    [
+      calYear,
+      calMonth,
+      salaryRangeMode,
+      salaryCustomFrom,
+      salaryCustomTo,
+      locale,
+    ],
+  );
 
-  const resolvedSalaryRange = useMemo(() => {
-    const presets = getMonthRangePresets(calYear, calMonth, locale);
-    if (salaryRangeMode === "custom") {
-      const resolvedFrom = clampDateToMonth(
-        salaryCustomFrom || salaryRangeBounds.from,
-        calYear,
-        calMonth,
-      );
-      const resolvedTo = clampDateToMonth(
-        salaryCustomTo || salaryRangeBounds.to,
-        calYear,
-        calMonth,
-      );
-      const from =
-        resolvedFrom <= resolvedTo ? resolvedFrom : resolvedTo;
-      const to =
-        resolvedFrom <= resolvedTo ? resolvedTo : resolvedFrom;
-      return {
-        from,
-        to,
-        label: getMonthRangeLabel(from, to, locale),
-      };
-    }
-    return presets.find((preset) => preset.mode === salaryRangeMode) ?? presets[0];
-  }, [
-    calYear,
-    calMonth,
+  const attendanceForStats = useMemo(
+    () =>
+      calendarAttendance.map((a) => ({
+        date: a.date as string,
+        status: a.status as string,
+        hoursWorked: a.hoursWorked as number | undefined,
+        hoursReduced: a.hoursReduced as number | undefined,
+        hoursExtra: a.hoursExtra as number | undefined,
+      })),
+    [calendarAttendance],
+  );
+
+  const attendanceStats = computeAttendanceStats({
+    year: calYear,
+    month: calMonth,
+    holidayDates: factoryHolidays,
+    attendance: attendanceForStats,
+    hoursPerDay,
+    sundayCategoryRule,
+  });
+  const calculatedSalary =
+    Math.round(attendanceStats.totalPaidDays * ratePerDay * 100) / 100;
+
+  const salaryRangeSummary = buildAttendanceSalarySummaryForRange({
+    fromDate: salaryRange.from,
+    toDate: salaryRange.to,
+    holidayDates: factoryHolidays,
+    attendance: attendanceForStats,
+    hoursPerDay,
+    ratePerDay,
+    sundayCategoryRule,
+    sundayPremium,
+  });
+  const calendarMonthTitle = formatMonthYear(
+    `${calYear}-${String(calMonth + 1).padStart(2, "0")}-01`,
     locale,
-    salaryCustomFrom,
-    salaryCustomTo,
-    salaryRangeBounds.from,
-    salaryRangeBounds.to,
-    salaryRangeMode,
-  ]);
+  );
+  const salaryRangeLabel =
+    salaryRangeMode === "full-month"
+      ? formatMonthYear(monthBounds.from, locale)
+      : salaryRange.label;
+  const currentPeriodLabel =
+    from && to ? getMonthRangeLabel(from, to, locale) : "";
 
-  useEffect(() => {
-    setSalaryRangeAdjustOpen(false);
-  }, [resolvedSalaryRange.from, resolvedSalaryRange.to, calYear, calMonth]);
+  const dayProductions = selectedDate
+    ? calendarProductions.filter((p) => (p.date as string) === selectedDate)
+    : NO_ROWS;
+  const monthProdQty = sumQuantity(calendarProductions);
+  const monthProdValue = sumProductionValue(calendarProductions, itemRate);
+  const periodProdQty = sumQuantity(productions);
+  const periodProdValue = sumProductionValue(productions, itemRate);
+  const totalAdvancePaid = sumAdvances(allAdvances);
 
-  useEffect(() => {
-    if (!id || !resolvedSalaryRange.from || !resolvedSalaryRange.to) {
-      setSalarySheetRowForSalaryRange(null);
-      setSalaryRangeRowLoading(false);
-      return;
-    }
-    const ym = getYearMonthFromIsoDate(resolvedSalaryRange.from);
-    if (!ym) {
-      setSalarySheetRowForSalaryRange(null);
-      setSalaryRangeRowLoading(false);
-      return;
-    }
-    let cancelled = false;
-    setSalaryRangeRowLoading(true);
-    void getSalarySheetRowForEmployee(
-      id,
-      ym.year,
-      ym.month,
-      resolvedSalaryRange.from,
-      resolvedSalaryRange.to,
-    )
-      .then((row) => {
-        if (!cancelled) setSalarySheetRowForSalaryRange(row);
-      })
-      .finally(() => {
-        if (!cancelled) setSalaryRangeRowLoading(false);
-      });
-    return () => {
-      cancelled = true;
+  const periodHours =
+    from && to
+      ? computeHoursInRange(
+          periodAttendance.map((a) => ({
+            date: a.date as string,
+            status: a.status as string,
+            hoursWorked: a.hoursWorked as number | undefined,
+            hoursReduced: a.hoursReduced as number | undefined,
+            hoursExtra: a.hoursExtra as number | undefined,
+          })),
+          from,
+          to,
+          hoursPerDay,
+        )
+      : 0;
+
+  const selectedRecord = findAttendanceForDate(
+    calendarAttendance,
+    selectedDate,
+  );
+  const dayHours = computeDayHours(selectedRecord, hoursPerDay);
+  const hoursInputs = resolveHoursInputs(
+    hoursDraft,
+    selectedDate,
+    selectedRecord,
+  );
+
+  // ------------------------------------------------------- salary sheet rows
+
+  const periodRequest: SheetRequest | null = useMemo(() => {
+    if (!id || !from || !to) return null;
+    const ym = getYearMonthFromIsoDate(from);
+    if (!ym) return null;
+    return {
+      key: salarySheetRequestKey(id, from, to),
+      employeeId: id,
+      year: ym.year,
+      month: ym.month,
+      from,
+      to,
     };
-  }, [id, resolvedSalaryRange.from, resolvedSalaryRange.to]);
+  }, [id, from, to]);
 
-  const openPayrollAdjust = useCallback(() => {
+  const rangeRequest: SheetRequest | null = useMemo(() => {
+    // Production workers never see the range card, so never pay for its row.
+    if (!sections.attendanceSalary) return null;
+    if (!id || !salaryRange.from || !salaryRange.to) return null;
+    const ym = getYearMonthFromIsoDate(salaryRange.from);
+    if (!ym) return null;
+    return {
+      key: salarySheetRequestKey(id, salaryRange.from, salaryRange.to),
+      employeeId: id,
+      year: ym.year,
+      month: ym.month,
+      from: salaryRange.from,
+      to: salaryRange.to,
+    };
+  }, [id, salaryRange.from, salaryRange.to, sections.attendanceSalary]);
+
+  const periodRequestKey = periodRequest?.key ?? null;
+  const rangeRequestKey = rangeRequest?.key ?? null;
+
+  /**
+   * Fetches each distinct salary-sheet row once. The two payroll badges
+   * usually want the same range, and the service builds rows for every
+   * employee on each call, so asking twice is expensive.
+   */
+  useEffect(() => {
+    const requests = [periodRequest, rangeRequest].filter(
+      (r): r is SheetRequest => r !== null,
+    );
+    const seen = new Set<string>();
+    for (const req of requests) {
+      if (seen.has(req.key)) continue;
+      seen.add(req.key);
+      if (sheetFetched.current.has(req.key)) continue;
+      if (sheetInFlight.current.has(req.key)) continue;
+      sheetInFlight.current.add(req.key);
+      void getSalarySheetRowForEmployee(
+        req.employeeId,
+        req.year,
+        req.month,
+        req.from,
+        req.to,
+      )
+        .then((row) => {
+          sheetFetched.current.add(req.key);
+          setSheetRows((prev) => ({ ...prev, [req.key]: row }));
+        })
+        .finally(() => {
+          sheetInFlight.current.delete(req.key);
+        });
+    }
+  }, [periodRequest, rangeRequest, sheetVersion]);
+
+  /** Attendance and payroll edits make every cached sheet row stale. */
+  const invalidateSheetRows = useCallback(() => {
+    sheetFetched.current.clear();
+    setSheetRows({});
+    setSheetVersion((v) => v + 1);
+  }, []);
+
+  const periodSheetRow = periodRequestKey
+    ? (sheetRows[periodRequestKey] ?? null)
+    : null;
+  const rangeSheetRow = rangeRequestKey
+    ? (sheetRows[rangeRequestKey] ?? null)
+    : null;
+  const periodRowLoading = periodRequestKey
+    ? !(periodRequestKey in sheetRows)
+    : false;
+  const rangeRowLoading = rangeRequestKey
+    ? !(rangeRequestKey in sheetRows)
+    : false;
+
+  const effectiveSalaryRangeSummary = salarySheetRowHasAdjustment(rangeSheetRow)
+    ? salarySheetRowToAttendanceSummary(
+        rangeSheetRow,
+        salaryRangeSummary.totalHoursWorked,
+      )
+    : salaryRangeSummary;
+
+  // ------------------------------------------------------------ adjust dialogs
+
+  const periodDialogKey = `${from}|${to}|${monthKey}`;
+  const rangeDialogKey = `${salaryRange.from}|${salaryRange.to}|${monthKey}`;
+  const [payrollAdjustKey, setPayrollAdjustKey] = useState<string | null>(null);
+  const [rangeAdjustKey, setRangeAdjustKey] = useState<string | null>(null);
+  /** Derived, so changing period or month closes the dialog without an effect. */
+  const payrollAdjustOpen = payrollAdjustKey === periodDialogKey;
+  const rangeAdjustOpen = rangeAdjustKey === rangeDialogKey;
+
+  const openPayrollAdjust = () => {
     if (!from || !to) {
       toast.message(t("empPayrollToastSelectDate"));
       return;
     }
-    if (!getYearMonthFromIsoDate(from)) {
+    if (!periodRequest) {
       toast.error(t("empPayrollToastLoadFailed"));
       return;
     }
-    if (salarySheetRowLoading) {
+    if (periodRowLoading) {
       toast.message(t("empPayrollToastLoading"));
       return;
     }
-    if (!salarySheetRowForPeriod) {
+    if (!periodSheetRow) {
       toast.error(t("empPayrollToastLoadFailed"));
       return;
     }
-    setPayrollAdjustOpen(true);
-  }, [
-    from,
-    to,
-    salarySheetRowLoading,
-    salarySheetRowForPeriod,
-    t,
-  ]);
+    setPayrollAdjustKey(periodDialogKey);
+  };
 
-  const openSalaryRangeAdjust = useCallback(() => {
-    if (!resolvedSalaryRange.from || !resolvedSalaryRange.to) {
+  const openRangeAdjust = () => {
+    if (!salaryRange.from || !salaryRange.to) {
       toast.message(t("empPayrollToastSelectDate"));
       return;
     }
-    if (!getYearMonthFromIsoDate(resolvedSalaryRange.from)) {
+    if (!rangeRequest) {
       toast.error(t("empPayrollToastLoadFailed"));
       return;
     }
-    if (salaryRangeRowLoading) {
+    if (rangeRowLoading) {
       toast.message(t("empPayrollToastLoading"));
       return;
     }
-    if (!salarySheetRowForSalaryRange) {
+    if (!rangeSheetRow) {
       toast.error(t("empPayrollToastLoadFailed"));
       return;
     }
-    setSalaryRangeAdjustOpen(true);
+    setRangeAdjustKey(rangeDialogKey);
+  };
+
+  // ------------------------------------------------------------------ writes
+
+  /**
+   * Saves an employee field. On failure the old value is put back and the
+   * user is told, so the screen can never show something the DB does not have.
+   */
+  const updateEmployee = useCallback(
+    async (patch: Row) => {
+      if (!employee) return;
+      const previous = employee;
+      // `undefined` in a patch means "this worker has no value of their own" —
+      // the key is removed, not stored holding undefined, so an export and the
+      // row it came from say the same thing.
+      const updated: Row = { ...employee, ...patch };
+      for (const key of Object.keys(patch)) {
+        if (patch[key] === undefined) delete updated[key];
+      }
+      setEmployee(updated);
+      try {
+        await saveEmployee(updated);
+      } catch {
+        setEmployee(previous);
+        toast.error(t("emp2SaveFailed"));
+      }
+    },
+    [employee, t],
+  );
+
+  /** Local-only edit while typing; the blur handler persists it. */
+  const draftEmployee = useCallback((patch: Row) => {
+    setEmployee((prev) => (prev ? { ...prev, ...patch } : prev));
+  }, []);
+
+  /** Re-reads attendance for the calendar month and the selected period. */
+  const refreshAttendance = useCallback(async () => {
+    const { monthStart, monthEnd } = getMonthIsoBounds(calYear, calMonth);
+    const [att, periodAtt] = await Promise.all([
+      getAttendanceByEmployeeInRange(id, monthStart, monthEnd),
+      from && to
+        ? getAttendanceByEmployeeInRange(id, from, to)
+        : Promise.resolve([] as Row[]),
+    ]);
+    setMonthAttendance(att);
+    if (from && to) setPeriodAttendance(periodAtt);
+    invalidateSheetRows();
+    refreshMissingData();
   }, [
-    resolvedSalaryRange.from,
-    resolvedSalaryRange.to,
-    salaryRangeRowLoading,
-    salarySheetRowForSalaryRange,
+    id,
+    calYear,
+    calMonth,
+    from,
+    to,
+    setMonthAttendance,
+    invalidateSheetRows,
+    refreshMissingData,
+  ]);
+
+  /** Re-reads the money figures for the selected period. */
+  const refreshPeriodTotals = useCallback(async () => {
+    const [s, ded, prods] = await Promise.all([
+      calculateSalary(id, from, to),
+      getDeductionForPeriod(id, from, to),
+      getProductionsByEmployee(id, from, to),
+    ]);
+    setAdvanceToCutInput((ded?.amount as number) ?? 0);
+    setSalary({ gross: s.gross });
+    setProductions(prods);
+  }, [id, from, to]);
+
+  const markAttendance = async (status: "present" | "absent") => {
+    if (!selectedDate) return;
+    const existing = findAttendanceForDate(calendarAttendance, selectedDate);
+    const reduced =
+      status === "present" ? parseHoursInput(hoursInputs.reduced) : undefined;
+    const extra =
+      status === "present" ? parseHoursInput(hoursInputs.extra) : undefined;
+    await saveAttendance({
+      ...(existing?.id ? { id: existing.id as string } : {}),
+      employeeId: id,
+      date: selectedDate,
+      status,
+      ...(reduced != null ? { hoursReduced: reduced } : {}),
+      ...(extra != null ? { hoursExtra: extra } : {}),
+    });
+    setHoursDraft(null);
+    await refreshAttendance();
+    toast.success(
+      t(
+        status === "present" ? "empToastMarkedPresent" : "empToastMarkedAbsent",
+        { date: dateDisplay(selectedDate) },
+      ),
+    );
+  };
+
+  const clearAttendance = useCallback(async () => {
+    if (!selectedDate) return;
+    try {
+      const rec = findAttendanceForDate(calendarAttendance, selectedDate);
+      if (rec?.id) await deleteAttendance(rec.id as string);
+      setHoursDraft(null);
+      await refreshAttendance();
+      toast.success(
+        t("empToastAttendanceCleared", { date: dateDisplay(selectedDate) }),
+      );
+    } catch {
+      toast.error(t("empToastAttendanceClearFailed"));
+    }
+  }, [selectedDate, calendarAttendance, refreshAttendance, t]);
+
+  const saveHours = async () => {
+    const existing = findAttendanceForDate(calendarAttendance, selectedDate);
+    if (!existing) return;
+    const reduced = hoursInputs.reduced ? parseFloat(hoursInputs.reduced) : 0;
+    const extra = hoursInputs.extra ? parseFloat(hoursInputs.extra) : 0;
+    await saveAttendance({
+      ...existing,
+      hoursReduced: Number.isNaN(reduced) ? undefined : reduced,
+      hoursExtra: Number.isNaN(extra) ? undefined : extra,
+    });
+    setHoursDraft(null);
+    await refreshAttendance();
+    toast.success(t("empToastHoursUpdated"));
+  };
+
+  const submitProduction = useCallback(async () => {
+    if (!productionDraft.itemId) return;
+    const holiday = await getHolidayByDate(productionDraft.date);
+    const holidayDates = holiday ? [productionDraft.date] : [];
+    if (isRestrictedForEntry(productionDraft.date, holidayDates)) {
+      toast.error(t("empToastProdHolidayBlock"));
+      return;
+    }
+    let missingParts = "";
+    try {
+      // saveProductionEntry, never the raw saveProduction: writing work down
+      // here has to draw the material out of stock too, exactly as the
+      // production screen does. Two entry paths that disagree about stock is
+      // the bug this replaces.
+      const { inventory } = await saveProductionEntry({
+        employeeId: id,
+        itemId: productionDraft.itemId,
+        date: productionDraft.date,
+        quantity: productionDraft.quantity,
+        shift: productionDraft.shift,
+      });
+      if (inventory && inventory.missing.length > 0) {
+        missingParts = describeMissingComponents(inventory.missing, t);
+      }
+    } catch {
+      toast.error(t("empToastProdAddFail"));
+      return;
+    }
+    setProductionDraft((prev) => ({ ...prev, quantity: 1 }));
+    await refreshPeriodTotals();
+    await loadCalendarMonth();
+    invalidateSheetRows();
+    refreshMissingData();
+    toast.success(t("empToastProdAdded"));
+    if (missingParts) {
+      toast.warning(t("invSvcNotDeducted", { parts: missingParts }), {
+        duration: 10000,
+      });
+    }
+  }, [
+    productionDraft,
+    id,
+    refreshPeriodTotals,
+    loadCalendarMonth,
+    invalidateSheetRows,
+    refreshMissingData,
     t,
   ]);
 
-  const salaryRangeSheetYearMonth = useMemo(
-    () => getYearMonthFromIsoDate(resolvedSalaryRange.from),
-    [resolvedSalaryRange.from],
+  const removeProduction = useCallback(
+    async (productionId: string) => {
+      try {
+        await deleteProduction(productionId);
+        await refreshPeriodTotals();
+        await loadCalendarMonth();
+        invalidateSheetRows();
+        refreshMissingData();
+        toast.success(t("empToastProdDeleted"));
+      } catch {
+        toast.error(t("empToastProdDeleteFail"));
+      }
+    },
+    [
+      refreshPeriodTotals,
+      loadCalendarMonth,
+      invalidateSheetRows,
+      refreshMissingData,
+      t,
+    ],
   );
 
-  const payrollSheetYearMonth = useMemo(
-    () => (from ? getYearMonthFromIsoDate(from) : null),
-    [from],
+  const submitAdvance = useCallback(async () => {
+    try {
+      await saveAdvance({ employeeId: id, amount: advAmount, date: advDate });
+    } catch {
+      toast.error(t("empToastAdvanceAddFail"));
+      return;
+    }
+    setAdvAmount(0);
+    const allAdvs = await getAdvancesByEmployee(id, "2000-01-01", "2100-12-31");
+    setAllAdvances(allAdvs);
+    await refreshPeriodTotals();
+    toast.success(t("empToastAdvanceAdded"));
+  }, [id, advAmount, advDate, refreshPeriodTotals, t]);
+
+  const removeAdvance = useCallback(
+    async (advanceId: string) => {
+      try {
+        await deleteAdvance(advanceId);
+        const allAdvs = await getAdvancesByEmployee(
+          id,
+          "2000-01-01",
+          "2100-12-31",
+        );
+        setAllAdvances(allAdvs);
+        await refreshPeriodTotals();
+        toast.success(t("empToastAdvanceDeleted"));
+      } catch {
+        toast.error(t("empToastAdvanceDeleteFail"));
+      }
+    },
+    [id, refreshPeriodTotals, t],
   );
+
+  const saveSettlement = useCallback(async () => {
+    try {
+      await saveDeduction({
+        employeeId: id,
+        periodFrom: from,
+        periodTo: to,
+        amount: advanceToCutInput,
+      });
+    } catch {
+      toast.error(t("empToastSettlementFailed"));
+      return;
+    }
+    setDeductions(await getDeductionsByEmployee(id));
+    toast.success(t("empToastSettlementSaved"));
+  }, [id, from, to, advanceToCutInput, t]);
+
+  const printMonthlyAttendance = useCallback(async () => {
+    const { html } = await getPrintableMonthlyAttendanceSheetHtml(
+      id,
+      calYear,
+      calMonth,
+    );
+    await printHtml(html);
+  }, [id, calYear, calMonth]);
+
+  const printSalaryRange = useCallback(async () => {
+    const ym = getYearMonthFromIsoDate(salaryRange.from);
+    if (!ym) {
+      toast.error(t("empPayrollToastLoadFailed"));
+      return;
+    }
+    const html = await getPrintableAttendanceSalaryRangeHtml(
+      id,
+      ym.year,
+      ym.month,
+      salaryRange.from,
+      salaryRange.to,
+    );
+    await printHtml(html);
+  }, [id, salaryRange.from, salaryRange.to, t]);
+
+  const printProductionAdvances = useCallback(async () => {
+    const { html } = await getPrintableSalaryHtml(id, from, to);
+    await printHtml(html);
+  }, [id, from, to]);
+
+  const periodOptions = useMemo(
+    () =>
+      periods.map((p) => ({
+        from: p.from,
+        to: p.to,
+        label: getPeriodForDate(p.from, locale).label,
+      })),
+    [periods, locale],
+  );
+
+  // ------------------------------------------------------------------ render
 
   if (!ready) {
     return (
       <AppShell headerContent={<EmployeePageHeader />}>
         <main id="main" className="flex flex-col gap-8">
-          <div className="grid grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
             {[1, 2, 3, 4].map((i) => (
               <Skeleton key={i} className="h-28 rounded-xl" />
             ))}
@@ -612,484 +1029,75 @@ export function EmployeePageClient() {
     );
   }
 
-  const employeeType = ((employee.employeeType as string) || "salaried") as
-    | "salaried"
-    | "production"
-    | "operator";
-  const isProductionEmp = employeeType === "production";
-  const isOperatorEmp = employeeType === "operator";
-  const admin = isAdmin();
-  const hideOperatorRates = isOperatorEmp && !admin;
-
-  const itemMap = Object.fromEntries(
-    items.map((i) => [i.id as string, i]),
-  ) as Record<string, Record<string, unknown>>;
-
-  const shiftMap = Object.fromEntries(
-    shifts.map((s) => [s.id as string, s]),
-  ) as Record<string, Record<string, unknown>>;
-  const sundayCategoryMap = Object.fromEntries(
-    sundayCategories.map((c) => [c.id as string, c]),
-  ) as Record<string, SundayCategory>;
-
-  const workingDays = getWorkingDaysInMonth(calYear, calMonth, factoryHolidays);
-  const calendarDaysInMonth = getCalendarDaysInMonth(calYear, calMonth);
-  const monthlySalary = (employee.monthlySalary as number) ?? 0;
-  const shiftId = employee.shiftId as string | undefined;
-  const selectedShift = shiftId ? shiftMap[shiftId] : null;
-  const sundayCategoryId = employee.sundayCategoryId as string | undefined;
-  const selectedSundayCategory = sundayCategoryId
-    ? sundayCategoryMap[sundayCategoryId]
-    : null;
-  const sundayCategoryRule = resolveSundayCategoryRule(selectedSundayCategory);
-  const hoursPerDay = selectedShift
-    ? ((selectedShift.hoursPerDay as number) ?? 8)
-    : 8;
-  const ratePerDay = getRatePerDay(monthlySalary, calendarDaysInMonth);
-  const ratePerHour = getRatePerHour(
-    monthlySalary,
-    calendarDaysInMonth,
-    hoursPerDay,
-  );
-
-  // Production for selected day and full month
-  const dayProductions = selectedDate
-    ? calendarProductions.filter((p) => (p.date as string) === selectedDate)
-    : [];
-  const dayProdQty = dayProductions.reduce(
-    (sum, p) => sum + ((p.quantity as number) || 0),
-    0,
-  );
-  const dayProdValue = dayProductions.reduce((sum, p) => {
-    const item = itemMap[p.itemId as string];
-    const rate = (item?.rate as number) || 0;
-    return sum + ((p.quantity as number) || 0) * rate;
-  }, 0);
-  const monthProdQty = calendarProductions.reduce(
-    (sum, p) => sum + ((p.quantity as number) || 0),
-    0,
-  );
-  const monthProdValue = calendarProductions.reduce((sum, p) => {
-    const item = itemMap[p.itemId as string];
-    const rate = (item?.rate as number) || 0;
-    return sum + ((p.quantity as number) || 0) * rate;
-  }, 0);
-
-  // Monthly attendance: up to 4 extra pay days from 15-day cycles (≥12 working presents each); Sunday present = +1 day rate
-  const attendanceStats = computeAttendanceStats({
-    year: calYear,
-    month: calMonth,
-    holidayDates: factoryHolidays,
-    attendance: calendarAttendance.map((a) => ({
-      date: a.date as string,
-      status: a.status as string,
-      hoursWorked: a.hoursWorked as number | undefined,
-      hoursReduced: a.hoursReduced as number | undefined,
-      hoursExtra: a.hoursExtra as number | undefined,
-    })),
-    hoursPerDay,
-    sundayCategoryRule,
-  });
-  const {
-    presentDays: daysPresent,
-    absentDays: daysAbsent,
-    earnedSundayPayDays,
-    sundayPresentBonusDays,
-    totalPaidDays,
-    totalHoursWorked: monthHours,
-  } = attendanceStats;
-  const calculatedSalary =
-    Math.round(totalPaidDays * ratePerDay * 100) / 100;
-
-  const monthSheetOptions = monthPickerOptions(36, locale);
-  const monthBounds = salaryRangeBounds;
-  const salaryRange = resolvedSalaryRange;
-  const salaryRangeSummary = buildAttendanceSalarySummaryForRange({
-    fromDate: salaryRange.from,
-    toDate: salaryRange.to,
-    holidayDates: factoryHolidays,
-    attendance: calendarAttendance.map((a) => ({
-      date: a.date as string,
-      status: a.status as string,
-      hoursWorked: a.hoursWorked as number | undefined,
-      hoursReduced: a.hoursReduced as number | undefined,
-      hoursExtra: a.hoursExtra as number | undefined,
-    })),
-    hoursPerDay,
-    ratePerDay,
-    sundayCategoryRule,
-  });
-  const salaryRangeLabel =
-    salaryRangeMode === "full-month"
-      ? formatMonthYear(monthBounds.from, locale)
-      : salaryRange.label;
-  const monthAttendanceBreakdown = buildMonthSalaryBreakdown({
-    year: calYear,
-    month: calMonth,
-    holidayDates: factoryHolidays,
-    attendance: calendarAttendance.map((a) => ({
-      date: a.date as string,
-      status: a.status as string,
-      hoursWorked: a.hoursWorked as number | undefined,
-      hoursReduced: a.hoursReduced as number | undefined,
-      hoursExtra: a.hoursExtra as number | undefined,
-    })),
-    productionPayByDate: new Map(),
-    hoursPerDay,
-    ratePerDay,
-    includeProductionPay: false,
-    sundayCategoryRule,
-  });
-  const salaryRangeDayRows = monthAttendanceBreakdown.days.filter(
-    (row) => row.date >= salaryRange.from && row.date <= salaryRange.to,
-  );
-  const effectiveSalaryRangeSummary = salarySheetRowHasAdjustment(
-    salarySheetRowForSalaryRange,
-  )
-    ? salarySheetRowToAttendanceSummary(
-        salarySheetRowForSalaryRange,
-        salaryRangeSummary.totalHoursWorked,
-      )
-    : salaryRangeSummary;
-  const currentPeriodLabel =
-    from && to ? getMonthRangeLabel(from, to, locale) : "";
-
-  const periodProdQty = productions.reduce(
-    (sum, p) => sum + ((p.quantity as number) || 0),
-    0,
-  );
-  const periodProdValue = productions.reduce((sum, p) => {
-    const item = itemMap[p.itemId as string];
-    const rate = (item?.rate as number) || 0;
-    return sum + ((p.quantity as number) || 0) * rate;
-  }, 0);
-  const periodHours =
+  const periodCaption =
     from && to
-      ? computeHoursInRange(
-          periodAttendance.map((a) => ({
-            date: a.date as string,
-            status: a.status as string,
-            hoursWorked: a.hoursWorked as number | undefined,
-            hoursReduced: a.hoursReduced as number | undefined,
-            hoursExtra: a.hoursExtra as number | undefined,
-          })),
-          from,
-          to,
-          hoursPerDay,
-        )
-      : 0;
-  const dayHours = selectedDate
-    ? (() => {
-        const rec = calendarAttendance.find(
-          (a) => (a.date as string) === selectedDate,
-        );
-        if (!rec || (rec.status as string) !== "present") return 0;
-        const extra =
-          ((rec.hoursExtra as number) ?? 0) -
-          ((rec.hoursReduced as number) ?? 0);
-        return (rec.hoursWorked as number) ?? hoursPerDay + extra;
-      })()
-    : 0;
-
-  const handleSalaryCustomFromChange = (value: string) => {
-    const nextFrom = clampDateToMonth(value, calYear, calMonth);
-    const nextTo = clampDateToMonth(
-      salaryCustomTo || monthBounds.to,
-      calYear,
-      calMonth,
-    );
-    setSalaryCustomFrom(nextFrom);
-    if (nextTo < nextFrom) setSalaryCustomTo(nextFrom);
-  };
-
-  const handleSalaryCustomToChange = (value: string) => {
-    const nextTo = clampDateToMonth(value, calYear, calMonth);
-    const nextFrom = clampDateToMonth(
-      salaryCustomFrom || monthBounds.from,
-      calYear,
-      calMonth,
-    );
-    setSalaryCustomTo(nextTo);
-    if (nextTo < nextFrom) setSalaryCustomFrom(nextTo);
-  };
-
-  const calendarMonthTitle = formatMonthYear(
-    `${calYear}-${String(calMonth + 1).padStart(2, "0")}-01`,
-    locale,
-  );
+      ? `${dateDisplay(from)} – ${dateDisplay(to)}`
+      : t("empSelectPeriod");
+  const dayCaption = selectedDate
+    ? dateDisplay(selectedDate)
+    : t("empSelectDateShort");
 
   return (
-    <AppShell
-      headerContent={<EmployeePageHeader />}
-    >
+    <AppShell headerContent={<EmployeePageHeader />}>
       <main id="main" className="flex flex-col gap-8">
-        <div className="animate-fade-in flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <h1 className="text-3xl font-semibold text-foreground">
+        <div className="animate-fade-in flex min-w-0 flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0">
+            <h1 className="break-words font-heading text-3xl font-bold tracking-tight text-foreground md:text-4xl">
               {employee.name as string}
             </h1>
+            <p className="mt-2 max-w-prose text-sm text-muted-foreground">
+              {t("ux3EmployeeIntro")}
+            </p>
           </div>
-          {missingDataDays.length > 0 && (
-            <Popover>
-              <PopoverTrigger asChild>
-                <button
-                  type="button"
-                  className="relative flex items-center justify-center rounded-lg p-2 text-destructive hover:bg-destructive/10 focus:outline-none focus:ring-2 focus:ring-destructive/30 transition-colors"
-                  aria-label={t("dashboardMissingDataAria", {
-                    count: missingDataDays.length,
-                  })}
-                >
-                  <AlertTriangle className="size-5" />
-                  <span className="absolute -top-0.5 -right-0.5 flex size-4 items-center justify-center rounded-full bg-destructive text-[10px] font-bold text-destructive-foreground animate-pulse">
-                    {missingDataDays.length > 9 ? "9+" : missingDataDays.length}
-                  </span>
-                </button>
-              </PopoverTrigger>
-              <PopoverContent align="end" className="w-72">
-                <div className="space-y-2">
-                  <p className="font-medium text-destructive">
-                    {t("dashboardMissingDataTitle")}
-                  </p>
-                  <p className="text-sm text-muted-foreground">
-                    {t("empMissingPopoverBody", {
-                      count: missingDataDays.length,
-                    })}
-                  </p>
-                  <ul className="text-sm max-h-40 overflow-y-auto space-y-1">
-                    {missingDataDays
-                      .slice(0, 15)
-                      .map((d) => (
-                        <li key={d.date}>{dateDisplay(d.date)}</li>
-                      ))}
-                    {missingDataDays.length > 15 && (
-                      <li className="text-muted-foreground">
-                        {t("dashboardMissingMore", {
-                          n: missingDataDays.length - 15,
-                        })}
-                      </li>
-                    )}
-                  </ul>
-                </div>
-              </PopoverContent>
-            </Popover>
-          )}
+          <MissingDataPopover days={missingDataDays} />
         </div>
-        {!isProductionEmp && (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5 xl:flex-1 xl:min-w-0 animate-fade-in animate-stagger-1">
-          <Card className="p-5 sm:p-6">
-            <CardHeader className="p-0 pb-2">
-              <div className="flex items-center gap-2">
-                <Clock className="size-4 text-primary" />
-                <CardTitle className="text-sm font-medium text-muted-foreground">
-                  {t("labelShift")}
-                </CardTitle>
-              </div>
-            </CardHeader>
-            <CardContent className="p-0">
-              <Select
-                value={(employee.shiftId as string) ?? "_none"}
-                onValueChange={async (v) => {
-                  const shiftId = v === "_none" ? undefined : v;
-                  const updated = { ...employee, shiftId };
-                  await saveEmployee(updated);
-                  setEmployee(updated);
-                }}
-              >
-                <SelectTrigger id="emp-shift" className="w-full min-h-10">
-                  <SelectValue placeholder={t("empSelectShiftPlaceholder")} />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="_none">{t("empNoShift")}</SelectItem>
-                  {shifts.map((s) => (
-                    <SelectItem key={s.id as string} value={s.id as string}>
-                      {s.name as string}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </CardContent>
-          </Card>
-          <Card className="p-5 sm:p-6">
-            <CardHeader className="p-0 pb-2">
-              <div className="flex items-center gap-2">
-                <CalendarDays className="size-4 text-primary" />
-                <CardTitle className="text-sm font-medium text-muted-foreground">
-                  {t("employeesColSundayCat")}
-                </CardTitle>
-              </div>
-            </CardHeader>
-            <CardContent className="p-0">
-              <Select
-                value={(employee.sundayCategoryId as string) ?? "_default"}
-                onValueChange={async (v) => {
-                  const sundayCategoryId = v === "_default" ? undefined : v;
-                  const updated = { ...employee, sundayCategoryId };
-                  await saveEmployee(updated);
-                  setEmployee(updated);
-                }}
-              >
-                <SelectTrigger id="emp-sunday-category" className="w-full min-h-10">
-                  <SelectValue placeholder={t("employeesSundayDefault")} />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="_default">{t("employeesSundayDefault")}</SelectItem>
-                  {sundayCategories.map((c) => (
-                    <SelectItem key={c.id as string} value={c.id as string}>
-                      {c.name as string}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </CardContent>
-          </Card>
-          {!hideOperatorRates && (
-          <Card className="p-5 sm:p-6">
-            <CardHeader className="p-0 pb-2">
-              <div className="flex items-center gap-2">
-                <IndianRupee className="size-4 text-primary" />
-                <CardTitle className="text-sm font-medium text-muted-foreground">
-                  {t("empMonthlySalary")}
-                </CardTitle>
-              </div>
-            </CardHeader>
-            <CardContent className="p-0">
-              <Input
-                id="emp-monthly-salary"
-                type="number"
-                min={0}
-                value={monthlySalary}
-                onChange={(e) => {
-                  const v = parseFloat(e.target.value) || 0;
-                  setEmployee({ ...employee, monthlySalary: v });
-                }}
-                onBlur={async (e) => {
-                  const v =
-                    parseFloat((e.target as HTMLInputElement).value) || 0;
-                  const updated = { ...employee, monthlySalary: v };
-                  await saveEmployee(updated);
-                  setEmployee(updated);
-                }}
-                className="w-full min-h-10"
-                placeholder="0"
-              />
-            </CardContent>
-          </Card>
-          )}
-          {!hideOperatorRates && (
-          <Card className="p-5 sm:p-6">
-            <CardHeader className="p-0 pb-2">
-              <div className="flex items-center gap-2">
-                <IndianRupee className="size-4 text-primary" />
-                <CardTitle className="text-sm font-medium text-muted-foreground">
-                  {t("empDailyRate")}
-                </CardTitle>
-              </div>
-            </CardHeader>
-            <CardContent className="p-0">
-              <p className="text-xl font-bold font-heading text-foreground">
-                {currency(ratePerDay)}
-              </p>
-              <p className="text-xs text-muted-foreground mt-1">
-                {t("empDailyRateHint", {
-                  calendarDays: calendarDaysInMonth,
-                  workingDays,
-                  month: calendarMonthTitle,
-                })}
-              </p>
-            </CardContent>
-          </Card>
-          )}
-          {!hideOperatorRates && (
-          <Card className="p-5 sm:p-6">
-            <CardHeader className="p-0 pb-2">
-              <div className="flex items-center gap-2">
-                <Clock className="size-4 text-primary" />
-                <CardTitle className="text-sm font-medium text-muted-foreground">
-                  {t("empHourlyRate")}
-                </CardTitle>
-              </div>
-            </CardHeader>
-            <CardContent className="p-0">
-              <p className="text-xl font-bold font-heading text-foreground">
-                {currency(ratePerHour)}
-              </p>
-              <p className="text-xs text-muted-foreground mt-1">
-                {t("empShiftHoursLabel", { hours: hoursPerDay })}
-              </p>
-            </CardContent>
-          </Card>
-          )}
-        </div>
+
+        {sections.paySettings && (
+          <PaySettingsCards
+            shiftId={shiftId}
+            sundayCategoryId={sundayCategoryId}
+            monthlySalary={monthlySalary}
+            shifts={shifts}
+            sundayCategories={sundayCategories}
+            ratePerDay={ratePerDay}
+            ratePerHour={ratePerHour}
+            hoursPerDay={hoursPerDay}
+            calendarDaysInMonth={calendarDaysInMonth}
+            workingDays={workingDays}
+            monthTitle={calendarMonthTitle}
+            hideRates={hideRates}
+            onSave={updateEmployee}
+            onMonthlySalaryDraft={(v) => draftEmployee({ monthlySalary: v })}
+          />
         )}
 
-        {isOperatorEmp && admin && (
-          <Card className="p-5 sm:p-6 animate-fade-in animate-stagger-1">
-            <CardHeader className="p-0 pb-2">
-              <CardTitle className="text-base font-semibold font-heading">
-                {t("empOperatorSettingsTitle")}
-              </CardTitle>
-              <p className="text-sm text-muted-foreground">
-                {t("empOperatorSettingsDesc")}
-              </p>
-            </CardHeader>
-            <CardContent className="p-0 pt-2">
-              <div className="flex flex-wrap gap-4">
-                <div className="flex flex-col gap-2">
-                  <Label htmlFor="emp-required-present-days">
-                    {t("empRequiredPresentDays")}
-                  </Label>
-                  <Input
-                    id="emp-required-present-days"
-                    type="number"
-                    min={1}
-                    value={(employee.requiredPresentDays as number) ?? 26}
-                    onChange={(e) => {
-                      const v = parseInt(e.target.value, 10) || 26;
-                      setEmployee({ ...employee, requiredPresentDays: v });
-                    }}
-                    onBlur={async (e) => {
-                      const v =
-                        parseInt((e.target as HTMLInputElement).value, 10) ||
-                        26;
-                      const updated = { ...employee, requiredPresentDays: v };
-                      await saveEmployee(updated);
-                      setEmployee(updated);
-                    }}
-                    className="w-40 min-h-10"
-                  />
-                </div>
-                <div className="flex flex-col gap-2">
-                  <Label htmlFor="emp-sunday-multiplier">
-                    {t("empSundayMultiplier")}
-                  </Label>
-                  <Input
-                    id="emp-sunday-multiplier"
-                    type="number"
-                    min={1}
-                    step={0.1}
-                    value={(employee.sundayMultiplier as number) ?? 1.2}
-                    onChange={(e) => {
-                      const v = parseFloat(e.target.value) || 1.2;
-                      setEmployee({ ...employee, sundayMultiplier: v });
-                    }}
-                    onBlur={async (e) => {
-                      const v =
-                        parseFloat((e.target as HTMLInputElement).value) ||
-                        1.2;
-                      const updated = { ...employee, sundayMultiplier: v };
-                      await saveEmployee(updated);
-                      setEmployee(updated);
-                    }}
-                    className="w-40 min-h-10"
-                  />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+        {sections.operatorSettings && (
+          <OperatorSettingsCard
+            requiredPresentDays={
+              typeof employee.requiredPresentDays === "number"
+                ? employee.requiredPresentDays
+                : undefined
+            }
+            sundayMultiplier={
+              typeof employee.sundayMultiplier === "number"
+                ? employee.sundayMultiplier
+                : undefined
+            }
+            fallbackRequiredPresentDays={
+              sundayCategoryRule.sundayPremium?.requiredPresentDays ??
+              sundayPremiumDefaults.defaultSundayPremiumRequiredDays
+            }
+            fallbackSundayMultiplier={
+              sundayCategoryRule.sundayPremium?.multiplier ??
+              sundayPremiumDefaults.defaultSundayPremiumMultiplier
+            }
+            onDraft={draftEmployee}
+            onSave={updateEmployee}
+          />
         )}
 
         <div className="flex flex-col xl:flex-row gap-4 xl:items-stretch animate-fade-in animate-stagger-2">
-          <div className="xl:shrink-0 xl:min-w-[350px] xl:w-[350px]">
+          <div className="min-w-0 xl:shrink-0 xl:min-w-[350px] xl:w-[350px]">
             <EmployeeCalendar
               year={calYear}
               month={calMonth}
@@ -1103,1675 +1111,268 @@ export function EmployeePageClient() {
               selectedDate={selectedDate}
               onDateClick={(date) => {
                 setSelectedDate(date);
-                setProdDate(date);
+                setProductionDraft((prev) => ({ ...prev, date }));
                 const p = getPeriodForDate(date, locale);
                 setFrom(p.from);
                 setTo(p.to);
               }}
-              onDateDoubleClick={async (date) => {
-                const existing = calendarAttendance.find(
-                  (a) => (a.date as string) === date,
-                );
-                if (existing?.status === "present" && existing?.id) {
-                  await deleteAttendance(existing.id as string);
-                } else {
-                  await saveAttendance({
-                    ...(existing?.id ? { id: existing.id as string } : {}),
-                    employeeId: id,
-                    date,
-                    status: "present",
-                  });
-                }
-                const padM = String(calMonth + 1).padStart(2, "0");
-                const monthStart = `${calYear}-${padM}-01`;
-                const lastDay = new Date(calYear, calMonth + 1, 0).getDate();
-                const monthEnd = `${calYear}-${padM}-${String(lastDay).padStart(2, "0")}`;
-                const [att, periodAtt] = await Promise.all([
-                  getAttendanceByEmployeeInRange(id, monthStart, monthEnd),
-                  from && to
-                    ? getAttendanceByEmployeeInRange(id, from, to)
-                    : Promise.resolve([]),
-                ]);
-                setCalendarAttendance(att);
-                if (from && to) setPeriodAttendance(periodAtt);
-                setSelectedDate(date);
-                refreshMissingData();
-                toast.success(
-                  existing?.status === "present"
-                    ? t("empToastClearedPresent", {
-                        date: dateDisplay(date),
-                      })
-                    : t("empToastMarkedPresent", {
-                        date: dateDisplay(date),
-                      }),
-                );
-              }}
               periodFrom={from || ""}
               periodTo={to || ""}
               periodStatusLabel={currentPeriodLabel}
-              periodAdjusted={salarySheetRowHasAdjustment(salarySheetRowForPeriod)}
+              periodAdjusted={salarySheetRowHasAdjustment(periodSheetRow)}
               onPeriodBadgeClick={openPayrollAdjust}
-              periodBadgeLoading={salarySheetRowLoading}
+              periodBadgeLoading={periodRowLoading}
             />
           </div>
-          <div className="grid grid-cols-2 gap-2 flex-1 min-w-0 xl:min-w-[280px]">
-            <Card className="p-3 flex flex-col min-h-0">
-              <CardHeader className="p-0 pb-1">
-                <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-1">
-                  <UserCheck className="size-3.5 text-primary shrink-0" />
-                  {t("empAttendanceCardTitle", { month: calendarMonthTitle })}
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="p-0 pt-1.5">
-                <div className="grid grid-cols-2 gap-1.5">
-                  <div className="rounded-lg border bg-muted/40 px-2 py-1.5 text-xs">
-                    <p className="text-muted-foreground text-[10px] font-medium">
-                      {t("empLegendPresent")}
-                    </p>
-                    <p className="font-bold tabular-nums text-foreground text-sm">
-                      {daysPresent}
-                    </p>
-                  </div>
-                  <div className="rounded-lg border bg-muted/40 px-2 py-1.5 text-xs">
-                    <p className="text-muted-foreground text-[10px] font-medium">
-                      {t("empLegendAbsent")}
-                    </p>
-                    <p className="font-bold tabular-nums text-foreground text-sm">
-                      {daysAbsent}
-                    </p>
-                  </div>
-                  <div className="rounded-lg border bg-muted/40 px-2 py-1.5 text-xs">
-                    <p className="text-muted-foreground text-[10px] font-medium">
-                      {t("empEarnedSundayShort")}
-                    </p>
-                    <p className="font-bold tabular-nums text-foreground text-sm">
-                      {earnedSundayPayDays} / {sundayPresentBonusDays}
-                    </p>
-                  </div>
-                  <div className="rounded-lg border bg-muted/40 px-2 py-1.5 text-xs">
-                    <p className="text-muted-foreground text-[10px] font-medium">
-                      {t("empPaidDaysShort")}
-                    </p>
-                    <p className="font-bold tabular-nums text-foreground text-sm">
-                      {totalPaidDays}
-                    </p>
-                  </div>
-                  {!hideOperatorRates && (
-                  <div className="col-span-2 rounded-lg border-2 border-primary/30 bg-primary/10 px-2 py-2">
-                    <p className="text-muted-foreground text-[10px] font-medium">
-                      {t("salarySheetColSalary")}
-                    </p>
-                    <p className="text-base font-bold tabular-nums text-foreground">
-                      {currency(calculatedSalary)}
-                    </p>
-                  </div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-            <div className="grid grid-cols-2 gap-2">
-              <Card className="p-3">
-                <CardHeader className="p-0 pb-1 shrink-0">
-                  <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-1">
-                    <Clock className="size-3.5 text-primary shrink-0" />
-                    {t("empPeriodHours")}
-                  </CardTitle>
-                  <p className="text-[10px] text-muted-foreground truncate">
-                    {from && to
-                      ? `${dateDisplay(from)} – ${dateDisplay(to)}`
-                      : t("empSelectPeriod")}
-                  </p>
-                </CardHeader>
-                <CardContent className="p-0 pt-1">
-                  <p className="text-xl font-bold tabular-nums leading-tight">
-                    {number(periodHours)}h
-                  </p>
-                  {!hideOperatorRates && (
-                  <p className="text-xs text-muted-foreground">
-                    {currency(periodHours * ratePerHour)}
-                  </p>
-                  )}
-                </CardContent>
-              </Card>
-              <Card className="p-3">
-                <CardHeader className="p-0 pb-1 shrink-0">
-                  <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-1">
-                    <Package className="size-3.5 text-primary shrink-0" />
-                    {t("empPeriodProduction")}
-                  </CardTitle>
-                  <p className="text-[10px] text-muted-foreground truncate">
-                    {from && to
-                      ? `${dateDisplay(from)} – ${dateDisplay(to)}`
-                      : t("empSelectPeriod")}
-                  </p>
-                </CardHeader>
-                <CardContent className="p-0 pt-1">
-                  <p className="text-xl font-bold tabular-nums leading-tight">
-                    {number(periodProdQty)}
-                  </p>
-                  {!hideOperatorRates && (
-                  <p className="text-xs text-muted-foreground">
-                    {currency(periodProdValue)}
-                  </p>
-                  )}
-                </CardContent>
-              </Card>
-              <Card className="p-3">
-                <CardHeader className="p-0 pb-1 shrink-0">
-                  <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-1">
-                    <Clock className="size-3.5 text-primary shrink-0" />
-                    {t("empMonthlyHours")}
-                  </CardTitle>
-                  <p className="text-[10px] text-muted-foreground">
-                    {calendarMonthTitle}
-                  </p>
-                </CardHeader>
-                <CardContent className="p-0 pt-1">
-                  <p className="text-xl font-bold tabular-nums leading-tight">
-                    {number(monthHours)}h
-                  </p>
-                  {!hideOperatorRates && (
-                  <p className="text-xs text-muted-foreground">
-                    {currency(monthHours * ratePerHour)}
-                  </p>
-                  )}
-                </CardContent>
-              </Card>
-              <Card className="p-3">
-                <CardHeader className="p-0 pb-1 shrink-0">
-                  <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-1">
-                    <LayoutGrid className="size-3.5 text-primary shrink-0" />
-                    {t("empMonthlyProduction")}
-                  </CardTitle>
-                  <p className="text-[10px] text-muted-foreground">
-                    {calendarMonthTitle}
-                  </p>
-                </CardHeader>
-                <CardContent className="p-0 pt-1">
-                  <p className="text-xl font-bold tabular-nums leading-tight">
-                    {number(monthProdQty)}
-                  </p>
-                  {!hideOperatorRates && (
-                  <p className="text-xs text-muted-foreground">
-                    {currency(monthProdValue)}
-                  </p>
-                  )}
-                </CardContent>
-              </Card>
-            </div>
-            <Card className="p-3 flex flex-col min-h-0">
-              <CardHeader className="p-0 pb-1">
-                <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-1">
-                  <CalendarDays className="size-3.5 text-primary shrink-0" />
-                  {selectedDate
-                    ? t("empAttendanceDateTitle", {
-                        date: dateDisplay(selectedDate),
-                      })
-                    : t("empSelectDateShort")}
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="p-0 mt-2">
-                {!selectedDate ? (
-                  <p className="text-sm text-muted-foreground">
-                    {t("empClickDateForAttendance")}
-                  </p>
-                ) : (
-                  <div className="space-y-3">
-                    <div className="flex flex-wrap gap-2">
-                      <Button
-                        type="button"
-                        variant={
-                          calendarAttendance.find(
-                            (a) => (a.date as string) === selectedDate,
-                          )?.status === "present"
-                            ? "default"
-                            : "secondary"
-                        }
-                        size="sm"
-                        className={
-                          calendarAttendance.find(
-                            (a) => (a.date as string) === selectedDate,
-                          )?.status === "present"
-                            ? "bg-[hsl(var(--success))] hover:bg-[hsl(var(--success))]/90 text-[hsl(var(--success-foreground))] h-8 px-3 text-xs"
-                            : "h-8 px-3 text-xs"
-                        }
-                        onClick={async () => {
-                          const existing = calendarAttendance.find(
-                            (a) => (a.date as string) === selectedDate,
-                          );
-                          const reduced = hoursReducedInput
-                            ? parseFloat(hoursReducedInput)
-                            : undefined;
-                          const extra = hoursExtraInput
-                            ? parseFloat(hoursExtraInput)
-                            : undefined;
-                          await saveAttendance({
-                            ...(existing?.id
-                              ? { id: existing.id as string }
-                              : {}),
-                            employeeId: id,
-                            date: selectedDate,
-                            status: "present",
-                            ...(reduced != null &&
-                            !Number.isNaN(reduced) &&
-                            reduced >= 0
-                              ? { hoursReduced: reduced }
-                              : {}),
-                            ...(extra != null &&
-                            !Number.isNaN(extra) &&
-                            extra >= 0
-                              ? { hoursExtra: extra }
-                              : {}),
-                          });
-                          const padM = String(calMonth + 1).padStart(2, "0");
-                          const monthStart = `${calYear}-${padM}-01`;
-                          const lastDay = new Date(
-                            calYear,
-                            calMonth + 1,
-                            0,
-                          ).getDate();
-                          const monthEnd = `${calYear}-${padM}-${lastDay}`;
-                          const [att, periodAtt] = await Promise.all([
-                            getAttendanceByEmployeeInRange(
-                              id,
-                              monthStart,
-                              monthEnd,
-                            ),
-                            from && to
-                              ? getAttendanceByEmployeeInRange(id, from, to)
-                              : Promise.resolve([]),
-                          ]);
-                          setCalendarAttendance(att);
-                          if (from && to) setPeriodAttendance(periodAtt);
-                          refreshMissingData();
-                          toast.success(
-                            t("empToastMarkedPresent", {
-                              date: selectedDate
-                                ? dateDisplay(selectedDate)
-                                : t("empThisDate"),
-                            }),
-                          );
-                        }}
-                      >
-                        <Check data-icon="inline-start" />
-                        {t("empBtnPresent")}
-                      </Button>
-                      <Button
-                        type="button"
-                        variant={
-                          calendarAttendance.find(
-                            (a) => (a.date as string) === selectedDate,
-                          )?.status === "absent"
-                            ? "destructive"
-                            : "secondary"
-                        }
-                        size="sm"
-                        className="h-8 px-3 text-xs"
-                        onClick={async () => {
-                          const existing = calendarAttendance.find(
-                            (a) => (a.date as string) === selectedDate,
-                          );
-                          await saveAttendance({
-                            ...(existing?.id
-                              ? { id: existing.id as string }
-                              : {}),
-                            employeeId: id,
-                            date: selectedDate,
-                            status: "absent",
-                          });
-                          const padM = String(calMonth + 1).padStart(2, "0");
-                          const monthStart = `${calYear}-${padM}-01`;
-                          const lastDay = new Date(
-                            calYear,
-                            calMonth + 1,
-                            0,
-                          ).getDate();
-                          const monthEnd = `${calYear}-${padM}-${lastDay}`;
-                          const [att, periodAtt] = await Promise.all([
-                            getAttendanceByEmployeeInRange(
-                              id,
-                              monthStart,
-                              monthEnd,
-                            ),
-                            from && to
-                              ? getAttendanceByEmployeeInRange(id, from, to)
-                              : Promise.resolve([]),
-                          ]);
-                          setCalendarAttendance(att);
-                          if (from && to) setPeriodAttendance(periodAtt);
-                          refreshMissingData();
-                          toast.success(
-                            t("empToastMarkedAbsent", {
-                              date: selectedDate
-                                ? dateDisplay(selectedDate)
-                                : t("empThisDate"),
-                            }),
-                          );
-                        }}
-                      >
-                        <X data-icon="inline-start" />
-                        {t("empBtnAbsent")}
-                      </Button>
-                      {calendarAttendance.some(
-                        (a) => (a.date as string) === selectedDate,
-                      ) && (
-                        <AlertDialog>
-                          <AlertDialogTrigger asChild>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              className="text-xs h-8 px-3"
-                            >
-                              {t("commonClear")}
-                            </Button>
-                          </AlertDialogTrigger>
-                          <AlertDialogContent>
-                            <AlertDialogHeader>
-                              <AlertDialogTitle>
-                                {t("empClearAttendanceTitle")}
-                              </AlertDialogTitle>
-                              <AlertDialogDescription>
-                                {t("empClearAttendanceDesc", {
-                                  date: selectedDate
-                                    ? dateDisplay(selectedDate)
-                                    : t("empThisDate"),
-                                })}
-                              </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                              <AlertDialogCancel>
-                                {t("commonCancel")}
-                              </AlertDialogCancel>
-                              <AlertDialogAction
-                                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                                onClick={async () => {
-                                  try {
-                                    const rec = calendarAttendance.find(
-                                      (a) => (a.date as string) === selectedDate,
-                                    );
-                                    if (rec?.id) await deleteAttendance(rec.id as string);
-                                    setCalendarAttendance((prev) =>
-                                      prev.filter(
-                                        (a) => (a.date as string) !== selectedDate,
-                                      ),
-                                    );
-                                    refreshMissingData();
-                                    toast.success(
-                                      t("empToastAttendanceCleared", {
-                                        date: selectedDate
-                                          ? dateDisplay(selectedDate)
-                                          : t("empThisDate"),
-                                      }),
-                                    );
-                                  } catch {
-                                    toast.error(
-                                      t("empToastAttendanceClearFailed"),
-                                    );
-                                  }
-                                }}
-                              >
-                                {t("commonClear")}
-                              </AlertDialogAction>
-                            </AlertDialogFooter>
-                          </AlertDialogContent>
-                        </AlertDialog>
-                      )}
-                    </div>
-                    {calendarAttendance.find(
-                      (a) => (a.date as string) === selectedDate,
-                    )?.status === "present" && (
-                      <div className="space-y-3 pt-3 border-t">
-                        <p className="text-xs font-medium text-foreground">
-                          {t("empAdjustHoursDayTitle")}
-                        </p>
-                        <div className="grid grid-cols-2 gap-3">
-                          <div className="space-y-1.5">
-                            <Label
-                              htmlFor="hours-reduced"
-                              className="text-sm text-muted-foreground"
-                            >
-                              {t("empHoursLessLabel")}
-                            </Label>
-                            <Input
-                              id="hours-reduced"
-                              type="number"
-                              min={0}
-                              max={24}
-                              step={0.5}
-                              placeholder="0"
-                              className="h-10 w-full text-base tabular-nums"
-                              value={hoursReducedInput}
-                              onChange={(e) =>
-                                setHoursReducedInput(e.target.value)
-                              }
-                            />
-                          </div>
-                          <div className="space-y-1.5">
-                            <Label
-                              htmlFor="hours-extra"
-                              className="text-sm text-muted-foreground"
-                            >
-                              {t("empHoursExtraShortLabel")}
-                            </Label>
-                            <Input
-                              id="hours-extra"
-                              type="number"
-                              min={0}
-                              max={24}
-                              step={0.5}
-                              placeholder="0"
-                              className="h-10 w-full text-base tabular-nums"
-                              value={hoursExtraInput}
-                              onChange={(e) =>
-                                setHoursExtraInput(e.target.value)
-                              }
-                            />
-                          </div>
-                        </div>
-                        {!hideOperatorRates && (
-                        <p className="text-xs text-muted-foreground">
-                          {t("empRatePerHourLine", {
-                            rate: currency(ratePerHour),
-                          })}
-                        </p>
-                        )}
-                        {(() => {
-                          const rec = calendarAttendance.find(
-                            (a) => (a.date as string) === selectedDate,
-                          );
-                          const storedReduced = rec?.hoursReduced as
-                            | number
-                            | undefined;
-                          const storedExtra = rec?.hoursExtra as
-                            | number
-                            | undefined;
-                          const hasChanged =
-                            (hoursReducedInput !== "" &&
-                              parseFloat(hoursReducedInput) !==
-                                (storedReduced ?? 0)) ||
-                            (hoursExtraInput !== "" &&
-                              parseFloat(hoursExtraInput) !==
-                                (storedExtra ?? 0));
-                          return hasChanged ? (
-                            <Button
-                              type="button"
-                              variant="default"
-                              size="sm"
-                              className="mt-1 h-9 text-sm px-4"
-                              onClick={async () => {
-                                const existing = calendarAttendance.find(
-                                  (a) => (a.date as string) === selectedDate,
-                                );
-                                if (!existing) return;
-                                const reduced = hoursReducedInput
-                                  ? parseFloat(hoursReducedInput)
-                                  : 0;
-                                const extra = hoursExtraInput
-                                  ? parseFloat(hoursExtraInput)
-                                  : 0;
-                                await saveAttendance({
-                                  ...existing,
-                                  hoursReduced: Number.isNaN(reduced)
-                                    ? undefined
-                                    : reduced,
-                                  hoursExtra: Number.isNaN(extra)
-                                    ? undefined
-                                    : extra,
-                                });
-                                const padM = String(calMonth + 1).padStart(
-                                  2,
-                                  "0",
-                                );
-                                const monthStart = `${calYear}-${padM}-01`;
-                                const lastDay = new Date(
-                                  calYear,
-                                  calMonth + 1,
-                                  0,
-                                ).getDate();
-                                const monthEnd = `${calYear}-${padM}-${lastDay}`;
-                                const [att, periodAtt] = await Promise.all([
-                                  getAttendanceByEmployeeInRange(
-                                    id,
-                                    monthStart,
-                                    monthEnd,
-                                  ),
-                                  from && to
-                                    ? getAttendanceByEmployeeInRange(
-                                        id,
-                                        from,
-                                        to,
-                                      )
-                                    : Promise.resolve([]),
-                                ]);
-                                setCalendarAttendance(att);
-                                if (from && to) setPeriodAttendance(periodAtt);
-                                refreshMissingData();
-                                toast.success(t("empToastHoursUpdated"));
-                              }}
-                            >
-                              {t("empSaveHours")}
-                            </Button>
-                          ) : null;
-                        })()}
-                      </div>
-                    )}
-                  </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 flex-1 min-w-0 xl:min-w-[280px]">
+            <MonthAttendanceCard
+              icon={<UserCheck className="size-3.5 text-primary shrink-0" />}
+              monthTitle={calendarMonthTitle}
+              presentDays={attendanceStats.presentDays}
+              absentDays={attendanceStats.absentDays}
+              earnedSundayPayDays={attendanceStats.earnedSundayPayDays}
+              sundayPresentBonusDays={attendanceStats.sundayPresentBonusDays}
+              totalPaidDays={attendanceStats.totalPaidDays}
+              calculatedSalary={calculatedSalary}
+              hideRates={hideRates}
+            />
+            <div className="grid min-w-0 grid-cols-2 gap-2">
+              <StatTile
+                icon={<Clock className="size-3.5 text-primary shrink-0" />}
+                title={t("empPeriodHours")}
+                caption={periodCaption}
+                value={hoursTileValue(periodHours)}
+                money={moneyCaption(periodHours * ratePerHour, hideRates)}
+              />
+              <StatTile
+                icon={<Package className="size-3.5 text-primary shrink-0" />}
+                title={t("empPeriodProduction")}
+                caption={periodCaption}
+                value={number(periodProdQty)}
+                money={moneyCaption(periodProdValue, hideRates)}
+              />
+              <StatTile
+                icon={<Clock className="size-3.5 text-primary shrink-0" />}
+                title={t("empMonthlyHours")}
+                caption={calendarMonthTitle}
+                value={hoursTileValue(attendanceStats.totalHoursWorked)}
+                money={moneyCaption(
+                  attendanceStats.totalHoursWorked * ratePerHour,
+                  hideRates,
                 )}
-              </CardContent>
-            </Card>
+              />
+              <StatTile
+                icon={<LayoutGrid className="size-3.5 text-primary shrink-0" />}
+                title={t("empMonthlyProduction")}
+                caption={calendarMonthTitle}
+                value={number(monthProdQty)}
+                money={moneyCaption(monthProdValue, hideRates)}
+              />
+            </div>
 
-            <div className="grid grid-cols-2 gap-2">
-              <Card className="p-3">
-                <CardHeader className="p-0 pb-1 shrink-0">
-                  <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-1">
-                    <Clock className="size-3.5 text-primary shrink-0" />
-                    {t("empDayHours")}
-                  </CardTitle>
-                  <p className="text-[10px] text-muted-foreground truncate">
-                    {selectedDate ? dateDisplay(selectedDate) : t("empSelectDateShort")}
-                  </p>
-                </CardHeader>
-                <CardContent className="p-0 pt-1">
-                  <p className="text-xl font-bold tabular-nums leading-tight">
-                    {number(dayHours)}h
-                  </p>
-                  {!hideOperatorRates && (
-                  <p className="text-xs text-muted-foreground">
-                    {currency(dayHours * ratePerHour)}
-                  </p>
-                  )}
-                </CardContent>
-              </Card>
-              <Card className="p-3">
-                <CardHeader className="p-0 pb-1 shrink-0">
-                  <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-1">
-                    <Package className="size-3.5 text-primary shrink-0" />
-                    {t("empDayProduction")}
-                  </CardTitle>
-                  <p className="text-[10px] text-muted-foreground truncate">
-                    {selectedDate ? dateDisplay(selectedDate) : t("empSelectDateShort")}
-                  </p>
-                </CardHeader>
-                <CardContent className="p-0 pt-1">
-                  <p className="text-xl font-bold tabular-nums leading-tight">
-                    {number(dayProdQty)}
-                  </p>
-                  {!hideOperatorRates && (
-                  <p className="text-xs text-muted-foreground">
-                    {currency(dayProdValue)}
-                  </p>
-                  )}
-                </CardContent>
-              </Card>
+            <DayAttendanceCard
+              selectedDate={selectedDate}
+              record={selectedRecord}
+              hoursReduced={hoursInputs.reduced}
+              hoursExtra={hoursInputs.extra}
+              ratePerHour={ratePerHour}
+              hideRates={hideRates}
+              onHoursReducedChange={(value) =>
+                selectedDate &&
+                setHoursDraft({
+                  date: selectedDate,
+                  reduced: value,
+                  extra: hoursInputs.extra,
+                })
+              }
+              onHoursExtraChange={(value) =>
+                selectedDate &&
+                setHoursDraft({
+                  date: selectedDate,
+                  reduced: hoursInputs.reduced,
+                  extra: value,
+                })
+              }
+              onMarkPresent={() => void markAttendance("present")}
+              onMarkAbsent={() => void markAttendance("absent")}
+              onClear={() => void clearAttendance()}
+              onSaveHours={() => void saveHours()}
+            />
+
+            <div className="grid min-w-0 grid-cols-2 gap-2">
+              <StatTile
+                icon={<Clock className="size-3.5 text-primary shrink-0" />}
+                title={t("empDayHours")}
+                caption={dayCaption}
+                value={hoursTileValue(dayHours)}
+                money={moneyCaption(dayHours * ratePerHour, hideRates)}
+              />
+              <StatTile
+                icon={<Package className="size-3.5 text-primary shrink-0" />}
+                title={t("empDayProduction")}
+                caption={dayCaption}
+                value={number(sumQuantity(dayProductions))}
+                money={moneyCaption(
+                  sumProductionValue(dayProductions, itemRate),
+                  hideRates,
+                )}
+              />
             </div>
           </div>
         </div>
 
-        {!isProductionEmp && (
-        <>
-        <Card className="p-6 sm:p-8 transition-all duration-300 ease-out animate-fade-in animate-stagger-3">
-          <CardHeader className="p-0 mb-4 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-            <div>
-              <CardTitle className="text-xl font-semibold font-heading flex items-center gap-2">
-                <FileSpreadsheet className="size-5 text-primary shrink-0" />
-                {t("empMonthlyAttendancePrint")}
-              </CardTitle>
-              <p className="text-sm text-muted-foreground mt-1 max-w-xl">
-                {t("empMonthlyAttendancePrintDesc")}
-              </p>
-            </div>
-            <div className="flex flex-wrap items-end gap-3 shrink-0">
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="month-sheet-month">{t("labelMonth")}</Label>
-                <Select
-                  value={`${calYear}-${calMonth}`}
-                  onValueChange={(v) => {
-                    const [y, m] = v.split("-").map(Number);
-                    setCalYear(y);
-                    setCalMonth(m);
-                  }}
-                >
-                  <SelectTrigger
-                    id="month-sheet-month"
-                    className="min-w-[200px] w-56 min-h-12"
-                  >
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {monthSheetOptions.map((opt) => (
-                      <SelectItem key={opt.value} value={opt.value}>
-                        {opt.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <Button
-                type="button"
-                variant="secondary"
-                className="min-h-12"
-                onClick={async () => {
-                  const { html } = await getPrintableMonthlyAttendanceSheetHtml(
-                    id,
-                    calYear,
-                    calMonth,
-                  );
-                  await printHtml(html);
-                }}
-              >
-                <Printer data-icon="inline-start" className="size-4" />
-                {t("empPrintMonthlyAttendance")}
-              </Button>
-            </div>
-          </CardHeader>
-        </Card>
-
-        <Card className="p-6 sm:p-8 transition-all duration-300 ease-out animate-fade-in animate-stagger-4">
-          <CardHeader className="p-0 mb-5">
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-              <div className="space-y-2">
-                <div className="flex flex-wrap items-center gap-2">
-                  <CardTitle className="text-xl font-semibold font-heading">
-                    {t("empSalaryAttendanceRange")}
-                  </CardTitle>
-                  {currentPeriodLabel ? (
-                    <PayrollPeriodBadge
-                      label={salaryRangeLabel}
-                      adjusted={
-                        salarySheetRowHasAdjustment(salarySheetRowForSalaryRange)
-                      }
-                      loading={salaryRangeRowLoading}
-                      onClick={openSalaryRangeAdjust}
-                    />
-                  ) : null}
-                </div>
-                <p className="text-sm text-muted-foreground max-w-2xl">
-                  {t("empSalaryAttendanceRangeDesc")}
-                </p>
-              </div>
-              <div className="flex flex-wrap items-end gap-3 shrink-0">
-                <div className="flex flex-col gap-2">
-                  <Label htmlFor="attendance-salary-month">{t("labelMonth")}</Label>
-                  <Select
-                    value={`${calYear}-${calMonth}`}
-                    onValueChange={(v) => {
-                      const [y, m] = v.split("-").map(Number);
-                      setCalYear(y);
-                      setCalMonth(m);
-                    }}
-                  >
-                    <SelectTrigger
-                      id="attendance-salary-month"
-                      className="min-w-[200px] w-56 min-h-12"
-                    >
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {monthSheetOptions.map((opt) => (
-                        <SelectItem key={opt.value} value={opt.value}>
-                          {opt.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="flex flex-col gap-2">
-                  <Label htmlFor="attendance-salary-range-mode">
-                    {t("empSalaryRangeBoxRange")}
-                  </Label>
-                  <Select
-                    value={salaryRangeMode}
-                    onValueChange={(value) =>
-                      setSalaryRangeMode(value as MonthRangeMode)
-                    }
-                  >
-                    <SelectTrigger
-                      id="attendance-salary-range-mode"
-                      className="min-w-[180px] min-h-12"
-                    >
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="full-month">
-                        {t("empSalaryRangeFullMonth")}
-                      </SelectItem>
-                      <SelectItem value="first-half">
-                        {t("empSalaryRangeFirstHalf")}
-                      </SelectItem>
-                      <SelectItem value="second-half">
-                        {t("empSalaryRangeSecondHalf", {
-                          lastDay: new Date(calYear, calMonth + 1, 0).getDate(),
-                        })}
-                      </SelectItem>
-                      <SelectItem value="custom">
-                        {t("empSalaryRangeCustom")}
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                {salaryRangeMode === "custom" && (
-                  <>
-                    <div className="flex flex-col gap-2">
-                      <Label htmlFor="attendance-salary-from">
-                        {t("labelFrom")}
-                      </Label>
-                      <DatePicker
-                        id="attendance-salary-from"
-                        value={salaryRange.from}
-                        onChange={handleSalaryCustomFromChange}
-                        min={monthBounds.from}
-                        max={monthBounds.to}
-                        className="min-w-[180px] min-h-12"
-                      />
-                    </div>
-                    <div className="flex flex-col gap-2">
-                      <Label htmlFor="attendance-salary-to">{t("labelTo")}</Label>
-                      <DatePicker
-                        id="attendance-salary-to"
-                        value={salaryRange.to}
-                        onChange={handleSalaryCustomToChange}
-                        min={monthBounds.from}
-                        max={monthBounds.to}
-                        className="min-w-[180px] min-h-12"
-                      />
-                    </div>
-                  </>
-                )}
-                <Button
-                  type="button"
-                  className="min-h-12 px-6"
-                  onClick={async () => {
-                    const ym = getYearMonthFromIsoDate(salaryRange.from);
-                    if (!ym) {
-                      toast.error(t("empPayrollToastLoadFailed"));
-                      return;
-                    }
-                    const html = await getPrintableAttendanceSalaryRangeHtml(
-                      id,
-                      ym.year,
-                      ym.month,
-                      salaryRange.from,
-                      salaryRange.to,
-                    );
-                    await printHtml(html);
-                  }}
-                >
-                  <Printer data-icon="inline-start" className="size-4" />
-                  {t("empPrintAttendanceSalary")}
-                </Button>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="p-0">
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              <div className="rounded-xl border bg-muted/30 p-4">
-                <p className="text-xs font-medium text-muted-foreground">
-                  {t("empSalaryRangeBoxRange")}
-                </p>
-                <p className="mt-1 text-sm font-semibold text-foreground">
-                  {salaryRangeLabel}
-                </p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  {dateDisplay(salaryRange.from)} – {dateDisplay(salaryRange.to)}
-                </p>
-              </div>
-              <div className="rounded-xl border bg-muted/30 p-4">
-                <p className="text-xs font-medium text-muted-foreground">
-                  {t("empPresentAbsent")}
-                </p>
-                <p className="mt-1 text-sm font-semibold tabular-nums text-foreground">
-                  {number(effectiveSalaryRangeSummary.presentDays)} / {number(effectiveSalaryRangeSummary.absentDays)}
-                </p>
-              </div>
-              <div className="rounded-xl border bg-muted/30 p-4">
-                <p className="text-xs font-medium text-muted-foreground">
-                  {t("empEarnedSundayShort")}
-                </p>
-                <p className="mt-1 text-sm font-semibold tabular-nums text-foreground">
-                  {number(effectiveSalaryRangeSummary.earnedSundayPayDays)} / {number(effectiveSalaryRangeSummary.sundayPresentBonusDays)}
-                </p>
-              </div>
-              {!hideOperatorRates && (
-              <div className="rounded-xl border-2 border-primary/25 bg-primary/10 p-4">
-                <p className="text-xs font-medium text-muted-foreground">
-                  {t("empSalaryContribution")}
-                </p>
-                <p className="mt-1 text-lg font-bold tabular-nums text-foreground">
-                  {currency(effectiveSalaryRangeSummary.calculatedSalary)}
-                </p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  {t("empPaidDaysHoursSummary", {
-                    paid: number(effectiveSalaryRangeSummary.totalPaidDays),
-                    extra: number(effectiveSalaryRangeSummary.hoursExtraTotal),
-                    reduced: number(effectiveSalaryRangeSummary.hoursReducedTotal),
-                  })}
-                </p>
-              </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-        </>
-        )}
-
-        {isProductionEmp && (
-        <Card className="p-6 sm:p-8 transition-all duration-300 ease-out animate-fade-in animate-stagger-4">
-          <CardHeader className="p-0 mb-5">
-            <CardTitle className="text-xl font-semibold font-heading">
-              {t("empProductionAdvancesTitle")}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="p-0">
-            <div className="flex flex-wrap items-end gap-4">
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="salary-period">{t("reportsPeriod")}</Label>
-                <Select
-                  value={`${from}|${to}`}
-                  onValueChange={(v) => {
-                    const [f, t] = v.split("|");
-                    setFrom(f);
-                    setTo(t);
-                  }}
-                >
-                  <SelectTrigger
-                    id="salary-period"
-                    className="min-w-[200px] w-56 min-h-12"
-                  >
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {periods.map((p) => (
-                      <SelectItem
-                        key={p.from + p.to}
-                        value={`${p.from}|${p.to}`}
-                      >
-                        {getPeriodForDate(p.from, locale).label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <Button
-                type="button"
-                className="min-h-12 px-6"
-                onClick={async () => {
-                  const { html } = await getPrintableSalaryHtml(id, from, to);
-                  await printHtml(html);
-                }}
-              >
-                <Printer data-icon="inline-start" className="size-4" />
-                {t("empPrintProductionAdvances")}
-              </Button>
-            </div>
-            {salary && (
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 items-end mt-6">
-                <div className="flex flex-col gap-2">
-                  <Label>{t("colGross")}</Label>
-                  <p className="text-base text-foreground font-medium">
-                    {currency(salary.gross)}
-                  </p>
-                </div>
-                <div className="flex flex-col gap-2">
-                  <Label>{t("colAdvanceToCut")}</Label>
-                  <p className="text-base text-foreground font-medium">
-                    {currency(advanceToCutInput)}
-                  </p>
-                </div>
-                <div className="flex flex-col gap-2">
-                  <Label>{t("colNet")}</Label>
-                  <p className="text-base text-foreground font-medium">
-                    {currency(Math.max(0, salary.gross - advanceToCutInput))}
-                  </p>
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-        )}
-
-        <Card className="p-6 sm:p-8 transition-all duration-300 ease-out animate-fade-in animate-stagger-5">
-          <CardHeader className="p-0 mb-4">
-            <CardTitle className="text-xl font-semibold font-heading">
-              {t("empSettlementTitle")}
-            </CardTitle>
-            <p className="text-sm text-muted-foreground mt-1">
-              {t("empSettlementDesc")}
-            </p>
-          </CardHeader>
-          <CardContent className="p-0">
-            {salary ? (
-              <div className="space-y-4 max-w-xl">
-                <div className="flex flex-wrap items-baseline justify-between gap-2">
-                  <span className="text-muted-foreground">
-                    {t("empTotalMakingGross")}
-                  </span>
-                  <span className="font-semibold tabular-nums">
-                    {currency(salary.gross)}
-                  </span>
-                </div>
-                <div className="flex flex-wrap items-baseline justify-between gap-2">
-                  <span className="text-muted-foreground">
-                    {t("empTotalAdvancePaidAllTime")}
-                  </span>
-                  <span className="font-semibold tabular-nums">
-                    {currency(
-                      allAdvances.reduce(
-                        (sum, a) => sum + ((a.amount as number) || 0),
-                        0
-                      )
-                    )}
-                  </span>
-                </div>
-                <div className="flex flex-col gap-2">
-                  <Label htmlFor="advance-to-cut">
-                    {t("empAdvanceToCutThisPeriod")}
-                  </Label>
-                  <Input
-                    id="advance-to-cut"
-                    type="number"
-                    min={0}
-                    step={1}
-                    className="w-full max-w-[200px] min-h-12"
-                    value={advanceToCutInput}
-                    onChange={(e) =>
-                      setAdvanceToCutInput(parseFloat(e.target.value) || 0)
-                    }
-                  />
-                </div>
-                <Separator className="my-4" />
-                <div className="flex flex-wrap items-baseline justify-between gap-2">
-                  <span className="font-medium">{t("empNetThisPeriod")}</span>
-                  <span className="font-bold text-lg tabular-nums">
-                    {currency(Math.max(0, salary.gross - advanceToCutInput))}
-                  </span>
-                </div>
-                <div className="flex flex-wrap items-baseline justify-between gap-2">
-                  <span className="text-muted-foreground">
-                    {t("empAdvanceLeftAfter")}
-                  </span>
-                  <span className="font-semibold tabular-nums">
-                    {currency(
-                      Math.max(
-                        0,
-                        allAdvances.reduce(
-                          (sum, a) => sum + ((a.amount as number) || 0),
-                          0
-                        ) - advanceToCutInput
-                      )
-                    )}
-                  </span>
-                </div>
-                <Button
-                  type="button"
-                  className="min-h-12 px-6"
-                  onClick={async () => {
-                    try {
-                      await saveDeduction({
-                        employeeId: id,
-                        periodFrom: from,
-                        periodTo: to,
-                        amount: advanceToCutInput,
-                      });
-                    } catch {
-                      toast.error(t("empToastSettlementFailed"));
-                      return;
-                    }
-                    const updatedDeductions = await getDeductionsByEmployee(id);
-                    setDeductions(updatedDeductions);
-                    setSalary({
-                      ...salary,
-                      advanceToCut: advanceToCutInput,
-                      final: Math.max(0, salary.gross - advanceToCutInput),
-                    });
-                    toast.success(t("empToastSettlementSaved"));
-                  }}
-                >
-                  {t("empSavePeriodSettlement")}
-                </Button>
-              </div>
-            ) : (
-              <div className="flex items-center gap-2 text-muted-foreground">
-                <Skeleton className="h-4 w-32" />
-                <Skeleton className="h-4 w-24" />
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {admin && storedSalaryRecords.length > 0 && (
-          <Card className="p-6 sm:p-8">
-            <CardHeader className="p-0 mb-4">
-              <CardTitle className="text-xl font-semibold font-heading">
-                {t("empStoredSalaryRecords")}
-              </CardTitle>
-              <p className="text-sm text-muted-foreground mt-1">
-                {t("empStoredSalaryRecordsDesc")}
-              </p>
-            </CardHeader>
-            <CardContent className="p-0">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>{t("empTableMonth")}</TableHead>
-                    <TableHead>{t("labelShift")}</TableHead>
-                    <TableHead className="text-right">
-                      {t("salarySheetColSalary")}
-                    </TableHead>
-                    <TableHead className="text-right">
-                      {t("empTableAmount")}
-                    </TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {[...storedSalaryRecords]
-                    .sort((a, b) =>
-                      (b.month as string).localeCompare(a.month as string),
-                    )
-                    .map((r) => (
-                      <TableRow key={r.id as string}>
-                        <TableCell>{r.month as string}</TableCell>
-                        <TableCell>{r.shiftType as string}</TableCell>
-                        <TableCell className="text-right tabular-nums">
-                          {currency((r.salary as number) ?? 0)}
-                        </TableCell>
-                        <TableCell className="text-right tabular-nums">
-                          {currency((r.amount as number) ?? 0)}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-        )}
-
-        {isProductionEmp && (
-        <Card className="p-6 sm:p-8">
-          <CardHeader className="p-0 mb-5">
-            <CardTitle className="text-xl font-semibold font-heading">
-              {t("empAddProduction")}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="p-0">
-            <form
-              className="flex flex-wrap items-end gap-4"
-              onSubmit={async (e) => {
-                e.preventDefault();
-                if (!prodItem) return;
-                const holiday = await getHolidayByDate(prodDate);
-                const holidayDates = holiday ? [prodDate] : [];
-                if (isRestrictedForEntry(prodDate, holidayDates)) {
-                  toast.error(t("empToastProdHolidayBlock"));
-                  return;
-                }
-                try {
-                  await saveProduction({
-                    employeeId: id,
-                    itemId: prodItem,
-                    date: prodDate,
-                    quantity: prodQty,
-                    shift: prodShift,
-                  });
-                } catch {
-                  toast.error(t("empToastProdAddFail"));
-                  return;
-                }
-                setProdQty(1);
-                const [s, , prods, advs] = await Promise.all([
-                  calculateSalary(id, from, to),
-                  getDeductionForPeriod(id, from, to),
-                  getProductionsByEmployee(id, from, to),
-                  getAdvancesByEmployee(id, from, to),
-                ]);
-                const ded = await getDeductionForPeriod(id, from, to);
-                setSalary({
-                  gross: s.gross,
-                  advance: s.advance,
-                  final: Math.max(0, s.gross - ((ded?.amount as number) ?? 0)),
-                  advanceToCut: (ded?.amount as number) ?? 0,
-                });
-                setProductions(prods);
-                setAdvances(advs);
-                await loadCalendarMonth();
-                refreshMissingData();
-                toast.success(t("empToastProdAdded"));
+        {sections.attendanceSalary && (
+          <>
+            <MonthlyAttendancePrintCard
+              year={calYear}
+              month={calMonth}
+              monthOptions={monthOptions}
+              onMonthChange={(y, m) => {
+                setCalYear(y);
+                setCalMonth(m);
               }}
-            >
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="prod-item">{t("reportsColPackagingGroup")}</Label>
-                <Select value={prodItem} onValueChange={setProdItem}>
-                  <SelectTrigger id="prod-item" className="w-56 min-h-12">
-                    <SelectValue placeholder={t("selectPlaceholder")} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {items.map((i) => (
-                      <SelectItem key={i.id as string} value={i.id as string}>
-                        {i.name as string}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="prod-shift">{t("labelShift")}</Label>
-                <Select
-                  value={prodShift}
-                  onValueChange={(v) => setProdShift(v as "day" | "night")}
-                >
-                  <SelectTrigger
-                    id="prod-shift"
-                    className="min-w-[100px] min-h-12"
-                  >
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="day">{t("shiftDay")}</SelectItem>
-                    <SelectItem value="night">{t("shiftNight")}</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="prod-qty">{t("labelQty")}</Label>
-                <Input
-                  id="prod-qty"
-                  type="number"
-                  min={1}
-                  value={prodQty}
-                  onChange={(e) =>
-                    setProdQty(parseInt(e.target.value, 10) || 1)
-                  }
-                  className="w-24 min-h-12"
-                />
-              </div>
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="prod-date">{t("labelDate")}</Label>
-                <DatePicker
-                  id="prod-date"
-                  value={prodDate}
-                  onChange={setProdDate}
-                  className="min-w-[180px] min-h-12"
-                />
-              </div>
-              <Button type="submit" className="min-h-12 px-6">
-                {t("add")}
-              </Button>
-            </form>
-          </CardContent>
-        </Card>
-        )}
-
-        <Card className="p-6 sm:p-8">
-          <CardHeader className="p-0 mb-5">
-            <CardTitle className="text-xl font-semibold font-heading">
-              {t("empAddAdvance")}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="p-0">
-            <form
-              className="flex flex-wrap items-end gap-4"
-              onSubmit={async (e) => {
-                e.preventDefault();
-                try {
-                  await saveAdvance({
-                    employeeId: id,
-                    amount: advAmount,
-                    date: advDate,
-                  });
-                } catch {
-                  toast.error(t("empToastAdvanceAddFail"));
-                  return;
-                }
-                setAdvAmount(0);
-                const [allAdvs, s, ded, prods, advs] = await Promise.all([
-                  getAdvancesByEmployee(id, "2000-01-01", "2100-12-31"),
-                  calculateSalary(id, from, to),
-                  getDeductionForPeriod(id, from, to),
-                  getProductionsByEmployee(id, from, to),
-                  getAdvancesByEmployee(id, from, to),
-                ]);
-                setAllAdvances(allAdvs);
-                setSalary({
-                  gross: s.gross,
-                  advance: s.advance,
-                  final: Math.max(0, s.gross - ((ded?.amount as number) ?? 0)),
-                  advanceToCut: (ded?.amount as number) ?? 0,
-                });
-                setProductions(prods);
-                setAdvances(advs);
-                toast.success(t("empToastAdvanceAdded"));
+              onPrint={() => void printMonthlyAttendance()}
+            />
+            <SalaryRangeCard
+              year={calYear}
+              month={calMonth}
+              monthOptions={monthOptions}
+              onMonthChange={(y, m) => {
+                setCalYear(y);
+                setCalMonth(m);
               }}
-            >
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="adv-amount">{t("empAmountRupee")}</Label>
-                <Input
-                  id="adv-amount"
-                  type="number"
-                  min={0}
-                  value={advAmount}
-                  onChange={(e) =>
-                    setAdvAmount(parseFloat(e.target.value) || 0)
-                  }
-                  className="w-36 min-w-[120px] min-h-12"
-                />
-              </div>
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="adv-date">{t("labelDate")}</Label>
-                <DatePicker
-                  id="adv-date"
-                  value={advDate}
-                  onChange={setAdvDate}
-                  className="min-w-[180px] min-h-12"
-                />
-              </div>
-              <Button type="submit" className="min-h-12 px-6">
-                {t("empAddAdvance")}
-              </Button>
-            </form>
-          </CardContent>
-        </Card>
-
-        {isProductionEmp && (
-        <Dialog open={productionsModalOpen} onOpenChange={setProductionsModalOpen}>
-          <DialogTrigger asChild>
-            <Card className="p-6 sm:p-8 cursor-pointer transition-all duration-200 ease-out hover:ring-2 hover:ring-primary/20 focus-within:ring-2 focus-within:ring-primary/20 focus:outline-none">
-              <CardContent className="p-0 flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="rounded-lg bg-primary/10 p-3">
-                    <Package className="size-5 text-primary" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium text-muted-foreground">
-                      {t("empProductionEntries")}
-                    </p>
-                    <p className="text-2xl font-bold tabular-nums">
-                      {t("empThisPeriodCount", { count: productions.length })}
-                    </p>
-                  </div>
-                </div>
-                <span className="text-sm text-muted-foreground">
-                  {t("empViewDetailsArrow")}
-                </span>
-              </CardContent>
-            </Card>
-          </DialogTrigger>
-          <DialogContent className="sm:max-w-2xl max-h-[85vh] flex flex-col">
-            <DialogHeader>
-              <DialogTitle>{t("empProdDialogTitle")}</DialogTitle>
-            </DialogHeader>
-            <div className="flex-1 overflow-y-auto -mx-1 px-1">
-              {productions.length === 0 ? (
-                <Empty className="py-10 border-0 animate-fade-in">
-                  <EmptyHeader>
-                    <EmptyMedia variant="icon">
-                      <Package className="size-6 text-muted-foreground" />
-                    </EmptyMedia>
-                    <EmptyTitle>{t("empNoProductionPeriod")}</EmptyTitle>
-                    <EmptyDescription>
-                      {t("empNoProductionPeriodDesc")}
-                    </EmptyDescription>
-                  </EmptyHeader>
-                </Empty>
-              ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>{t("labelDate")}</TableHead>
-                      <TableHead>{t("reportsColPackagingGroup")}</TableHead>
-                      <TableHead>{t("labelShift")}</TableHead>
-                      <TableHead className="text-right">{t("labelQty")}</TableHead>
-                      <TableHead className="text-right">{t("colValue")}</TableHead>
-                      <TableHead className="w-16" />
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {productions.map((p) => {
-                      const item = itemMap[p.itemId as string];
-                      const rate = (item?.rate as number) || 0;
-                      const qty = (p.quantity as number) || 0;
-                      return (
-                        <TableRow key={p.id as string}>
-                          <TableCell>{dateDisplay(p.date as string)}</TableCell>
-                          <TableCell>
-                            {(item?.name as string) || (p.itemId as string)}
-                          </TableCell>
-                          <TableCell>
-                            {p.shift === "night"
-                              ? t("shiftNight")
-                              : t("shiftDay")}
-                          </TableCell>
-                          <TableCell className="text-right tabular-nums">
-                            {number(qty)}
-                          </TableCell>
-                          <TableCell className="text-right tabular-nums">
-                            {currency(qty * rate)}
-                          </TableCell>
-                          <TableCell>
-                            <AlertDialog>
-                              <AlertDialogTrigger asChild>
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  size="sm"
-                                  className="h-8 w-8 p-0 text-destructive hover:text-destructive"
-                                >
-                                  <X className="size-4" />
-                                </Button>
-                              </AlertDialogTrigger>
-                              <AlertDialogContent>
-                                <AlertDialogHeader>
-                                  <AlertDialogTitle>
-                                    {t("empDeleteProductionTitle")}
-                                  </AlertDialogTitle>
-                                  <AlertDialogDescription>
-                                    {t("empDeleteProductionDesc", {
-                                      date: dateDisplay(p.date as string),
-                                    })}
-                                  </AlertDialogDescription>
-                                </AlertDialogHeader>
-                                <AlertDialogFooter>
-                                  <AlertDialogCancel>
-                                    {t("commonCancel")}
-                                  </AlertDialogCancel>
-                                  <AlertDialogAction
-                                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                                    onClick={async () => {
-                                      try {
-                                        await deleteProduction(p.id as string);
-                                        const [s, ded, prods, advs] = await Promise.all([
-                                          calculateSalary(id, from, to),
-                                          getDeductionForPeriod(id, from, to),
-                                          getProductionsByEmployee(id, from, to),
-                                          getAdvancesByEmployee(id, from, to),
-                                        ]);
-                                        setAdvanceToCutInput((ded?.amount as number) ?? 0);
-                                        setSalary({
-                                          gross: s.gross,
-                                          advance: s.advance,
-                                          final: Math.max(0, s.gross - ((ded?.amount as number) ?? 0)),
-                                          advanceToCut: (ded?.amount as number) ?? 0,
-                                        });
-                                        setProductions(prods);
-                                        setAdvances(advs);
-                                        await loadCalendarMonth();
-                                        refreshMissingData();
-                                        toast.success(t("empToastProdDeleted"));
-                                      } catch {
-                                        toast.error(t("empToastProdDeleteFail"));
-                                      }
-                                    }}
-                                  >
-                                    {t("commonDelete")}
-                                  </AlertDialogAction>
-                                </AlertDialogFooter>
-                              </AlertDialogContent>
-                            </AlertDialog>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
-              )}
-            </div>
-          </DialogContent>
-        </Dialog>
+              mode={salaryRangeMode}
+              onModeChange={setSalaryRangeMode}
+              range={salaryRange}
+              rangeLabel={salaryRangeLabel}
+              monthBounds={monthBounds}
+              onCustomFromChange={(value) => {
+                const next = adjustCustomRange({
+                  edited: "from",
+                  value,
+                  currentFrom: salaryCustomFrom,
+                  currentTo: salaryCustomTo,
+                  year: calYear,
+                  month: calMonth,
+                });
+                setSalaryCustomFrom(next.from);
+                setSalaryCustomTo(next.to);
+              }}
+              onCustomToChange={(value) => {
+                const next = adjustCustomRange({
+                  edited: "to",
+                  value,
+                  currentFrom: salaryCustomFrom,
+                  currentTo: salaryCustomTo,
+                  year: calYear,
+                  month: calMonth,
+                });
+                setSalaryCustomFrom(next.from);
+                setSalaryCustomTo(next.to);
+              }}
+              summary={effectiveSalaryRangeSummary}
+              hideRates={hideRates}
+              showBadge={currentPeriodLabel !== ""}
+              badgeAdjusted={salarySheetRowHasAdjustment(rangeSheetRow)}
+              badgeLoading={rangeRowLoading}
+              onBadgeClick={openRangeAdjust}
+              onPrint={() => void printSalaryRange()}
+            />
+          </>
         )}
 
-        <Dialog open={advancesModalOpen} onOpenChange={setAdvancesModalOpen}>
-          <DialogTrigger asChild>
-            <Card className="p-6 sm:p-8 cursor-pointer transition-all duration-200 ease-out hover:ring-2 hover:ring-primary/20 focus-within:ring-2 focus-within:ring-primary/20 focus:outline-none">
-              <CardContent className="p-0 flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="rounded-lg bg-primary/10 p-3">
-                    <Wallet className="size-5 text-primary" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium text-muted-foreground">
-                      {t("empTotalAdvancesPaid")}
-                    </p>
-                    <p className="text-2xl font-bold tabular-nums">
-                      {currency(
-                        allAdvances.reduce(
-                          (sum, a) => sum + ((a.amount as number) || 0),
-                          0
-                        )
-                      )}
-                    </p>
-                  </div>
-                </div>
-                <span className="text-sm text-muted-foreground">
-                  {t("empViewDetailsArrow")}
-                </span>
-              </CardContent>
-            </Card>
-          </DialogTrigger>
-          <DialogContent className="sm:max-w-md">
-            <DialogHeader>
-              <DialogTitle>{t("empAdvancesSettlementsTitle")}</DialogTitle>
-            </DialogHeader>
-            <div className="flex gap-1 p-1 rounded-lg bg-muted/50">
-              <button
-                type="button"
-                className={`flex-1 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
-                  advancesModalTab === "advances"
-                    ? "bg-background shadow-sm text-foreground"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-                onClick={() => setAdvancesModalTab("advances")}
-              >
-                {t("empTabAdvances")}
-              </button>
-              <button
-                type="button"
-                className={`flex-1 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
-                  advancesModalTab === "settlements"
-                    ? "bg-background shadow-sm text-foreground"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-                onClick={() => setAdvancesModalTab("settlements")}
-              >
-                {t("empTabSettlements")}
-              </button>
-            </div>
-            {advancesModalTab === "advances" ? (
-              <div className="max-h-[40vh] overflow-y-auto -mx-1 px-1">
-                {allAdvances.length === 0 ? (
-                  <Empty className="py-8 border-0 animate-fade-in">
-                    <EmptyHeader>
-                      <EmptyMedia variant="icon">
-                        <Wallet className="size-6 text-muted-foreground" />
-                      </EmptyMedia>
-                      <EmptyTitle>{t("empNoAdvancesYet")}</EmptyTitle>
-                      <EmptyDescription>
-                        {t("empNoAdvancesDesc")}
-                      </EmptyDescription>
-                    </EmptyHeader>
-                  </Empty>
-                ) : (
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>{t("labelDate")}</TableHead>
-                        <TableHead className="text-right">
-                          {t("empTableAmount")}
-                        </TableHead>
-                        <TableHead className="w-16" />
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {[...allAdvances]
-                        .sort(
-                          (a, b) =>
-                            (b.date as string).localeCompare(a.date as string)
-                        )
-                        .map((a) => (
-                          <TableRow key={a.id as string}>
-                            <TableCell>{dateDisplay(a.date as string)}</TableCell>
-                            <TableCell className="text-right tabular-nums">
-                              {currency((a.amount as number) ?? 0)}
-                            </TableCell>
-                            <TableCell>
-                              <AlertDialog>
-                                <AlertDialogTrigger asChild>
-                                  <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-8 w-8 p-0 text-destructive hover:text-destructive"
-                                  >
-                                    <X className="size-4" />
-                                  </Button>
-                                </AlertDialogTrigger>
-                                <AlertDialogContent>
-                                  <AlertDialogHeader>
-                                    <AlertDialogTitle>
-                                      {t("empDeleteAdvanceTitle")}
-                                    </AlertDialogTitle>
-                                    <AlertDialogDescription>
-                                      {t("empDeleteAdvanceDesc", {
-                                        amount: currency(
-                                          (a.amount as number) ?? 0,
-                                        ),
-                                        date: dateDisplay(a.date as string),
-                                      })}
-                                    </AlertDialogDescription>
-                                  </AlertDialogHeader>
-                                  <AlertDialogFooter>
-                                    <AlertDialogCancel>
-                                    {t("commonCancel")}
-                                  </AlertDialogCancel>
-                                    <AlertDialogAction
-                                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                                      onClick={async () => {
-                                        try {
-                                          await deleteAdvance(a.id as string);
-                                          const [allAdvs, s, ded, prods, advs] =
-                                            await Promise.all([
-                                              getAdvancesByEmployee(id, "2000-01-01", "2100-12-31"),
-                                              calculateSalary(id, from, to),
-                                              getDeductionForPeriod(id, from, to),
-                                              getProductionsByEmployee(id, from, to),
-                                              getAdvancesByEmployee(id, from, to),
-                                            ]);
-                                          setAllAdvances(allAdvs);
-                                          setAdvanceToCutInput((ded?.amount as number) ?? 0);
-                                          setSalary({
-                                            gross: s.gross,
-                                            advance: s.advance,
-                                            final: Math.max(0, s.gross - ((ded?.amount as number) ?? 0)),
-                                            advanceToCut: (ded?.amount as number) ?? 0,
-                                          });
-                                          setProductions(prods);
-                                          setAdvances(advs);
-                                          toast.success(t("empToastAdvanceDeleted"));
-                                        } catch {
-                                          toast.error(t("empToastAdvanceDeleteFail"));
-                                        }
-                                      }}
-                                    >
-                                      {t("commonDelete")}
-                                    </AlertDialogAction>
-                                  </AlertDialogFooter>
-                                </AlertDialogContent>
-                              </AlertDialog>
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                    </TableBody>
-                  </Table>
-                )}
-              </div>
-            ) : (
-              <div className="max-h-[40vh] overflow-y-auto -mx-1 px-1">
-                {deductions.length === 0 ? (
-                  <Empty className="py-8 border-0 animate-fade-in">
-                    <EmptyHeader>
-                      <EmptyMedia variant="icon">
-                        <IndianRupee className="size-6 text-muted-foreground" />
-                      </EmptyMedia>
-                      <EmptyTitle>{t("empNoSettlementsYet")}</EmptyTitle>
-                      <EmptyDescription>
-                        {t("empNoSettlementsDesc")}
-                      </EmptyDescription>
-                    </EmptyHeader>
-                  </Empty>
-                ) : (
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>{t("reportsPeriod")}</TableHead>
-                        <TableHead className="text-right">
-                          {t("empTableDeducted")}
-                        </TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {[...deductions]
-                        .sort(
-                          (a, b) =>
-                            (b.periodFrom as string).localeCompare(
-                              a.periodFrom as string
-                            )
-                        )
-                        .map((d) => (
-                          <TableRow key={d.id as string}>
-                            <TableCell>
-                              {dateDisplay(d.periodFrom as string)} –{" "}
-                              {dateDisplay(d.periodTo as string)}
-                            </TableCell>
-                            <TableCell className="text-right tabular-nums font-medium">
-                              {currency((d.amount as number) ?? 0)}
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                    </TableBody>
-                  </Table>
-                )}
-              </div>
-            )}
-          </DialogContent>
-        </Dialog>
+        {sections.productionAdvances && (
+          <ProductionAdvancesCard
+            periods={periodOptions}
+            from={from}
+            to={to}
+            onPeriodChange={(f, tTo) => {
+              setFrom(f);
+              setTo(tTo);
+            }}
+            gross={salary?.gross ?? 0}
+            advanceToCut={advanceToCutInput}
+            showTotals={salary !== null}
+            onPrint={() => void printProductionAdvances()}
+          />
+        )}
+
+        <SettlementCard
+          gross={salary?.gross ?? 0}
+          totalAdvancePaid={totalAdvancePaid}
+          advanceToCut={advanceToCutInput}
+          loaded={salary !== null}
+          onAdvanceToCutChange={setAdvanceToCutInput}
+          onSave={() => void saveSettlement()}
+        />
+
+        {sections.storedSalaryRecords && (
+          <StoredSalaryRecordsCard records={storedSalaryRecords} />
+        )}
+
+        {sections.productionLog && (
+          <AddProductionForm
+            items={items}
+            draft={productionDraft}
+            onDraftChange={(patch) =>
+              setProductionDraft((prev) => ({ ...prev, ...patch }))
+            }
+            onSubmit={() => void submitProduction()}
+          />
+        )}
+
+        <AddAdvanceForm
+          amount={advAmount}
+          date={advDate}
+          onAmountChange={setAdvAmount}
+          onDateChange={setAdvDate}
+          onSubmit={() => void submitAdvance()}
+        />
+
+        {sections.productionLog && (
+          <ProductionsDialog
+            open={productionsModalOpen}
+            onOpenChange={setProductionsModalOpen}
+            productions={productions}
+            itemMap={itemMap}
+            onDelete={(productionId) => void removeProduction(productionId)}
+          />
+        )}
+
+        <AdvancesDialog
+          open={advancesModalOpen}
+          onOpenChange={setAdvancesModalOpen}
+          advances={allAdvances}
+          deductions={deductions}
+          onDeleteAdvance={(advanceId) => void removeAdvance(advanceId)}
+        />
+
         <SalarySheetAdjustDialog
           open={payrollAdjustOpen}
-          onOpenChange={setPayrollAdjustOpen}
-          row={salarySheetRowForPeriod}
-          year={payrollSheetYearMonth?.year ?? calYear}
-          month={payrollSheetYearMonth?.month ?? calMonth}
+          onOpenChange={(open) =>
+            setPayrollAdjustKey(open ? periodDialogKey : null)
+          }
+          row={periodSheetRow}
+          year={periodRequest?.year ?? calYear}
+          month={periodRequest?.month ?? calMonth}
           periodFrom={from}
           periodTo={to}
           onSaved={async () => {
-            const ym = from ? getYearMonthFromIsoDate(from) : null;
-            if (!ym || !from || !to) return;
-            const row = await getSalarySheetRowForEmployee(
-              id,
-              ym.year,
-              ym.month,
-              from,
-              to,
-            );
-            setSalarySheetRowForPeriod(row);
+            invalidateSheetRows();
           }}
         />
         <SalarySheetAdjustDialog
-          open={salaryRangeAdjustOpen}
-          onOpenChange={setSalaryRangeAdjustOpen}
-          row={salarySheetRowForSalaryRange}
-          year={salaryRangeSheetYearMonth?.year ?? calYear}
-          month={salaryRangeSheetYearMonth?.month ?? calMonth}
-          periodFrom={resolvedSalaryRange.from}
-          periodTo={resolvedSalaryRange.to}
+          open={rangeAdjustOpen}
+          onOpenChange={(open) =>
+            setRangeAdjustKey(open ? rangeDialogKey : null)
+          }
+          row={rangeSheetRow}
+          year={rangeRequest?.year ?? calYear}
+          month={rangeRequest?.month ?? calMonth}
+          periodFrom={salaryRange.from}
+          periodTo={salaryRange.to}
           onSaved={async () => {
-            const ym = getYearMonthFromIsoDate(resolvedSalaryRange.from);
-            if (!ym) return;
-            const row = await getSalarySheetRowForEmployee(
-              id,
-              ym.year,
-              ym.month,
-              resolvedSalaryRange.from,
-              resolvedSalaryRange.to,
-            );
-            setSalarySheetRowForSalaryRange(row);
+            invalidateSheetRows();
           }}
         />
       </main>

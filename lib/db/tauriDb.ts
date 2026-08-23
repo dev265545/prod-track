@@ -6,6 +6,46 @@
 
 import { invoke } from "@/lib/tauriBridge";
 import { STORES } from "./schema";
+import {
+  applyIndexReadOptions,
+  getIndexKeyPath,
+  matchesIndexRange,
+  sortByIndexOrder,
+  type IndexKey,
+  type IndexReadOptions,
+} from "./indexes";
+
+/**
+ * Bounds Rust can execute: a flat list of strings whose length matches the key
+ * path. Anything else (an array bound against a single-field key path, or a
+ * compound bound of the wrong arity) is a cross-type comparison in IndexedDB's
+ * key ordering with no SQL spelling, and stays on the scan below. Kept in step
+ * with `planSqliteIndexQuery`, which makes the same judgement for sql.js.
+ */
+function sqlBounds(
+  keyPath: string | string[],
+  key: IndexKey
+): string[] | null {
+  if (typeof keyPath === "string") {
+    return typeof key === "string" ? [key] : null;
+  }
+  if (!Array.isArray(key) || key.length !== keyPath.length) return null;
+  return key.every((p) => typeof p === "string") ? [...key] : null;
+}
+
+/** The scan this backend used for every index read before `db_get_by_index` existed. */
+async function scanByIndex(
+  storeName: string,
+  keyPath: string | string[],
+  lower: IndexKey,
+  upper: IndexKey
+): Promise<Record<string, unknown>[]> {
+  const rows = await getAll(storeName);
+  return sortByIndexOrder(
+    rows.filter((row) => matchesIndexRange(row, keyPath, lower, upper)),
+    keyPath
+  );
+}
 
 export function openDB(): Promise<void> {
   return invoke("init_db");
@@ -13,6 +53,68 @@ export function openDB(): Promise<void> {
 
 export function getAll(storeName: string): Promise<Record<string, unknown>[]> {
   return invoke<Record<string, unknown>[]>("db_get_all", { store: storeName });
+}
+
+/**
+ * `IDBIndex.getAll(IDBKeyRange.bound(...))`, executed as a real SQLite index
+ * lookup in `src-tauri/src/db.rs`.
+ *
+ * Rust owns the SQL here rather than receiving it, so the store, the index and
+ * the bound arity are all validated against its own copy of `indexes.ts` before
+ * anything is interpolated. It returns only the matching rows, already in
+ * `sortByIndexOrder`'s order and already windowed — so a screenful of the audit
+ * log costs a screenful of JSON, not the whole store.
+ */
+export async function getByIndex(
+  storeName: string,
+  indexName: string,
+  lower: IndexKey,
+  upper: IndexKey,
+  options?: IndexReadOptions
+): Promise<Record<string, unknown>[]> {
+  const keyPath = getIndexKeyPath(storeName, indexName);
+  if (!keyPath) throw new Error(`Unknown index ${storeName}.${indexName}`);
+  const lo = sqlBounds(keyPath, lower);
+  const hi = sqlBounds(keyPath, upper);
+  if (!lo || !hi) {
+    return applyIndexReadOptions(
+      await scanByIndex(storeName, keyPath, lower, upper),
+      options
+    );
+  }
+  return invoke<Record<string, unknown>[]>("db_get_by_index", {
+    store: storeName,
+    index: indexName,
+    lower: lo,
+    upper: hi,
+    descending: options?.direction === "prev",
+    // Mirrors `applyIndexReadOptions`' clamping; -1 is SQLite's "no limit".
+    limit:
+      options?.limit === undefined ? -1 : Math.max(0, Math.floor(options.limit)),
+    offset: Math.max(0, Math.floor(options?.offset ?? 0)),
+  });
+}
+
+/** Rows in range, counted by `SELECT COUNT(*)` over the same index. */
+export async function countByIndex(
+  storeName: string,
+  indexName: string,
+  lower: IndexKey,
+  upper: IndexKey
+): Promise<number> {
+  const keyPath = getIndexKeyPath(storeName, indexName);
+  if (!keyPath) throw new Error(`Unknown index ${storeName}.${indexName}`);
+  const lo = sqlBounds(keyPath, lower);
+  const hi = sqlBounds(keyPath, upper);
+  if (!lo || !hi) {
+    return (await scanByIndex(storeName, keyPath, lower, upper)).length;
+  }
+  return invoke<number>("db_count_by_index", {
+    store: storeName,
+    index: indexName,
+    lower: lo,
+    upper: hi,
+  });
 }
 
 export function get(

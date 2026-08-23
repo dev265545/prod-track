@@ -32,6 +32,8 @@ pub fn run() {
     .invoke_handler(tauri::generate_handler![
       db::init_db,
       db::db_get_all,
+      db::db_get_by_index,
+      db::db_count_by_index,
       db::db_get,
       db::db_put,
       db::db_remove,
@@ -42,6 +44,10 @@ pub fn run() {
       db::db_import_with_dialog,
       db::db_path,
       db::write_temp_html,
+      db::backup_pick_folder,
+      db::backup_pick_file,
+      db::backup_write,
+      db::backup_verify,
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");

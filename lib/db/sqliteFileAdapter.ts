@@ -6,6 +6,17 @@
 import { getSqlJsModule, type SqlJsDatabase } from "./sqlJsLoader";
 import { DB_VERSION, METADATA_STORE, STORES } from "./schema";
 import {
+  applyIndexReadOptions,
+  getIndexKeyPath,
+  matchesIndexRange,
+  planSqliteIndexQuery,
+  sortByIndexOrder,
+  sqliteIndexedStores,
+  sqliteIndexSchemaStatements,
+  type IndexKey,
+  type IndexReadOptions,
+} from "./indexes";
+import {
   buildSchemaMetadataPayload,
   parseSchemaMetadataJson,
   planSchemaMigration,
@@ -104,6 +115,36 @@ function migrateSqliteFileToVersion(_d: SqlJsDatabase, toVersion: number): void 
   void toVersion;
 }
 
+/** Column names of `table`, including virtual generated ones (`table_info` hides those). */
+function tableColumns(d: SqlJsDatabase, table: string): string[] {
+  const result = d.exec(`PRAGMA table_xinfo("${table}")`);
+  if (!result.length || !result[0].values) return [];
+  const nameIdx = result[0].columns.indexOf("name");
+  if (nameIdx < 0) return [];
+  return result[0].values.map((row) => String(row[nameIdx]));
+}
+
+/**
+ * Bring the generated index columns and SQLite indexes up to date.
+ *
+ * Deliberately NOT inside `migrateSqliteFileToVersion`: a version-numbered
+ * migration only runs on an upgrade, and this file's database can also arrive
+ * by restore or by being copied from another machine. Every statement is
+ * `IF NOT EXISTS` or gated on the column being absent, so running it on every
+ * open is free after the first, and always correct.
+ *
+ * No backfill step exists because none is needed: the columns are VIRTUAL, so
+ * they are computed from the `data` blob already on disk. Nothing is rewritten
+ * and no row can be lost. Building the index reads the store once.
+ */
+function ensureIndexSchema(d: SqlJsDatabase): void {
+  for (const store of sqliteIndexedStores()) {
+    for (const sql of sqliteIndexSchemaStatements(store, tableColumns(d, store))) {
+      d.run(sql);
+    }
+  }
+}
+
 function ensureTables(d: SqlJsDatabase): void {
   d.run(
     `CREATE TABLE IF NOT EXISTS "${METADATA_STORE}" (id TEXT PRIMARY KEY NOT NULL, data TEXT NOT NULL)`,
@@ -113,6 +154,7 @@ function ensureTables(d: SqlJsDatabase): void {
       `CREATE TABLE IF NOT EXISTS "${table}" (id TEXT PRIMARY KEY NOT NULL, data TEXT NOT NULL)`,
     );
   }
+  ensureIndexSchema(d);
   const v = readSchemaVersionFromDb(d);
   const plan = planSchemaMigration(v, DB_VERSION);
   if (plan.kind === "fresh") {
@@ -350,6 +392,99 @@ export async function getAll(
     }
   }
   return out;
+}
+
+/**
+ * The scan `getByIndex`/`countByIndex` fall back to when the bounds have no SQL
+ * spelling (see `planSqliteIndexQuery`). Nothing in the app issues such a query;
+ * it exists so a caller that does gets the right answer rather than an error.
+ */
+async function scanByIndex(
+  storeName: string,
+  keyPath: string | string[],
+  lower: IndexKey,
+  upper: IndexKey
+): Promise<Record<string, unknown>[]> {
+  const rows = await getAll(storeName);
+  return sortByIndexOrder(
+    rows.filter((row) => matchesIndexRange(row, keyPath, lower, upper)),
+    keyPath
+  );
+}
+
+/**
+ * `IDBIndex.getAll(IDBKeyRange.bound(...))`, answered by a real SQLite index.
+ *
+ * The range becomes `WHERE (k_a, k_b) BETWEEN (?, ?) AND (?, ?)` over the
+ * generated key columns, ordered by those columns then `id` — the exact order
+ * `sortByIndexOrder` defines — and windowed with `LIMIT`/`OFFSET`. Only the rows
+ * that match are read off disk and parsed, which is the whole point: the audit
+ * viewer's one screenful no longer costs a JSON parse of the entire log.
+ */
+export async function getByIndex(
+  storeName: string,
+  indexName: string,
+  lower: IndexKey,
+  upper: IndexKey,
+  options?: IndexReadOptions
+): Promise<Record<string, unknown>[]> {
+  const keyPath = getIndexKeyPath(storeName, indexName);
+  if (!keyPath) throw new Error(`Unknown index ${storeName}.${indexName}`);
+  const plan = planSqliteIndexQuery(storeName, indexName, lower, upper, options);
+  if (!plan) {
+    return applyIndexReadOptions(
+      await scanByIndex(storeName, keyPath, lower, upper),
+      options
+    );
+  }
+  const d = assertDb();
+  const stmt = d.prepare(
+    `SELECT id, data FROM "${storeName}" WHERE ${plan.where} ` +
+      `ORDER BY ${plan.orderBy} ${plan.limit}`
+  );
+  stmt.bind([...plan.whereParams, ...plan.limitParams]);
+  const out: Record<string, unknown>[] = [];
+  while (stmt.step()) {
+    const [id, dataStr] = stmt.get();
+    if (id == null || dataStr == null) continue;
+    try {
+      const record = JSON.parse(String(dataStr)) as Record<string, unknown>;
+      if (record && typeof record === "object") {
+        record.id = typeof id === "string" ? id : String(id);
+        out.push(record);
+      }
+    } catch {
+      // Unreachable: the generated key column is NULL for a row whose `data` is
+      // not valid JSON, and every plan excludes NULL keys. Kept so a corrupt
+      // row can never turn a read into a thrown error.
+    }
+  }
+  stmt.free();
+  return out;
+}
+
+/**
+ * Rows in range, counted — `SELECT COUNT(*)` over the same index, so nothing is
+ * read off disk or parsed at all.
+ */
+export async function countByIndex(
+  storeName: string,
+  indexName: string,
+  lower: IndexKey,
+  upper: IndexKey
+): Promise<number> {
+  const keyPath = getIndexKeyPath(storeName, indexName);
+  if (!keyPath) throw new Error(`Unknown index ${storeName}.${indexName}`);
+  const plan = planSqliteIndexQuery(storeName, indexName, lower, upper);
+  if (!plan) return (await scanByIndex(storeName, keyPath, lower, upper)).length;
+  const d = assertDb();
+  const stmt = d.prepare(
+    `SELECT COUNT(*) FROM "${storeName}" WHERE ${plan.where}`
+  );
+  stmt.bind(plan.whereParams);
+  const n = stmt.step() ? Number(stmt.get()[0]) : 0;
+  stmt.free();
+  return n;
 }
 
 export async function get(

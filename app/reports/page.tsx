@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/app-shell";
+import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -27,18 +28,28 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useAuthGuard } from "@/lib/hooks/useAuthGuard";
-import {
-  getProductionsInRange,
-  getProductions,
-} from "@/lib/services/productionService";
+import { getProductionsInRange } from "@/lib/services/productionService";
 import { getItems } from "@/lib/services/itemService";
-import { getPeriodForDate, getPeriodsWithData } from "@/lib/utils/date";
+import {
+  getPeriodForDate,
+  getPeriods,
+  getPeriodsWithData,
+} from "@/lib/utils/date";
 import { number, dateDisplay } from "@/lib/utils/formatter";
 import { printHtml } from "@/lib/utils/print";
-import { Package, BarChart2 } from "lucide-react";
+import {
+  AUDIT_ACTIONS,
+  record as auditRecord,
+} from "@/lib/services/auditService";
+import { buildProductionReportHtml } from "@/lib/print/productionReport";
+import { Package, BarChart2, AlertTriangle, Printer } from "lucide-react";
+import { toast } from "sonner";
 import { useLanguage } from "@/components/language-provider";
 
 type PrintScope = "both" | "day" | "night";
+
+/** How many half-month periods the picker offers. */
+const PERIOD_COUNT = 24;
 
 interface CumulativeRow {
   itemId: string;
@@ -60,104 +71,115 @@ export default function ReportsPage() {
   const [printScope, setPrintScope] = useState<PrintScope>("both");
   const [productions, setProductions] = useState<Record<string, unknown>[]>([]);
   const [items, setItems] = useState<Record<string, unknown>[]>([]);
+  const [loadFailed, setLoadFailed] = useState(false);
   const ready = guardReady && periodsLoaded;
+
+  const loadPeriods = useCallback(
+    () => {
+      // Only the window the picker can actually offer. `getPeriodsWithData`
+      // keeps nothing outside the last 24 periods, so reading all of history to
+      // find which of them have data was work thrown away — and it grew with
+      // every year the factory ran.
+      const offered = getPeriods(PERIOD_COUNT, locale);
+      const first = offered[0];
+      const last = offered[offered.length - 1];
+      return getProductionsInRange(first.from, last.to)
+        .then((prods) => {
+          const withData = getPeriodsWithData(prods, PERIOD_COUNT, locale);
+          setLoadFailed(false);
+          setPeriods(withData);
+          const current = getPeriodForDate(
+            new Date().toISOString().slice(0, 10),
+            locale,
+          );
+          const selected = withData.some((p) => p.from === current.from)
+            ? current.from
+            : (withData[withData.length - 1]?.from ?? "");
+          const period = withData.find((p) => p.from === selected);
+          if (period) {
+            setFrom(period.from);
+            setTo(period.to);
+          }
+          setPeriodsLoaded(true);
+        })
+        .catch((error: unknown) => {
+          console.error("[reports] failed to load periods", error);
+          setLoadFailed(true);
+          // Stop the skeleton: the page must show the error, not spin forever.
+          setPeriodsLoaded(true);
+        });
+    },
+    [locale],
+  );
 
   useEffect(() => {
     if (!guardReady) return;
-    getProductions().then((prods) => {
-      const withData = getPeriodsWithData(prods, 24, locale);
-      setPeriods(withData);
-      const current = getPeriodForDate(
-        new Date().toISOString().slice(0, 10),
-        locale,
-      );
-      const selected = withData.some((p) => p.from === current.from)
-        ? current.from
-        : (withData[withData.length - 1]?.from ?? "");
-      const period = withData.find((p) => p.from === selected);
-      if (period) {
-        setFrom(period.from);
-        setTo(period.to);
-      }
-      setPeriodsLoaded(true);
-    });
-  }, [guardReady, locale]);
+    void loadPeriods();
+  }, [guardReady, loadPeriods]);
 
-  useEffect(() => {
-    if (!ready || !from || !to) return;
-    Promise.all([getProductionsInRange(from, to), getItems()]).then(
-      ([prods, itemsList]) => {
+  const loadRange = useCallback(() => {
+    if (!from || !to) return Promise.resolve();
+    return Promise.all([getProductionsInRange(from, to), getItems()])
+      .then(([prods, itemsList]) => {
+        setLoadFailed(false);
         setProductions(prods);
         setItems(itemsList);
-      },
-    );
-  }, [ready, from, to]);
+      })
+      .catch((error: unknown) => {
+        console.error("[reports] failed to load productions", error);
+        setProductions([]);
+        setItems([]);
+        setLoadFailed(true);
+      });
+  }, [from, to]);
 
-  const itemMap = Object.fromEntries(
-    items.map((i) => [i.id as string, i]),
-  ) as Record<string, Record<string, unknown>>;
+  useEffect(() => {
+    if (!ready) return;
+    void loadRange();
+  }, [ready, loadRange]);
 
-  const byItem: Record<string, number> = {};
-  const byItemDay: Record<string, number> = {};
-  const byItemNight: Record<string, number> = {};
-  const byDateItemDay: Record<
-    string,
-    { date: string; itemId: string; qty: number }
-  > = {};
-  const byDateItemNight: Record<
-    string,
-    { date: string; itemId: string; qty: number }
-  > = {};
+  /**
+   * All of the per-item / per-date totals in one pass. Memoised so typing in
+   * an unrelated control does not re-total every production row.
+   */
+  const {
+    cumulativeRows,
+    byDateItemDay,
+    byDateItemNight,
+    datesDay,
+    datesNight,
+  } = useMemo(() => {
+    const itemMap = Object.fromEntries(
+      items.map((i) => [i.id as string, i]),
+    ) as Record<string, Record<string, unknown>>;
 
-  productions.forEach((p) => {
-    const qty = (p.quantity as number) || 0;
-    const shift = p.shift === "night" ? "night" : "day";
-    const itemId = p.itemId as string;
-    const date = p.date as string;
-    byItem[itemId] = (byItem[itemId] || 0) + qty;
-    const key = `${date}|${itemId}`;
-    if (shift === "night") {
-      byItemNight[itemId] = (byItemNight[itemId] || 0) + qty;
-      if (!byDateItemNight[key])
-        byDateItemNight[key] = { date, itemId, qty: 0 };
-      byDateItemNight[key].qty += qty;
-    } else {
-      byItemDay[itemId] = (byItemDay[itemId] || 0) + qty;
-      if (!byDateItemDay[key]) byDateItemDay[key] = { date, itemId, qty: 0 };
-      byDateItemDay[key].qty += qty;
-    }
-  });
+    const byItem: Record<string, number> = {};
+    const byItemDay: Record<string, number> = {};
+    const byItemNight: Record<string, number> = {};
+    const dayCells: Record<string, number> = {};
+    const nightCells: Record<string, number> = {};
+    const dayDates = new Set<string>();
+    const nightDates = new Set<string>();
 
-  const itemIds = Array.from(new Set(Object.keys(byItem)));
-  const cumulativeRows: CumulativeRow[] = itemIds
-    .map((itemId) => ({
-      itemId,
-      itemName: (itemMap[itemId]?.name as string) || itemId,
-      dayQty: byItemDay[itemId] || 0,
-      nightQty: byItemNight[itemId] || 0,
-      qty: byItem[itemId],
-    }))
-    .sort((a, b) => a.itemName.localeCompare(b.itemName));
+    productions.forEach((p) => {
+      const qty = (p.quantity as number) || 0;
+      const isNight = p.shift === "night";
+      const itemId = p.itemId as string;
+      const date = p.date as string;
+      const key = `${date}|${itemId}`;
+      byItem[itemId] = (byItem[itemId] || 0) + qty;
+      if (isNight) {
+        byItemNight[itemId] = (byItemNight[itemId] || 0) + qty;
+        nightCells[key] = (nightCells[key] || 0) + qty;
+        nightDates.add(date);
+      } else {
+        byItemDay[itemId] = (byItemDay[itemId] || 0) + qty;
+        dayCells[key] = (dayCells[key] || 0) + qty;
+        dayDates.add(date);
+      }
+    });
 
-  const datesDay = Array.from(
-    new Set(
-      productions
-        .filter((p) => p.shift !== "night")
-        .map((p) => p.date as string),
-    ),
-  ).sort();
-  const datesNight = Array.from(
-    new Set(
-      productions
-        .filter((p) => p.shift === "night")
-        .map((p) => p.date as string),
-    ),
-  ).sort();
-
-  const handlePrint = async () => {
-    const scope = printScope;
-    const itemIdsPrint = Array.from(new Set(Object.keys(byItem)));
-    const cumRows = itemIdsPrint
+    const rows: CumulativeRow[] = Object.keys(byItem)
       .map((itemId) => ({
         itemId,
         itemName: (itemMap[itemId]?.name as string) || itemId,
@@ -167,73 +189,39 @@ export default function ReportsPage() {
       }))
       .sort((a, b) => a.itemName.localeCompare(b.itemName));
 
+    return {
+      cumulativeRows: rows,
+      byDateItemDay: dayCells,
+      byDateItemNight: nightCells,
+      datesDay: Array.from(dayDates).sort(),
+      datesNight: Array.from(nightDates).sort(),
+    };
+  }, [productions, items]);
+
+  const handlePrint = async () => {
     const periodLabel = `${dateDisplay(from)} – ${dateDisplay(to)}`;
-    const filterLabel =
-      scope === "day"
-        ? t("reportsPrintFilterDayOnly")
-        : scope === "night"
-          ? t("reportsPrintFilterNightOnly")
-          : "";
-    const cumulativeDesc =
-      scope === "day"
-        ? t("reportsPrintCumulativeDescDay")
-        : scope === "night"
-          ? t("reportsPrintCumulativeDescNight")
-          : t("reportsPrintCumulativeDescBoth");
-
-    const colGroup = t("reportsColPackagingGroup");
-    const colDay = t("colDay");
-    const colNight = t("colNight");
-    const colTotal = t("colTotal");
-    const emptyRow = t("reportsNoProductionInPeriod");
-
-    let cumulativeTableHeader: string;
-    let cumulativeRowsHtml: string;
-    if (scope === "day") {
-      cumulativeTableHeader =
-        `<tr class="border"><th class="border" style="padding:6px">${colGroup}</th><th class="border text-right" style="padding:6px">${colDay}</th></tr>`;
-      cumulativeRowsHtml =
-        cumRows.length === 0
-          ? `<tr><td colspan="2" class="border" style="padding:6px;color:#71717a">${emptyRow}</td></tr>`
-          : cumRows
-              .map(
-                (r) =>
-                  `<tr><td class="border" style="padding:4px 6px">${r.itemName}</td><td class="border text-right" style="padding:4px 6px">${number(r.dayQty)}</td></tr>`,
-              )
-              .join("");
-    } else if (scope === "night") {
-      cumulativeTableHeader =
-        `<tr class="border"><th class="border" style="padding:6px">${colGroup}</th><th class="border text-right" style="padding:6px">${colNight}</th></tr>`;
-      cumulativeRowsHtml =
-        cumRows.length === 0
-          ? `<tr><td colspan="2" class="border" style="padding:6px;color:#71717a">${emptyRow}</td></tr>`
-          : cumRows
-              .map(
-                (r) =>
-                  `<tr><td class="border" style="padding:4px 6px">${r.itemName}</td><td class="border text-right" style="padding:4px 6px">${number(r.nightQty)}</td></tr>`,
-              )
-              .join("");
-    } else {
-      cumulativeTableHeader =
-        `<tr class="border"><th class="border" style="padding:6px">${colGroup}</th><th class="border text-right" style="padding:6px">${colDay}</th><th class="border text-right" style="padding:6px">${colNight}</th><th class="border text-right" style="padding:6px">${colTotal}</th></tr>`;
-      cumulativeRowsHtml =
-        cumRows.length === 0
-          ? `<tr><td colspan="4" class="border" style="padding:6px;color:#71717a">${emptyRow}</td></tr>`
-          : cumRows
-              .map(
-                (r) =>
-                  `<tr><td class="border" style="padding:4px 6px">${r.itemName}</td><td class="border text-right" style="padding:4px 6px">${number(r.dayQty)}</td><td class="border text-right" style="padding:4px 6px">${number(r.nightQty)}</td><td class="border text-right" style="padding:4px 6px">${number(r.qty)}</td></tr>`,
-              )
-              .join("");
+    const html = buildProductionReportHtml({
+      rows: cumulativeRows,
+      scope: printScope,
+      periodLabel,
+      tr: t,
+      lang: locale === "hi" ? "hi" : "en",
+    });
+    try {
+      await printHtml(html);
+      // Logged only once the print actually went out: an entry for a print
+      // that failed would claim paper exists that nobody ever held.
+      void auditRecord(
+        AUDIT_ACTIONS.reportPrint,
+        "productions",
+        null,
+        t("auditWireReportPrint", { period: periodLabel }),
+        { from, to, scope: printScope, itemsOnReport: cumulativeRows.length },
+      );
+    } catch (error) {
+      console.error("[reports] print failed", error);
+      toast.error(t("plainReportsLoadFailed"));
     }
-
-    const printStyles =
-      "body{margin:0;font-family:system-ui,sans-serif;font-size:12px;color:#0a0a0a;background:#fff;padding:16px}.mb-4{margin-bottom:12px}.mb-6{margin-bottom:20px}.text-2xl{font-size:1.5rem;font-weight:700}.text-sm{font-size:0.75rem}.text-lg{font-size:1.125rem}.text-gray-600{color:#52525b}.border{border:1px solid #e4e4e7}.w-full{width:100%}.table{width:100%;font-size:11px;border-collapse:collapse}.table th,.table td{padding:4px 6px;text-align:left;border:1px solid #e4e4e7}.table th{background:#f4f4f5;font-weight:600}.text-right{text-align:right}";
-    const docLang = locale === "hi" ? "hi" : "en";
-    const title = `${t("reportsPrintTitleSuffix")} – ${periodLabel}`;
-    const html = `<!DOCTYPE html><html lang="${docLang}"><head><meta charset="UTF-8"><title>${title}</title><style>${printStyles}</style></head><body><div style="max-width:100%;margin:0 auto"><div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px"><div><h1 class="text-2xl">ProdTrack Lite</h1><p class="text-sm text-gray-600">${t("reportsPrintTitleSuffix")}${filterLabel}</p></div><div class="text-sm text-right"><p><strong>${t("reportsPrintPeriodLabel")}</strong> ${periodLabel}</p></div></div><h2 class="text-lg" style="font-weight:600;margin-bottom:6px">${t("reportsPrintCumulativeHeading")}</h2><p class="text-sm text-gray-600 mb-4">${cumulativeDesc}</p><table class="table w-full mb-6"><thead>${cumulativeTableHeader}</thead><tbody>${cumulativeRowsHtml}</tbody></table></div></body></html>`;
-    console.log("[print] Print button clicked (reports), HTML length:", html?.length ?? 0);
-    printHtml(html);
   };
 
   if (!ready) {
@@ -249,17 +237,53 @@ export default function ReportsPage() {
   }
 
   const periodValue = from && to ? `${from}|${to}` : "";
-  const hasNoData = periods.length === 0;
+  const hasNoData = periods.length === 0 && !loadFailed;
+
+  if (loadFailed) {
+    return (
+      <AppShell>
+        <main className="flex flex-col gap-6 animate-fade-in">
+          <h1 className="font-heading text-3xl font-bold tracking-tight text-foreground md:text-4xl">
+            {t("reportsPageTitle")}
+          </h1>
+          <Card className="p-6 sm:p-8">
+            <CardHeader className="p-0 mb-4">
+              <CardTitle className="text-xl font-semibold font-heading flex items-center gap-2">
+                <AlertTriangle className="size-5 shrink-0 text-destructive" />
+                {t("plainReportsLoadFailed")}
+              </CardTitle>
+              <p className="text-base text-muted-foreground mt-1">
+                {t("plainReportsLoadFailedDesc")}
+              </p>
+            </CardHeader>
+            <CardContent className="p-0">
+              <Button
+                type="button"
+                variant="outline"
+                className="h-12 px-6"
+                onClick={() => {
+                  setPeriodsLoaded(false);
+                  void loadPeriods();
+                }}
+              >
+                {t("plainTryAgain")}
+              </Button>
+            </CardContent>
+          </Card>
+        </main>
+      </AppShell>
+    );
+  }
 
   return (
     <AppShell>
       <main className="flex flex-col gap-8 animate-fade-in">
-        <div className="flex flex-wrap items-end justify-between gap-4">
-          <h1 className="text-3xl font-bold text-foreground font-heading">
-            {t("reportsPageTitle")}
-          </h1>
-          <div className="flex flex-wrap items-end gap-4">
-            <div className="flex flex-col gap-2">
+        <PageHeader
+          title={t("reportsPageTitle")}
+          intro={t("ux3ReportsIntro")}
+          action={
+            <>
+            <div className="flex min-w-0 flex-col gap-2">
               <Label>{t("reportsPeriod")}</Label>
               <Select
                 value={periodValue || undefined}
@@ -271,7 +295,7 @@ export default function ReportsPage() {
                 }}
                 disabled={hasNoData}
               >
-                <SelectTrigger className="min-w-[220px] min-h-12">
+                <SelectTrigger className="w-full min-w-0 min-h-12 sm:min-w-[220px]">
                   <SelectValue
                     placeholder={
                       hasNoData
@@ -289,13 +313,13 @@ export default function ReportsPage() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="flex flex-col gap-2">
+            <div className="flex min-w-0 flex-col gap-2">
               <Label>{t("reportsPrint")}</Label>
               <Select
                 value={printScope}
                 onValueChange={(v) => setPrintScope(v as PrintScope)}
               >
-                <SelectTrigger className="min-w-[180px] min-h-12">
+                <SelectTrigger className="w-full min-w-0 min-h-12 sm:min-w-[180px]">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -308,12 +332,14 @@ export default function ReportsPage() {
             <Button
               type="button"
               onClick={handlePrint}
-              className="h-12 shrink-0 px-6"
+              className="min-h-12 px-6"
             >
+              <Printer data-icon="inline-start" className="size-4" aria-hidden />
               {t("reportsPrintButton")}
             </Button>
-          </div>
-        </div>
+            </>
+          }
+        />
 
         {hasNoData && (
           <p className="py-4 text-base text-muted-foreground">
@@ -326,7 +352,7 @@ export default function ReportsPage() {
             <Card className="p-6 sm:p-8">
               <CardHeader className="p-0 mb-5">
                 <CardTitle className="text-xl font-semibold font-heading flex items-center gap-2">
-                  <Package className="size-5 text-primary" />
+                  <Package className="size-5 shrink-0 text-primary" />
                   {t("reportsCumulativeTitle")}
                 </CardTitle>
                 <p className="text-base leading-relaxed text-muted-foreground mt-1">
@@ -334,7 +360,7 @@ export default function ReportsPage() {
                 </p>
               </CardHeader>
               <CardContent className="p-0">
-              <div className="overflow-x-auto">
+              <div className="min-w-0 overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -373,7 +399,7 @@ export default function ReportsPage() {
             <Card className="p-6 sm:p-8">
               <CardHeader className="p-0 mb-5">
                 <CardTitle className="text-xl font-semibold font-heading flex items-center gap-2">
-                  <BarChart2 className="size-5 text-primary" />
+                  <BarChart2 className="size-5 shrink-0 text-primary" />
                   {t("reportsByDateDayTitle")}
                 </CardTitle>
                 <p className="text-base text-muted-foreground mt-1">
@@ -381,7 +407,7 @@ export default function ReportsPage() {
                 </p>
               </CardHeader>
               <CardContent className="p-0">
-              <div className="overflow-x-auto">
+              <div className="min-w-0 overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -416,7 +442,7 @@ export default function ReportsPage() {
                           </TableCell>
                           {cumulativeRows.map((i) => {
                             const qty =
-                              byDateItemDay[`${date}|${i.itemId}`]?.qty ?? "";
+                              byDateItemDay[`${date}|${i.itemId}`] ?? "";
                             return (
                               <TableCell
                                 key={i.itemId}
@@ -438,7 +464,7 @@ export default function ReportsPage() {
             <Card className="p-6 sm:p-8">
               <CardHeader className="p-0 mb-5">
                 <CardTitle className="text-xl font-semibold font-heading flex items-center gap-2">
-                  <BarChart2 className="size-5 text-primary" />
+                  <BarChart2 className="size-5 shrink-0 text-primary" />
                   {t("reportsByDateNightTitle")}
                 </CardTitle>
                 <p className="text-base text-muted-foreground mt-1">
@@ -446,7 +472,7 @@ export default function ReportsPage() {
                 </p>
               </CardHeader>
               <CardContent className="p-0">
-              <div className="overflow-x-auto">
+              <div className="min-w-0 overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -481,7 +507,7 @@ export default function ReportsPage() {
                           </TableCell>
                           {cumulativeRows.map((i) => {
                             const qty =
-                              byDateItemNight[`${date}|${i.itemId}`]?.qty ?? "";
+                              byDateItemNight[`${date}|${i.itemId}`] ?? "";
                             return (
                               <TableCell
                                 key={i.itemId}

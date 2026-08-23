@@ -1,4 +1,8 @@
 import { getAll, get, put, remove, STORES } from "@/lib/db/adapter";
+import { AUDIT_ACTIONS, diffEntity, record as auditRecord } from "./auditService";
+import { nameOnRow } from "./auditNames";
+import { findMachineProblems, isMachineUsable } from "./machineService";
+import type { MachineProblem } from "./machineService";
 
 export interface ItemComboComponent {
   itemId: string;
@@ -21,12 +25,17 @@ export async function getItemCombo(id: string): Promise<ItemCombo | null> {
   return get(STORE, id) as unknown as Promise<ItemCombo | null>;
 }
 
+const COMBO_AUDIT_FIELDS = ["name", "components"] as const;
+
 export async function saveItemCombo(
   combo: Record<string, unknown>
 ): Promise<ItemCombo> {
+  let before: Record<string, unknown> | null = null;
   if (!combo.id) {
     combo.id =
       "combo_" + Date.now() + "_" + Math.random().toString(36).slice(2, 9);
+  } else {
+    before = await get(STORE, combo.id as string);
   }
   const components = (combo.components as ItemComboComponent[] | undefined) ?? [];
   combo.components = components.map((c) => ({
@@ -34,11 +43,28 @@ export async function saveItemCombo(
     ratio: c.ratio || 1,
   }));
   await put(STORE, combo);
+  void auditRecord(
+    before ? AUDIT_ACTIONS.itemUpdate : AUDIT_ACTIONS.itemCreate,
+    "item_combos",
+    combo.id as string,
+    before
+      ? `Item set ${nameOnRow(combo, "with no name")} was updated`
+      : `Item set ${nameOnRow(combo, "with no name")} was created`,
+    diffEntity(before, combo, COMBO_AUDIT_FIELDS),
+  );
   return combo as unknown as ItemCombo;
 }
 
 export async function deleteItemCombo(id: string): Promise<void> {
+  const before = await get(STORE, id);
   await remove(STORE, id);
+  void auditRecord(
+    AUDIT_ACTIONS.itemDelete,
+    "item_combos",
+    id,
+    `Item set ${nameOnRow(before, "with no name")} was deleted`,
+    diffEntity(before, null, COMBO_AUDIT_FIELDS),
+  );
 }
 
 function unitsPossible(
@@ -72,13 +98,20 @@ export function findBottleneckItemId(
  * A machine can only complete whole cycles — it can't run for a fraction of
  * one. Each cycle yields `cavities` pieces, so the runtime for `pieces` is
  * always a whole number of cycles rounded up, never a fractional cycle.
+ *
+ * Returns **null**, not 0, when the machine's own numbers cannot produce
+ * anything (zero/negative/NaN pieces-per-shot or seconds-per-shot). 0 means
+ * "no run needed"; null means "this machine cannot run at all". Conflating
+ * them made a broken machine look like the fastest one on the floor, so every
+ * caller must decide what to show instead of a duration.
  */
 export function calculateMachineRuntimeSeconds(
   pieces: number,
   cavities: number,
   cycleTimeSeconds: number,
-): number {
-  if (pieces <= 0 || cavities <= 0 || cycleTimeSeconds <= 0) return 0;
+): number | null {
+  if (!isMachineUsable({ cavities, cycleTimeSeconds })) return null;
+  if (!(pieces > 0)) return 0;
   const cycles = Math.ceil(pieces / cavities);
   return cycles * cycleTimeSeconds;
 }
@@ -99,9 +132,13 @@ export function calculateTopUpPlan(
   bottleneckUnits: number;
   producedUnitsPossible: number;
   neededPieces: number;
-  runtimeSeconds: number;
+  /** null when the machine's own numbers mean it cannot run at all. */
+  runtimeSeconds: number | null;
+  /** Empty when the machine is fine; otherwise what needs filling in. */
+  machineProblems: MachineProblem[];
   resultingComboUnits: number;
 } {
+  const machineProblems = findMachineProblems(machine);
   const producedComponent = combo.components.find(
     (c) => c.itemId === producedItemId,
   );
@@ -114,7 +151,8 @@ export function calculateTopUpPlan(
       bottleneckUnits: 0,
       producedUnitsPossible: 0,
       neededPieces: 0,
-      runtimeSeconds: 0,
+      runtimeSeconds: machineProblems.length > 0 ? null : 0,
+      machineProblems,
       resultingComboUnits: 0,
     };
   }
@@ -147,6 +185,7 @@ export function calculateTopUpPlan(
     producedUnitsPossible,
     neededPieces,
     runtimeSeconds,
+    machineProblems,
     resultingComboUnits,
   };
 }

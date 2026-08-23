@@ -1,205 +1,227 @@
 /**
- * Generates app/generated/legacy-opacity-fallbacks.css for Chrome that does not support
- * color-mix(). Tailwind v4 opacity utilities fall back to solid var(--token) without it.
+ * Generates app/generated/legacy-opacity-fallbacks.css for Chrome that does not
+ * support color-mix() (Chrome < 111 — e.g. the last builds shipped on Windows 7).
  *
- * When you change sRGB fallbacks in app/globals.css :root / .dark, update LEGACY_THEME_RGB.
- * When you add Tailwind opacity classes in JSX (e.g. bg-foo/15), add a matching rule here
- * and run: npm run generate:legacy-css
+ * Tailwind v4 renders an opacity modifier such as `bg-muted/30` as
+ * `color-mix(in oklab, var(--muted) 30%, transparent)`. A browser that cannot
+ * parse color-mix() drops the declaration and falls back to the solid token, so
+ * a 30%-tint surface renders as a 100% slab. This script emits the equivalent
+ * rgba() rules, guarded by `@supports not (color-mix(...))`, so legacy Chrome
+ * gets the intended translucency and modern Chrome ignores the whole block.
+ *
+ * NOTHING HERE IS HAND-MAINTAINED:
+ *   • token colors are parsed out of app/globals.css (`:root` and `.dark`) — the
+ *     single source of truth, so the two can never silently diverge;
+ *   • the utility classes are discovered by scanning the JSX/TS sources, so a
+ *     newly written `bg-success/15` is picked up without editing this file.
+ *
+ * Run: npm run generate:legacy-css   (the build does this automatically)
  */
-import { writeFileSync, mkdirSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { writeFileSync, mkdirSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { dirname, join, extname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const OUT = join(__dirname, "../app/generated/legacy-opacity-fallbacks.css");
+const ROOT = join(__dirname, "..");
+const GLOBALS = join(ROOT, "app/globals.css");
+const OUT = join(ROOT, "app/generated/legacy-opacity-fallbacks.css");
+const SCAN_DIRS = ["app", "components", "lib"].map((d) => join(ROOT, d));
+const SCAN_EXT = new Set([".tsx", ".ts", ".jsx", ".js"]);
 
-/** Must match the hex fallbacks in app/globals.css (:root and .dark sRGB blocks). */
-const LEGACY_THEME_RGB = {
-  primary: { light: [22, 27, 29], dark: [227, 231, 232] },
-  muted: { light: [241, 243, 243], dark: [34, 41, 43] },
-  chart1: { light: [255, 161, 173], dark: [255, 161, 173] },
-  destructive: { light: [231, 0, 11], dark: [255, 100, 103] },
-  foreground: { light: [9, 11, 12], dark: [249, 251, 251] },
-  border: { light: [227, 231, 232], dark: [227, 231, 232] },
-  mutedForeground: { light: [103, 120, 124], dark: [156, 168, 171] },
-  ring: { light: [156, 168, 171], dark: [103, 120, 124] },
+// ── 1. token colors, parsed from globals.css ────────────────────────────────
+
+/**
+ * Extracts the body of a top-level `<selector> { … }` rule.
+ * @param {string} css
+ * @param {string} selector
+ */
+function ruleBody(css, selector) {
+  const start = css.indexOf(`\n${selector} {`);
+  if (start === -1) throw new Error(`generate-legacy-css: no "${selector}" rule in app/globals.css`);
+  const open = css.indexOf("{", start);
+  let depth = 0;
+  for (let i = open; i < css.length; i++) {
+    if (css[i] === "{") depth++;
+    else if (css[i] === "}" && --depth === 0) return css.slice(open + 1, i);
+  }
+  throw new Error(`generate-legacy-css: unbalanced braces in "${selector}"`);
+}
+
+/** @returns {{ rgb: number[], a: number } | null} */
+function parseColor(value) {
+  const v = value.trim();
+  let m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(v);
+  if (m) {
+    const h = m[1].length === 3 ? m[1].replace(/./g, (c) => c + c) : m[1];
+    return { rgb: [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16)), a: 1 };
+  }
+  m = /^rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)(?:\s*[,/]\s*([\d.]+%?))?\s*\)$/i.exec(v);
+  if (m) {
+    const raw = m[4];
+    const a = raw === undefined ? 1 : raw.endsWith("%") ? parseFloat(raw) / 100 : parseFloat(raw);
+    return { rgb: [+m[1], +m[2], +m[3]], a };
+  }
+  return null; // var(), gradients, easings, lengths — not a literal color
+}
+
+/** @param {string} body */
+function parseTokens(body) {
+  /** @type {Map<string, {rgb: number[], a: number}>} */
+  const out = new Map();
+  for (const [, name, value] of body.matchAll(/--([a-z0-9-]+)\s*:\s*([^;]+);/gi)) {
+    const c = parseColor(value);
+    if (c) out.set(name, c);
+  }
+  return out;
+}
+
+const css = readFileSync(GLOBALS, "utf8");
+const LIGHT = parseTokens(ruleBody(css, ":root"));
+const DARK = parseTokens(ruleBody(css, ".dark"));
+
+// Literal colors Tailwind ships that are not theme tokens.
+for (const map of [LIGHT, DARK]) {
+  map.set("black", { rgb: [0, 0, 0], a: 1 });
+  map.set("white", { rgb: [255, 255, 255], a: 1 });
+}
+
+/** Alpha modifiers compose: a token that is already translucent stays so. */
+function rgba(color, modifier) {
+  const a = +(color.a * modifier).toFixed(4);
+  return `rgba(${color.rgb[0]}, ${color.rgb[1]}, ${color.rgb[2]}, ${a})`;
+}
+
+// ── 2. utilities, discovered by scanning the sources ────────────────────────
+
+/** Tailwind utility prefix → the CSS property its opacity modifier colors. */
+const PROP = {
+  bg: "background-color",
+  text: "color",
+  border: "border-color",
+  ring: "--tw-ring-color",
+  outline: "outline-color",
+  decoration: "text-decoration-color",
+  fill: "fill",
+  stroke: "stroke",
+  caret: "caret-color",
+  accent: "accent-color",
+  shadow: null, // --tw-shadow-color, composed differently — skipped
+  from: null, // gradient stops are --tw-gradient-* — skipped
+  via: null,
+  to: null,
+  divide: null,
+  placeholder: null,
 };
 
-function rgba(rgb, a) {
-  const [r, g, b] = rgb;
-  return `rgba(${r}, ${g}, ${b}, ${a})`;
+/** Variant prefix → the suffix it appends to the compiled selector. */
+const VARIANT = {
+  hover: ":hover",
+  focus: ":focus",
+  "focus-visible": ":focus-visible",
+  "focus-within": ":focus-within",
+  active: ":active",
+  disabled: ":disabled",
+  "aria-invalid": '[aria-invalid="true"]',
+  "aria-selected": '[aria-selected="true"]',
+  "aria-expanded": '[aria-expanded="true"]',
+};
+
+const PREFIXES = Object.keys(PROP).join("|");
+const VARIANT_ATOM = "(?:[a-z-]+|\\[[^\\]\\s]+\\]|data-\\[[^\\]\\s]+\\])";
+const CLASS_RE = new RegExp(
+  `(?<![\\w:/-])((?:${VARIANT_ATOM}:)*)(${PREFIXES})-([a-z]+(?:-[a-z0-9]+)*)\\/(\\d{1,3})(?![\\w./-])`,
+  "g",
+);
+
+function* walk(dir) {
+  let entries;
+  try {
+    entries = readdirSync(dir);
+  } catch {
+    return;
+  }
+  for (const e of entries) {
+    if (e === "node_modules" || e === ".next" || e === "generated") continue;
+    const p = join(dir, e);
+    if (statSync(p).isDirectory()) yield* walk(p);
+    else if (SCAN_EXT.has(extname(p))) yield p;
+  }
 }
 
-/**
- * @typedef {{ class?: string, selector?: string, prop: string, token: keyof typeof LEGACY_THEME_RGB, alpha: number, mode?: "both" | "chartOnly", darkOverride?: string }} TokenRule
- * @typedef {{ selector: string, prop: string, value: string }} RawRule
- */
+const escapeClass = (s) => s.replace(/[.:/[\]()=,%#]/g, (c) => "\\" + c);
 
-/** @type {(TokenRule | RawRule)[]} */
-const RULES = [
-  { class: "bg-primary\\/10", prop: "background-color", token: "primary", alpha: 0.1 },
-  { class: "border-primary\\/30", prop: "border-color", token: "primary", alpha: 0.3 },
-  { class: "border-primary\\/70", prop: "border-color", token: "primary", alpha: 0.7 },
-  { class: "bg-muted\\/30", prop: "background-color", token: "muted", alpha: 0.3 },
-  { class: "bg-muted\\/40", prop: "background-color", token: "muted", alpha: 0.4 },
-  { class: "bg-muted\\/50", prop: "background-color", token: "muted", alpha: 0.5 },
-  { class: "bg-chart-1\\/20", prop: "background-color", token: "chart1", alpha: 0.2, mode: "chartOnly" },
-  { class: "bg-chart-1\\/50", prop: "background-color", token: "chart1", alpha: 0.5, mode: "chartOnly" },
-  { class: "border-chart-1\\/50", prop: "border-color", token: "chart1", alpha: 0.5, mode: "chartOnly" },
-  { class: "text-destructive\\/70", prop: "color", token: "destructive", alpha: 0.7 },
-  { class: "bg-destructive\\/10", prop: "background-color", token: "destructive", alpha: 0.1 },
-  { class: "bg-destructive\\/20", prop: "background-color", token: "destructive", alpha: 0.2 },
-  { class: "bg-foreground\\/20", prop: "background-color", token: "foreground", alpha: 0.2 },
-  {
-    class: "border-border\\/80",
-    prop: "border-color",
-    token: "border",
-    alpha: 0.8,
-    darkOverride: "rgba(255, 255, 255, 0.08)",
-  },
-  { class: "border-muted-foreground\\/35", prop: "border-color", token: "mutedForeground", alpha: 0.35 },
-  {
-    class: "decoration-muted-foreground\\/40",
-    prop: "text-decoration-color",
-    token: "mutedForeground",
-    alpha: 0.4,
-  },
-  { selector: ".hover\\:bg-destructive\\/10:hover", prop: "background-color", token: "destructive", alpha: 0.1 },
-  { selector: ".hover\\:bg-destructive\\/20:hover", prop: "background-color", token: "destructive", alpha: 0.2 },
-  { selector: ".hover\\:ring-primary\\/20:hover", prop: "--tw-ring-color", token: "primary", alpha: 0.2 },
-  {
-    selector: ".focus-within\\:ring-primary\\/20:focus-within",
-    prop: "--tw-ring-color",
-    token: "primary",
-    alpha: 0.2,
-  },
-  { selector: ".focus\\:ring-destructive\\/30:focus", prop: "--tw-ring-color", token: "destructive", alpha: 0.3 },
-  {
-    selector: ".focus-visible\\:border-destructive\\/40:focus-visible",
-    prop: "border-color",
-    token: "destructive",
-    alpha: 0.4,
-  },
-  {
-    selector: ".focus-visible\\:ring-destructive\\/20:focus-visible",
-    prop: "--tw-ring-color",
-    token: "destructive",
-    alpha: 0.2,
-  },
-  {
-    selector: ".aria-invalid\\:ring-destructive\\/20[aria-invalid=\"true\"]",
-    prop: "--tw-ring-color",
-    token: "destructive",
-    alpha: 0.2,
-  },
-  {
-    selector: ".focus-visible\\:ring-ring\\/50:focus-visible",
-    prop: "--tw-ring-color",
-    token: "ring",
-    alpha: 0.5,
-  },
-  { selector: ".ring-foreground\\/10", prop: "--tw-ring-color", token: "foreground", alpha: 0.1 },
-  {
-    selector: ".\\[a\\]\\:hover\\:bg-primary\\/80:is(a):hover",
-    prop: "background-color",
-    token: "primary",
-    alpha: 0.8,
-  },
-  { selector: ".bg-black\\/80", prop: "background-color", value: "rgba(0, 0, 0, 0.8)" },
-];
+const warnings = new Set();
+/** @type {Map<string, {selector: string, prop: string, token: string, modifier: number, darkOnly: boolean}>} */
+const rules = new Map();
 
-const DARK_ONLY = [
-  { selector: ".dark .dark\\:bg-destructive\\/20", prop: "background-color", token: "destructive", alpha: 0.2 },
-  { selector: ".dark .dark\\:bg-destructive\\/30", prop: "background-color", token: "destructive", alpha: 0.3 },
-  {
-    selector: ".dark .dark\\:hover\\:bg-destructive\\/30:hover",
-    prop: "background-color",
-    token: "destructive",
-    alpha: 0.3,
-  },
-  {
-    selector: ".dark .dark\\:focus-visible\\:ring-destructive\\/40:focus-visible",
-    prop: "--tw-ring-color",
-    token: "destructive",
-    alpha: 0.4,
-  },
-  {
-    selector: ".dark .dark\\:aria-invalid\\:border-destructive\\/50[aria-invalid=\"true\"]",
-    prop: "border-color",
-    token: "destructive",
-    alpha: 0.5,
-  },
-  {
-    selector: ".dark .dark\\:aria-invalid\\:ring-destructive\\/40[aria-invalid=\"true\"]",
-    prop: "--tw-ring-color",
-    token: "destructive",
-    alpha: 0.4,
-  },
-  { selector: ".dark .dark\\:bg-input\\/30", prop: "background-color", value: "rgba(255, 255, 255, 0.08)" },
-  {
-    selector: ".dark .dark\\:hover\\:bg-input\\/50:hover",
-    prop: "background-color",
-    value: "rgba(255, 255, 255, 0.12)",
-  },
-];
-
-/**
- * @param {TokenRule | RawRule} rule
- */
-function emitRule(rule) {
-  if ("value" in rule && rule.value !== undefined) {
-    return `  ${rule.selector} {\n    ${rule.prop}: ${rule.value} !important;\n  }\n`;
+for (const file of SCAN_DIRS.flatMap((d) => [...walk(d)])) {
+  const src = readFileSync(file, "utf8");
+  for (const m of src.matchAll(CLASS_RE)) {
+    const [full, variantStr, prefix, token, pct] = m;
+    const prop = PROP[prefix];
+    if (prop === null) continue; // knowingly unsupported utility family
+    if (!LIGHT.has(token) && !DARK.has(token)) {
+      warnings.add(`unknown token "${token}" in "${full}" (${file.slice(ROOT.length + 1)})`);
+      continue;
+    }
+    const variants = variantStr ? variantStr.slice(0, -1).split(":") : [];
+    let suffix = "";
+    let darkOnly = false;
+    let bad = false;
+    for (const v of variants) {
+      if (v === "dark") darkOnly = true;
+      else if (VARIANT[v]) suffix += VARIANT[v];
+      else if (/^data-\[.+\]$/.test(v)) suffix += `[${v.slice(6, -1)}]`;
+      // `[a]:` is an element-scoped variant; `[&_code]:` is a nesting variant
+      // whose `&` we cannot express here, so it falls through to `bad`.
+      else if (/^\[[^&]+\]$/.test(v)) suffix += `:is(${v.slice(1, -1)})`;
+      else bad = true;
+    }
+    if (bad) {
+      warnings.add(`unsupported variant in "${full}" (${file.slice(ROOT.length + 1)})`);
+      continue;
+    }
+    const selector = (darkOnly ? ".dark " : "") + "." + escapeClass(full) + suffix;
+    rules.set(selector + "|" + prop, {
+      selector,
+      prop,
+      token,
+      modifier: Math.min(100, +pct) / 100,
+      darkOnly,
+    });
   }
-
-  const token = LEGACY_THEME_RGB[rule.token];
-  const sel = rule.selector ?? `.${rule.class}`;
-  const prop = rule.prop;
-  const alpha = rule.alpha;
-  const mode = rule.mode ?? "both";
-
-  if (rule.darkOverride) {
-    return (
-      `  ${sel} {\n    ${prop}: ${rgba(token.light, alpha)} !important;\n  }\n` +
-      `  .dark ${sel} {\n    ${prop}: ${rule.darkOverride} !important;\n  }\n`
-    );
-  }
-
-  if (mode === "chartOnly") {
-    const c = token.light;
-    return `  ${sel} {\n    ${prop}: ${rgba(c, alpha)} !important;\n  }\n`;
-  }
-
-  return (
-    `  ${sel} {\n    ${prop}: ${rgba(token.light, alpha)} !important;\n  }\n` +
-    `  .dark ${sel} {\n    ${prop}: ${rgba(token.dark, alpha)} !important;\n  }\n`
-  );
 }
 
-function main() {
-  const chunks = [
-    "/* AUTO-GENERATED by scripts/generate-legacy-opacity-fallbacks.mjs — do not edit by hand */\n",
-    "/*\n * Tailwind v4 opacity modifiers use color-mix when supported; otherwise they fall back to\n * solid var(--token) on legacy Chrome. These rgba rules mirror the intended mix.\n */\n",
-    "@supports not (color: color-mix(in lab, red, red)) {\n",
-  ];
+// ── 3. emit ────────────────────────────────────────────────────────────────
 
-  for (const r of RULES) {
-    chunks.push(emitRule(r));
-  }
-
-  for (const r of DARK_ONLY) {
-    if ("value" in r && r.value !== undefined) {
-      chunks.push(`  ${r.selector} {\n    ${r.prop}: ${r.value} !important;\n  }\n`);
-    } else {
-      const t = LEGACY_THEME_RGB[r.token];
-      chunks.push(`  ${r.selector} {\n    ${r.prop}: ${rgba(t.dark, r.alpha)} !important;\n  }\n`);
+function emit(rule) {
+  const { selector, prop, token, modifier, darkOnly } = rule;
+  const light = LIGHT.get(token);
+  const dark = DARK.get(token) ?? light;
+  const out = [];
+  if (!darkOnly && light) out.push(`  ${selector} {\n    ${prop}: ${rgba(light, modifier)} !important;\n  }\n`);
+  if (dark) {
+    const sel = darkOnly ? selector : `.dark ${selector}`;
+    // Only worth a dark override when the value actually differs.
+    if (darkOnly || !light || rgba(dark, modifier) !== rgba(light, modifier)) {
+      out.push(`  ${sel} {\n    ${prop}: ${rgba(dark, modifier)} !important;\n  }\n`);
     }
   }
-
-  chunks.push("}\n");
-
-  mkdirSync(dirname(OUT), { recursive: true });
-  writeFileSync(OUT, chunks.join(""), "utf8");
-  console.log(`Wrote ${OUT}`);
+  return out.join("");
 }
 
-main();
+const sorted = [...rules.values()].sort((a, b) => a.selector.localeCompare(b.selector));
+const body = sorted.map(emit).join("");
+
+const header =
+  "/* AUTO-GENERATED by scripts/generate-legacy-opacity-fallbacks.mjs — do not edit by hand */\n" +
+  "/*\n * Tailwind v4 opacity modifiers compile to color-mix(); Chrome < 111 cannot parse it and\n" +
+  " * falls back to the solid token. These rgba() rules mirror the intended mix. Token colors\n" +
+  " * are parsed from app/globals.css and the class list is scanned from source, so this file\n" +
+  " * is always in sync — regenerate with `npm run generate:legacy-css`.\n */\n";
+
+mkdirSync(dirname(OUT), { recursive: true });
+writeFileSync(OUT, `${header}@supports not (color: color-mix(in lab, red, red)) {\n${body}}\n`, "utf8");
+
+for (const w of [...warnings].sort()) console.warn(`  warn: ${w}`);
+console.log(`Wrote ${OUT} (${sorted.length} utilities from ${LIGHT.size} light / ${DARK.size} dark tokens)`);

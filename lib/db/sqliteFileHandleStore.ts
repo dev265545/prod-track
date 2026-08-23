@@ -2,6 +2,8 @@
  * Persist FileSystemFileHandle for the main SQLite file (Chrome/Edge File System Access API).
  */
 
+import { AUDIT_ACTIONS, record as auditRecord } from "@/lib/services/auditService";
+
 const META_DB = "prodtrack-sqlite-meta";
 const META_STORE = "handle";
 const META_KEY = "main";
@@ -25,10 +27,23 @@ function openMetaDb(): Promise<IDBDatabase> {
   });
 }
 
+/**
+ * Picking the database file is the one storage decision a person makes, and
+ * changing it silently swaps which data the app is looking at — so it is
+ * logged. Only the display name goes in: the handle itself is an opaque
+ * browser object and would be meaningless (and unserialisable) in a log.
+ */
 export async function saveMainSqliteHandle(
   handle: FileSystemFileHandle,
   info: StoredSqliteFileInfo
 ): Promise<void> {
+  void auditRecord(
+    AUDIT_ACTIONS.storageModeChange,
+    "storage",
+    null,
+    `The app was pointed at the database file named ${info.displayName}`,
+    { displayName: info.displayName },
+  );
   const db = await openMetaDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(META_STORE, "readwrite");

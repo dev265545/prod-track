@@ -5,7 +5,10 @@ const Table = React.forwardRef<
   HTMLTableElement,
   React.HTMLAttributes<HTMLTableElement>
 >(({ className, ...props }, ref) => (
-  <div className="relative w-full overflow-auto">
+  // `min-w-0` is load-bearing: without it a flex/grid parent gives this wrapper
+  // `min-width:auto`, so it widens to the table's min-content instead of
+  // scrolling, and the whole page scrolls sideways.
+  <div className="relative w-full min-w-0 overflow-auto">
     <table
       ref={ref}
       className={cn("w-full caption-bottom text-sm", className)}

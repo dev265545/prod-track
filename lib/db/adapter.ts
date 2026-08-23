@@ -4,6 +4,7 @@
 
 import * as idb from "./indexeddb";
 import { STORES } from "./schema";
+import type { IndexKey, IndexReadOptions } from "./indexes";
 
 export function isTauri(): boolean {
   if (typeof window === "undefined") return false;
@@ -42,6 +43,44 @@ export async function getAll(
   return backend.getAll(storeName);
 }
 
+/**
+ * Rows whose `indexName` key falls within the inclusive range
+ * `[lower, upper]`, ordered by primary key.
+ *
+ * The alternative — `getAll` plus a JS filter — deserialises every row in the
+ * store on every query, which is what made a few years of attendance slow down
+ * every page load. On IndexedDB this is a B-tree range scan that touches only
+ * the matching records. The SQLite backends still scan (they store rows as
+ * JSON blobs), but return exactly the same rows in the same order.
+ */
+export async function getByIndex(
+  storeName: string,
+  indexName: string,
+  lower: IndexKey,
+  upper: IndexKey,
+  options?: IndexReadOptions
+): Promise<Record<string, unknown>[]> {
+  const backend = await getBackend();
+  return backend.getByIndex(storeName, indexName, lower, upper, options);
+}
+
+/**
+ * How many rows fall in `[lower, upper]`.
+ *
+ * Separate from `getByIndex` because on IndexedDB a count walks index keys
+ * without cloning a single record, which is the difference between "how many
+ * entries would this prune remove?" costing nothing and costing the whole log.
+ */
+export async function countByIndex(
+  storeName: string,
+  indexName: string,
+  lower: IndexKey,
+  upper: IndexKey
+): Promise<number> {
+  const backend = await getBackend();
+  return backend.countByIndex(storeName, indexName, lower, upper);
+}
+
 export async function get(
   storeName: string,
   id: string
@@ -77,4 +116,5 @@ export async function clear(storeName: string): Promise<void> {
 }
 
 export { STORES };
+export type { IndexKey, IndexReadOptions };
 export { DB_NAME, DB_VERSION } from "./schema";

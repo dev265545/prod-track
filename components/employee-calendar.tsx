@@ -30,9 +30,14 @@ export interface EmployeeCalendarProps {
   attendance: Record<string, unknown>[];
   factoryHolidays: string[];
   selectedDate: string | null;
+  /**
+   * Choosing a day only *selects* it. Attendance is written from the day card
+   * below, where marking is a labelled button and clearing is confirmed. A
+   * double-click used to delete the day's attendance outright: unconfirmed,
+   * unreachable on a touch screen, and undiscoverable without the caption
+   * that advertised it.
+   */
   onDateClick: (date: string) => void;
-  /** Double-click on a date to mark employee present (e.g. from employee dashboard). */
-  onDateDoubleClick?: (date: string) => void;
   periodFrom: string;
   periodTo: string;
   /** When set (e.g. selected payroll period label), shown under the month title. */
@@ -53,7 +58,6 @@ export function EmployeeCalendar({
   factoryHolidays,
   selectedDate,
   onDateClick,
-  onDateDoubleClick,
   periodFrom,
   periodTo,
   periodStatusLabel,
@@ -107,7 +111,12 @@ export function EmployeeCalendar({
   const pad = (n: number) => String(n).padStart(2, "0");
 
   return (
-    <div className="flex h-full w-full min-w-[320px] max-w-[380px] flex-col rounded-xl border border-border bg-card p-3 sm:p-4">
+    // The 320px floor only applies from `sm` up: at a 320px viewport the page
+    // padding leaves ~288px, so an unconditional `min-w-[320px]` is exactly the
+    // thing that makes the whole page scroll sideways. The 7-column grid uses
+    // `minmax(0,1fr)` columns and the day cells drop to `p-1` below `sm`, so it
+    // stays legible down to ~260px without a min width at all.
+    <div className="flex h-full w-full min-w-0 max-w-[380px] flex-col rounded-xl border border-border bg-card p-3 sm:min-w-[320px] sm:p-4">
       <div className="mb-3 flex items-center justify-between gap-2">
         <Button
           type="button"
@@ -119,7 +128,7 @@ export function EmployeeCalendar({
             onMonthChange(py, prev);
           }}
           aria-label={t("calPrevMonth")}
-          className="shrink-0"
+          className="size-11 shrink-0"
         >
           <ChevronLeft data-icon="inline-start" />
         </Button>
@@ -146,7 +155,7 @@ export function EmployeeCalendar({
             onMonthChange(ny, next);
           }}
           aria-label={t("calNextMonth")}
-          className="shrink-0"
+          className="size-11 shrink-0"
         >
           <ChevronRight data-icon="inline-start" />
         </Button>
@@ -185,7 +194,7 @@ export function EmployeeCalendar({
               type="button"
               variant="ghost"
               className={cn(
-                "relative flex h-auto min-h-[48px] flex-col items-center justify-center rounded-lg p-2 text-sm transition-all",
+                "relative flex h-auto min-h-[48px] min-w-0 flex-col items-center justify-center rounded-lg p-1 text-sm transition-all sm:p-2",
                 isSelected && "bg-chart-1/50 ring-2 ring-chart-1",
                 inPeriod && !isSelected && "bg-chart-1/20",
                 !inPeriod && !isSelected && "hover:bg-muted",
@@ -194,11 +203,6 @@ export function EmployeeCalendar({
                 isDayOff && !isSelected && "bg-destructive/10",
               )}
               onClick={() => onDateClick(dateStr)}
-              onDoubleClick={
-                onDateDoubleClick
-                  ? () => onDateDoubleClick(dateStr)
-                  : undefined
-              }
               aria-label={[
                 t("calAriaDay", { day }),
                 isDayOff ? t("calAriaHoliday") : "",
@@ -227,7 +231,7 @@ export function EmployeeCalendar({
               <div className="mt-0.5 flex gap-0.5">
                 {hasProd && (
                   <span
-                    className="size-1.5 rounded-full bg-[hsl(var(--success))]"
+                    className="size-1.5 rounded-full bg-success"
                     title={t("calTitleProductionEntry")}
                     aria-hidden
                   />
@@ -248,7 +252,7 @@ export function EmployeeCalendar({
                 )}
                 {hasExtra && (
                   <span
-                    className="size-1.5 rounded-full bg-blue-500"
+                    className="size-1.5 rounded-full bg-chart-2"
                     title={t("calTitleExtraHours", {
                       h: hoursAdjust?.extra ?? 0,
                     })}
@@ -257,7 +261,7 @@ export function EmployeeCalendar({
                 )}
                 {hasReduced && (
                   <span
-                    className="size-1.5 rounded-full bg-amber-500"
+                    className="size-1.5 rounded-full bg-warning"
                     title={t("calTitleReducedHours", {
                       h: hoursAdjust?.reduced ?? 0,
                     })}
@@ -279,7 +283,7 @@ export function EmployeeCalendar({
 
       <div className="mt-auto flex flex-wrap gap-3 pt-3 text-[10px] text-muted-foreground">
         <div className="flex items-center gap-1.5">
-          <span className="size-2 rounded-full bg-[hsl(var(--success))]" />{" "}
+          <span className="size-2 rounded-full bg-success" />{" "}
           {t("empLegendProduction")}
         </div>
         <div className="flex items-center gap-1.5">
@@ -291,11 +295,11 @@ export function EmployeeCalendar({
           {t("empLegendAbsent")}
         </div>
         <div className="flex items-center gap-1.5">
-          <span className="size-2 rounded-full bg-blue-500" />{" "}
+          <span className="size-2 rounded-full bg-chart-2" />{" "}
           {t("empLegendExtraH")}
         </div>
         <div className="flex items-center gap-1.5">
-          <span className="size-2 rounded-full bg-amber-500" />{" "}
+          <span className="size-2 rounded-full bg-warning" />{" "}
           {t("empLegendLessH")}
         </div>
         <div className="flex items-center gap-1.5">
@@ -306,11 +310,6 @@ export function EmployeeCalendar({
           <span className="size-4 rounded border border-chart-1/50 bg-chart-1/20" />{" "}
           {t("calLegendSelectedPeriod")}
         </div>
-        {onDateDoubleClick && (
-          <p className="text-[10px] italic">
-            {t("empCalDoubleClickPresent")}
-          </p>
-        )}
       </div>
     </div>
   );

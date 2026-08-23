@@ -3,72 +3,43 @@
  */
 
 import { DB_NAME, DB_VERSION, METADATA_STORE, STORES } from "./schema";
+import {
+  INDEXES,
+  applyIndexReadOptions,
+  getIndexKeyPath,
+  matchesIndexRange,
+  sortByIndexOrder,
+  type IndexKey,
+  type IndexReadOptions,
+} from "./indexes";
 
 let dbInstance: IDBDatabase | null = null;
 
-function createSchema(db: IDBDatabase) {
-  if (!db.objectStoreNames.contains(METADATA_STORE)) {
-    db.createObjectStore(METADATA_STORE, { keyPath: "id" });
+/**
+ * Brings one store's indexes up to `INDEXES`.
+ *
+ * Runs on every upgrade, for new *and* pre-existing stores: `createSchema`
+ * only touches stores that are absent, so an install created at an older
+ * DB_VERSION would otherwise keep its object store forever and never gain the
+ * indexes added later. Only missing indexes are created, so this is idempotent
+ * and never rebuilds one that is already populated.
+ */
+function ensureIndexes(store: IDBObjectStore, storeName: string) {
+  const wanted = INDEXES[storeName];
+  if (!wanted) return;
+  for (const [indexName, spec] of Object.entries(wanted)) {
+    if (store.indexNames.contains(indexName)) continue;
+    store.createIndex(indexName, spec.keyPath, { unique: spec.unique === true });
   }
-  if (!db.objectStoreNames.contains(STORES.ITEMS)) {
-    db.createObjectStore(STORES.ITEMS, { keyPath: "id" });
-  }
-  if (!db.objectStoreNames.contains(STORES.EMPLOYEES)) {
-    db.createObjectStore(STORES.EMPLOYEES, { keyPath: "id" });
-  }
-  if (!db.objectStoreNames.contains(STORES.PRODUCTIONS)) {
-    const prodStore = db.createObjectStore(STORES.PRODUCTIONS, { keyPath: "id" });
-    prodStore.createIndex("by_date", "date", { unique: false });
-    prodStore.createIndex("by_employee", "employeeId", { unique: false });
-    prodStore.createIndex("by_item", "itemId", { unique: false });
-    prodStore.createIndex("employee_date", ["employeeId", "date"], {
-      unique: false,
-    });
-  }
-  if (!db.objectStoreNames.contains(STORES.ADVANCES)) {
-    const advStore = db.createObjectStore(STORES.ADVANCES, { keyPath: "id" });
-    advStore.createIndex("by_employee", "employeeId", { unique: false });
-    advStore.createIndex("by_date", "date", { unique: false });
-  }
-  if (!db.objectStoreNames.contains(STORES.ADVANCE_DEDUCTIONS)) {
-    const dedStore = db.createObjectStore(STORES.ADVANCE_DEDUCTIONS, {
-      keyPath: "id",
-    });
-    dedStore.createIndex("by_employee", "employeeId", { unique: false });
-    dedStore.createIndex("employee_period", ["employeeId", "periodFrom"], {
-      unique: true,
-    });
-  }
-  if (!db.objectStoreNames.contains(STORES.SHIFTS)) {
-    db.createObjectStore(STORES.SHIFTS, { keyPath: "id" });
-  }
-  if (!db.objectStoreNames.contains(STORES.SALARY_RECORDS)) {
-    const salStore = db.createObjectStore(STORES.SALARY_RECORDS, {
-      keyPath: "id",
-    });
-    salStore.createIndex("by_employee", "employeeId", { unique: false });
-    salStore.createIndex("by_month", "month", { unique: false });
-  }
-  if (!db.objectStoreNames.contains(STORES.SALARY_SHEET_OVERRIDES)) {
-    db.createObjectStore(STORES.SALARY_SHEET_OVERRIDES, { keyPath: "id" });
-  }
-  if (!db.objectStoreNames.contains(STORES.FACTORY_HOLIDAYS)) {
-    db.createObjectStore(STORES.FACTORY_HOLIDAYS, { keyPath: "id" });
-  }
-  if (!db.objectStoreNames.contains(STORES.ATTENDANCE)) {
-    db.createObjectStore(STORES.ATTENDANCE, { keyPath: "id" });
-  }
-  if (!db.objectStoreNames.contains(STORES.SUNDAY_CATEGORIES)) {
-    db.createObjectStore(STORES.SUNDAY_CATEGORIES, { keyPath: "id" });
-  }
-  if (!db.objectStoreNames.contains(STORES.OPERATOR_NATIONAL_HOLIDAYS)) {
-    db.createObjectStore(STORES.OPERATOR_NATIONAL_HOLIDAYS, { keyPath: "id" });
-  }
-  if (!db.objectStoreNames.contains(STORES.MACHINES)) {
-    db.createObjectStore(STORES.MACHINES, { keyPath: "id" });
-  }
-  if (!db.objectStoreNames.contains(STORES.ITEM_COMBOS)) {
-    db.createObjectStore(STORES.ITEM_COMBOS, { keyPath: "id" });
+}
+
+function createSchema(db: IDBDatabase, tx: IDBTransaction | null) {
+  const allStores = [METADATA_STORE, ...Object.values(STORES)];
+  for (const name of allStores) {
+    const store = db.objectStoreNames.contains(name)
+      ? tx?.objectStore(name)
+      : db.createObjectStore(name, { keyPath: "id" });
+    if (store) ensureIndexes(store, name);
   }
 }
 
@@ -91,7 +62,8 @@ export function openDB(): Promise<IDBDatabase> {
       resolve(dbInstance);
     };
     request.onupgradeneeded = (e) => {
-      createSchema((e.target as IDBOpenDBRequest).result);
+      const req = e.target as IDBOpenDBRequest;
+      createSchema(req.result, req.transaction);
     };
   });
 }
@@ -103,6 +75,140 @@ export function getAll(storeName: string): Promise<Record<string, unknown>[]> {
         const store = getStore(db, storeName);
         const request = store.getAll();
         request.onsuccess = () => resolve(request.result || []);
+        request.onerror = () => reject(request.error);
+      })
+  );
+}
+
+/**
+ * Rows whose index key falls in the inclusive range `[lower, upper]`.
+ *
+ * This is the whole point of declaring the indexes: it reads only the matching
+ * records out of the store instead of deserialising every row in it. Falls back
+ * to a scan if the index is missing, which can happen on a database whose
+ * upgrade transaction was interrupted — a slow answer beats a thrown one.
+ */
+export function getByIndex(
+  storeName: string,
+  indexName: string,
+  lower: IndexKey,
+  upper: IndexKey,
+  options?: IndexReadOptions
+): Promise<Record<string, unknown>[]> {
+  return openDB().then(
+    (db) =>
+      new Promise((resolve, reject) => {
+        const store = getStore(db, storeName);
+        if (!store.indexNames.contains(indexName)) {
+          const keyPath = getIndexKeyPath(storeName, indexName);
+          if (!keyPath) {
+            reject(new Error(`Unknown index ${storeName}.${indexName}`));
+            return;
+          }
+          const scan = store.getAll();
+          scan.onsuccess = () =>
+            resolve(
+              applyIndexReadOptions(
+                sortByIndexOrder(
+                  (scan.result || []).filter((row) =>
+                    matchesIndexRange(row, keyPath, lower, upper)
+                  ),
+                  keyPath
+                ),
+                options
+              )
+            );
+          scan.onerror = () => reject(scan.error);
+          return;
+        }
+        const index = store.index(indexName);
+        const range = IDBKeyRange.bound(lower, upper);
+        if (!options) {
+          const request = index.getAll(range);
+          // Already in index order from IndexedDB itself; nothing to sort.
+          request.onsuccess = () => resolve(request.result || []);
+          request.onerror = () => reject(request.error);
+          return;
+        }
+        // A cursor, not `getAll` plus a slice: `getAll` would structured-clone
+        // the entire range before the caller ever discarded it, which for a
+        // "newest 50 of 146,000" read is the whole cost of the query.
+        const limit = options.limit;
+        if (limit !== undefined && limit <= 0) {
+          resolve([]);
+          return;
+        }
+        let toSkip = Math.max(0, Math.floor(options.offset ?? 0));
+        let skipped = false;
+        const out: Record<string, unknown>[] = [];
+        const request = index.openCursor(
+          range,
+          options.direction === "prev" ? "prev" : "next"
+        );
+        request.onsuccess = () => {
+          const cursor = request.result;
+          if (!cursor) {
+            resolve(out);
+            return;
+          }
+          // `advance(0)` is a TypeError, so the skip is guarded rather than
+          // issued unconditionally.
+          if (!skipped && toSkip > 0) {
+            skipped = true;
+            cursor.advance(toSkip);
+            return;
+          }
+          skipped = true;
+          toSkip = 0;
+          out.push(cursor.value as Record<string, unknown>);
+          if (limit !== undefined && out.length >= limit) {
+            resolve(out);
+            return;
+          }
+          cursor.continue();
+        };
+        request.onerror = () => reject(request.error);
+      })
+  );
+}
+
+/**
+ * How many rows fall in `[lower, upper]`, without deserialising any of them.
+ *
+ * `IDBIndex.count` walks index keys only — no structured clone per record — so
+ * this is what a "how many entries would this prune remove?" question should
+ * cost, rather than reading the log into memory to call `.length` on it.
+ */
+export function countByIndex(
+  storeName: string,
+  indexName: string,
+  lower: IndexKey,
+  upper: IndexKey
+): Promise<number> {
+  return openDB().then(
+    (db) =>
+      new Promise((resolve, reject) => {
+        const store = getStore(db, storeName);
+        if (!store.indexNames.contains(indexName)) {
+          const keyPath = getIndexKeyPath(storeName, indexName);
+          if (!keyPath) {
+            reject(new Error(`Unknown index ${storeName}.${indexName}`));
+            return;
+          }
+          const scan = store.getAll();
+          scan.onsuccess = () =>
+            resolve(
+              (scan.result || []).filter((row) =>
+                matchesIndexRange(row, keyPath, lower, upper)
+              ).length
+            );
+          scan.onerror = () => reject(scan.error);
+          return;
+        }
+        const request = store
+          .index(indexName)
+          .count(IDBKeyRange.bound(lower, upper));
+        request.onsuccess = () => resolve(request.result || 0);
         request.onerror = () => reject(request.error);
       })
   );

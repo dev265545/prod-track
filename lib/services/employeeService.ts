@@ -3,8 +3,27 @@ import {
   getNextEmployeeSortOrder,
   sortEmployeesByCustomOrder,
 } from "@/lib/utils/employeeOrder";
+import { AUDIT_ACTIONS, diffEntity, record as auditRecord } from "./auditService";
+import { nameOnRow, plural } from "./auditNames";
 
 const STORE = STORES.EMPLOYEES;
+
+/**
+ * Employee fields a human would want explained. Deliberately excludes `id`,
+ * `createdAt` and `sortOrder` — internal bookkeeping, not "changes".
+ */
+const EMPLOYEE_AUDIT_FIELDS = [
+  "name",
+  "designation",
+  "monthlySalary",
+  "shiftId",
+  "sundayCategoryId",
+  "employeeType",
+  "employeeTypeConfirmed",
+  "requiredPresentDays",
+  "sundayMultiplier",
+  "isActive",
+] as const;
 
 export async function getEmployees(
   activeOnly = false
@@ -36,9 +55,15 @@ export async function getEmployee(
  * - `sundayMultiplier?: number` - operator-only. Pay multiplier applied for Sunday work,
  *   e.g. 1.2 or 1.5.
  */
-export async function saveEmployee(
+/**
+ * Write an employee without auditing it. For bulk paths (the employee-type
+ * backfill) that write one summary entry with a count instead of one entry
+ * per person.
+ */
+export async function saveEmployeeSilently(
   emp: Record<string, unknown>
-): Promise<Record<string, unknown>> {
+): Promise<{ row: Record<string, unknown>; before: Record<string, unknown> | null }> {
+  let before: Record<string, unknown> | null = null;
   if (!emp.id) {
     const existingEmployees = await getAll(STORE);
     emp.id =
@@ -47,10 +72,47 @@ export async function saveEmployee(
     if (emp.sortOrder === undefined) {
       emp.sortOrder = getNextEmployeeSortOrder(existingEmployees);
     }
+  } else {
+    before = await get(STORE, emp.id as string);
   }
   if (emp.isActive === undefined) emp.isActive = true;
   await put(STORE, emp);
-  return emp;
+  return { row: emp, before };
+}
+
+export async function saveEmployee(
+  emp: Record<string, unknown>
+): Promise<Record<string, unknown>> {
+  const { row, before } = await saveEmployeeSilently(emp);
+  const changes = diffEntity(before, row, EMPLOYEE_AUDIT_FIELDS);
+  const who = nameOnRow(row, "An employee");
+  const typeChanged = changes.some((c) => c.field === "employeeType");
+  if (!before) {
+    void auditRecord(
+      AUDIT_ACTIONS.employeeCreate,
+      "employees",
+      row.id as string,
+      `${who} was added to the employee list`,
+      changes,
+    );
+  } else if (typeChanged) {
+    void auditRecord(
+      AUDIT_ACTIONS.employeeTypeChange,
+      "employees",
+      row.id as string,
+      `${who} was changed to the ${row.employeeType} job type`,
+      changes,
+    );
+  } else {
+    void auditRecord(
+      AUDIT_ACTIONS.employeeUpdate,
+      "employees",
+      row.id as string,
+      `Details for ${who} were updated`,
+      changes,
+    );
+  }
+  return row;
 }
 
 export async function saveEmployeeSortOrder(
@@ -71,8 +133,25 @@ export async function saveEmployeeSortOrder(
       });
     }),
   );
+
+  // One entry for the whole drag, never one per row that shifted.
+  void auditRecord(
+    AUDIT_ACTIONS.employeeReorder,
+    "employees",
+    null,
+    `The employee list was reordered (${plural(orderedEmployeeIds.length, "person", "people")})`,
+    { count: orderedEmployeeIds.length },
+  );
 }
 
 export async function deleteEmployee(id: string): Promise<void> {
+  const before = await get(STORE, id);
   await remove(STORE, id);
+  void auditRecord(
+    AUDIT_ACTIONS.employeeDelete,
+    "employees",
+    id,
+    `${nameOnRow(before, "An employee")} was removed from the employee list`,
+    diffEntity(before, null, EMPLOYEE_AUDIT_FIELDS),
+  );
 }

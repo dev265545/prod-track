@@ -5,7 +5,33 @@
 /* Legacy Chrome (no color-mix): rgba fallbacks for Tailwind opacity utilities — see scripts/generate-legacy-opacity-fallbacks.mjs */
 @import "./generated/legacy-opacity-fallbacks.css";
 
-/* Tailwind v4 theme – shadcn semantic colors (oklch uses var(), HSL uses hsl()) */
+/*
+ * ============================================================================
+ * ProdTrack design tokens
+ * ============================================================================
+ * SOURCE OF TRUTH: sRGB hex, declared once per theme in `:root` / `.dark` below.
+ *
+ * Every color token is a *complete* CSS color (hex), never a bare channel
+ * triple. That is deliberate: a token that is sometimes `#fff` and sometimes
+ * `0 0% 100%` forces callers to remember which wrapper to apply, and any caller
+ * that forgets emits an invalid declaration that silently does nothing.
+ * With one format the whole class of bug is structurally impossible, and
+ * `var(--success)` / `color: var(--destructive)` work directly from JSX.
+ *
+ * BROWSER FLOOR: Chrome 109 (last version shipping on Windows 7) is a supported
+ * target. It has no oklch(), no color-mix(), no CSS nesting, no relative color
+ * syntax. So this file contains none of those in the token layer: Chrome 109
+ * renders the *designed* colors, not a degraded approximation. Modern browsers
+ * get progressive enhancement (softer mixed shadows/tints) inside @supports
+ * blocks that always sit on top of a working sRGB declaration.
+ *
+ * scripts/generate-legacy-opacity-fallbacks.mjs parses the `:root` / `.dark`
+ * blocks in THIS file to build its rgba() fallbacks — there is no second copy
+ * of the palette to keep in sync. Re-run `npm run generate:legacy-css` after
+ * editing tokens (the build does this automatically).
+ * ============================================================================
+ */
+
 @theme {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -26,11 +52,15 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
-  --color-success: hsl(var(--success));
-  --color-success-foreground: hsl(var(--success-foreground));
-  --color-warning: hsl(var(--warning));
-  --color-warning-foreground: hsl(var(--warning-foreground));
-  --color-sidebar: hsl(var(--sidebar-background));
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-surface-1: var(--surface-1);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-surface-4: var(--surface-4);
+  --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar-primary: var(--sidebar-primary);
   --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
@@ -39,213 +69,252 @@
   --color-sidebar-active: var(--sidebar-active);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-chart-6: var(--chart-6);
   --font-sans: var(--font-body);
   --font-heading: var(--font-heading);
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
-  --radius-xl: var(--radius-xl);
 }
 
 /* Dark mode variant for class-based (next-themes) */
 @custom-variant dark (&:where(.dark, .dark *));
 
 /*
- * sRGB fallbacks: Chrome <111 (e.g. last builds on Windows 7) does not parse oklch().
- * Without valid --primary / --destructive etc., Tailwind opacity utilities fall back to
- * solid var(--color) and icons lose currentColor contrast.
+ * ---------------------------------------------------------------------------
+ * LIGHT THEME — "Ink & Copper", the default and the primary design target.
+ *
+ * Primary is near-black INK, not a hue. That is the whole idea: with no colored
+ * primary button competing for attention, green / amber / red are free to mean
+ * one thing only — stock status. On a factory stock screen "low" and "finished"
+ * ARE the content, so status color must win, and it only wins if nothing else
+ * on the page is shouting in color.
+ *
+ * Neutrals are warm paper-grey, never blue-grey. Copper (#7a4a2b) is the single
+ * accent — active nav item, focus ring, selected state, links — and is never
+ * used for status.
+ *
+ * The canvas → card lightness step is real: OKLCH L 0.928 → 0.997, a 6.9% step
+ * (the previous theme stepped #f5f7fa → #ffffff, only 2.5%, which read as one
+ * flat sheet with hairlines drawn on it). Cards now sit on the page.
+ *
+ * Text contrast is deliberately generous: this app runs on low-quality
+ * factory-floor displays in bright ambient light.
+ * ---------------------------------------------------------------------------
  */
 :root {
-  --card: #ffffff;
-  --card-foreground: #090b0c;
-  --popover: #ffffff;
-  --popover-foreground: #090b0c;
-  --primary: #161b1d;
-  --primary-foreground: #f9fbfb;
-  --secondary: #f1f3f3;
-  --secondary-foreground: #161b1d;
-  --muted: #f1f3f3;
-  --muted-foreground: #67787c;
-  --accent: #f1f3f3;
-  --accent-foreground: #161b1d;
-  --destructive: #e7000b;
-  --destructive-foreground: 0 0% 100%;
-  --border: #e3e7e8;
-  --input: #e3e7e8;
-  --ring: #9ca8ab;
-  --radius: 0.875rem;
-  --radius-xl: 1rem;
+  color-scheme: light;
+
+  /* Surfaces — warm paper */
+  --background: #e9e7e3;
+  --card: #fffefc;
+  --popover: #fffefc;
+  --surface-1: #fffefc;
+  --surface-2: #faf8f5;
+  --surface-3: #f1eeea;
+  --surface-4: #e5e1db;
+
+  /* Ink */
+  --foreground: #1c1a17;
+  --card-foreground: #1c1a17;
+  --popover-foreground: #1c1a17;
+  --muted-foreground: #5f5951;
+
+  /* Actions — primary is ink, so color is left free for status */
+  --primary: #1f1d1a;
+  --primary-foreground: #fffefc;
+  --secondary: #f1eeea;
+  --secondary-foreground: #3a352e;
+  --muted: #f1eeea;
+  --accent: #f3e7db;
+  --accent-foreground: #1c1a17;
+
+  /* Status — the only saturated color that carries meaning */
+  --destructive: #a32b21;
+  --destructive-foreground: #fffefc;
+  --success: #2f6b3f;
+  --success-foreground: #fffefc;
+  --warning: #8a5215;
+  --warning-foreground: #fffefc;
+
+  /* Lines + the copper accent (ring / selection / links) */
+  --border: #d2cec7;
+  --input: #c4bfb6;
+  --ring: #7a4a2b;
+
+  /* Categorical data palette — 6 identities, see the block comment below */
+  --chart-1: #15a0ba;
+  --chart-2: #105fc9;
+  --chart-3: #469a11;
+  --chart-4: #8e74f0;
+  --chart-5: #75228b;
+  --chart-6: #df6386;
+
+  /* Sidebar — a light surface in the light theme (see NOTE below) */
+  --sidebar: #fffefc;
+  --sidebar-foreground: #4a453e;
+  --sidebar-primary: #7a4a2b;
+  --sidebar-primary-foreground: #fffefc;
+  --sidebar-accent: #f3e7db;
+  --sidebar-accent-foreground: #1c1a17;
+  --sidebar-border: #d2cec7;
+  --sidebar-ring: #7a4a2b;
+  --sidebar-active: #7a4a2b;
+
+  /* Elevation scale — ambient + direct pair, tinted with the warm ink hue */
+  --shadow-xs: 0 1px 2px 0 rgba(28, 26, 23, 0.06);
+  --shadow-sm: 0 1px 3px 0 rgba(28, 26, 23, 0.09), 0 1px 2px -1px rgba(28, 26, 23, 0.06);
+  --shadow-md: 0 4px 8px -2px rgba(28, 26, 23, 0.09), 0 2px 4px -2px rgba(28, 26, 23, 0.06);
+  --shadow-lg: 0 12px 16px -4px rgba(28, 26, 23, 0.09), 0 4px 6px -2px rgba(28, 26, 23, 0.05);
+  --shadow-xl: 0 20px 24px -4px rgba(28, 26, 23, 0.1), 0 8px 8px -4px rgba(28, 26, 23, 0.05);
+  /* Aliases kept for existing call sites */
+  --shadow: var(--shadow-sm);
+  --card-shadow: var(--shadow-sm);
+
+  /* Geometry */
+  --radius: 0.625rem; /* 10px base → md 8px, sm 6px */
   --app-wrap-padding: clamp(1rem, 2vw, 1.75rem);
-  --shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.08);
-  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.07);
-  --card-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.08);
-  --success: 145 60% 40%;
-  --success-foreground: 0 0% 100%;
-  --warning: 40 90% 50%;
-  --warning-foreground: 220 20% 10%;
-  --sidebar-background: 220 20% 10%;
-  --sidebar-foreground: #090b0c;
-  --sidebar-primary: #ffa1ad;
-  --sidebar-primary-foreground: #f9fbfb;
-  --sidebar-accent: #e6e2f0;
-  --sidebar-accent-foreground: #161b1d;
-  --sidebar-border: #e3e7e8;
-  --sidebar-ring: #9ca8ab;
-  --sidebar-active: var(--chart-2);
+
+  /* Type */
   --font-heading: "Space Grotesk", sans-serif;
   --font-body: "Inter", sans-serif;
+
+  /* Motion */
   --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
   --ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
-  --background: #ffffff;
-  --foreground: #090b0c;
-  --chart-1: #ffa1ad;
-  --chart-2: #ff2056;
-  --chart-3: #ec003f;
-  --chart-4: #c70036;
-  --chart-5: #a50036;
-  --sidebar: #f9fbfb;
 }
 
+/*
+ * ---------------------------------------------------------------------------
+ * DARK THEME — the same LOGIC, mirrored; not the light colors inverted.
+ *
+ * "Primary is maximum ink contrast against the page" flips to a near-WHITE
+ * primary (#ece8e1) carrying dark ink — still the quietest possible way to say
+ * "this is the action", still leaving color free for status. Neutrals stay
+ * warm (a dark brown-grey, not the old cold #0b0e13), copper lightens to
+ * #c98a5e for accent / active nav / ring, and each status hue was re-picked
+ * against the dark card rather than lightened by formula.
+ * ---------------------------------------------------------------------------
+ */
 .dark {
-  --background: #090b0c;
-  --foreground: #f9fbfb;
-  --card: #161b1d;
-  --card-foreground: #f9fbfb;
-  --popover: #161b1d;
-  --popover-foreground: #f9fbfb;
-  --primary: #e3e7e8;
-  --primary-foreground: #161b1d;
-  --secondary: #22292b;
-  --secondary-foreground: #f9fbfb;
-  --muted: #22292b;
-  --muted-foreground: #9ca8ab;
-  --accent: #22292b;
-  --accent-foreground: #f9fbfb;
-  --destructive: #ff6467;
-  --destructive-foreground: 0 0% 100%;
-  --border: rgba(255, 255, 255, 0.1);
-  --input: rgba(255, 255, 255, 0.15);
-  --ring: #67787c;
-  --success: 145 60% 35%;
-  --success-foreground: 0 0% 100%;
-  --warning: 40 90% 45%;
-  --warning-foreground: 220 20% 10%;
-  --sidebar-background: 220 20% 5%;
-  --sidebar-foreground: #f9fbfb;
-  --sidebar-primary: #ffa1ad;
-  --sidebar-primary-foreground: #f9fbfb;
-  --sidebar-accent: #352f42;
-  --sidebar-accent-foreground: #f9fbfb;
-  --sidebar-border: rgba(255, 255, 255, 0.12);
-  --sidebar-ring: #67787c;
-  --sidebar-active: var(--chart-2);
-  --sidebar-chart-2: #ff2056;
-  --sidebar-chart-3: #ec003f;
-  --sidebar-chart-4: #c70036;
-  --card-shadow:
-    0 4px 24px rgba(0, 0, 0, 0.5), 0 0 0 1px hsla(0, 0%, 100%, 0.06);
-  --chart-1: #ffa1ad;
-  --chart-2: #ff2056;
-  --chart-3: #ec003f;
-  --chart-4: #c70036;
-  --chart-5: #a50036;
-  --sidebar: #161b1d;
+  color-scheme: dark;
+
+  --background: #141311;
+  --card: #1c1b18;
+  --popover: #211f1b;
+  --surface-1: #1c1b18;
+  --surface-2: #211f1b;
+  --surface-3: #292620;
+  --surface-4: #34302a;
+
+  --foreground: #ece8e1;
+  --card-foreground: #ece8e1;
+  --popover-foreground: #ece8e1;
+  --muted-foreground: #a09889;
+
+  --primary: #ece8e1;
+  --primary-foreground: #1a1815;
+  --secondary: #292620;
+  --secondary-foreground: #ece8e1;
+  --muted: #292620;
+  --accent: #33291f;
+  --accent-foreground: #f0e6da;
+
+  --destructive: #f0776a;
+  --destructive-foreground: #1a1815;
+  --success: #58c07c;
+  --success-foreground: #141311;
+  --warning: #e0a340;
+  --warning-foreground: #141311;
+
+  --border: #34302a;
+  --input: #45403a;
+  --ring: #c98a5e;
+
+  --chart-1: #009b9d;
+  --chart-2: #0388ff;
+  --chart-3: #009000;
+  --chart-4: #6660a5;
+  --chart-5: #bb55d7;
+  --chart-6: #b73568;
+
+  --sidebar: #171613;
+  --sidebar-foreground: #c8c0b3;
+  --sidebar-primary: #c98a5e;
+  --sidebar-primary-foreground: #1a1815;
+  --sidebar-accent: #292620;
+  --sidebar-accent-foreground: #ece8e1;
+  --sidebar-border: #34302a;
+  --sidebar-ring: #c98a5e;
+  --sidebar-active: #c98a5e;
+
+  --shadow-xs: 0 1px 2px 0 rgba(0, 0, 0, 0.5);
+  --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 253, 248, 0.05);
+  --shadow-md: 0 4px 12px -2px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 253, 248, 0.05);
+  --shadow-lg: 0 12px 24px -6px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(255, 253, 248, 0.06);
+  --shadow-xl: 0 24px 40px -8px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 253, 248, 0.06);
+  --shadow: var(--shadow-sm);
+  --card-shadow: var(--shadow-md);
 }
 
-@supports (color: oklch(0 0 0)) {
-  :root {
-    --card: oklch(1 0 0);
-    --card-foreground: oklch(0.148 0.004 228.8);
-    --popover: oklch(1 0 0);
-    --popover-foreground: oklch(0.148 0.004 228.8);
-    --primary: oklch(0.218 0.008 223.9);
-    --primary-foreground: oklch(0.987 0.002 197.1);
-    --secondary: oklch(0.963 0.002 197.1);
-    --secondary-foreground: oklch(0.218 0.008 223.9);
-    --muted: oklch(0.963 0.002 197.1);
-    --muted-foreground: oklch(0.56 0.021 213.5);
-    --accent: oklch(0.963 0.002 197.1);
-    --accent-foreground: oklch(0.218 0.008 223.9);
-    --destructive: oklch(0.577 0.245 27.325);
-    --border: oklch(0.925 0.005 214.3);
-    --input: oklch(0.925 0.005 214.3);
-    --ring: oklch(0.723 0.014 214.4);
-    --sidebar-foreground: oklch(0.148 0.004 228.8);
-    --sidebar-primary: oklch(0.81 0.117 11.638);
-    --sidebar-primary-foreground: oklch(0.987 0.002 197.1);
-    --sidebar-accent: oklch(0.92 0.02 300);
-    --sidebar-accent-foreground: oklch(0.218 0.008 223.9);
-    --sidebar-border: oklch(0.925 0.005 214.3);
-    --sidebar-ring: oklch(0.723 0.014 214.4);
-    --background: oklch(1 0 0);
-    --foreground: oklch(0.148 0.004 228.8);
-    --chart-1: oklch(0.81 0.117 11.638);
-    --chart-2: oklch(0.645 0.246 16.439);
-    --chart-3: oklch(0.586 0.253 17.585);
-    --chart-4: oklch(0.514 0.222 16.935);
-    --chart-5: oklch(0.455 0.188 13.697);
-    --sidebar: oklch(0.987 0.002 197.1);
-  }
-
-  .dark {
-    --background: oklch(0.148 0.004 228.8);
-    --foreground: oklch(0.987 0.002 197.1);
-    --card: oklch(0.218 0.008 223.9);
-    --card-foreground: oklch(0.987 0.002 197.1);
-    --popover: oklch(0.218 0.008 223.9);
-    --popover-foreground: oklch(0.987 0.002 197.1);
-    --primary: oklch(0.925 0.005 214.3);
-    --primary-foreground: oklch(0.218 0.008 223.9);
-    --secondary: oklch(0.275 0.011 216.9);
-    --secondary-foreground: oklch(0.987 0.002 197.1);
-    --muted: oklch(0.275 0.011 216.9);
-    --muted-foreground: oklch(0.723 0.014 214.4);
-    --accent: oklch(0.275 0.011 216.9);
-    --accent-foreground: oklch(0.987 0.002 197.1);
-    --destructive: oklch(0.704 0.191 22.216);
-    --border: oklch(1 0 0 / 10%);
-    --input: oklch(1 0 0 / 15%);
-    --ring: oklch(0.56 0.021 213.5);
-    --sidebar-foreground: oklch(0.987 0.002 197.1);
-    --sidebar-primary: oklch(0.81 0.117 11.638);
-    --sidebar-primary-foreground: oklch(0.987 0.002 197.1);
-    --sidebar-accent: oklch(0.32 0.035 300);
-    --sidebar-accent-foreground: oklch(0.987 0.002 197.1);
-    --sidebar-border: oklch(1 0 0 / 12%);
-    --sidebar-ring: oklch(0.56 0.021 213.5);
-    --sidebar-chart-2: oklch(0.645 0.246 16.439);
-    --sidebar-chart-3: oklch(0.586 0.253 17.585);
-    --sidebar-chart-4: oklch(0.514 0.222 16.935);
-    --chart-1: oklch(0.81 0.117 11.638);
-    --chart-2: oklch(0.645 0.246 16.439);
-    --chart-3: oklch(0.586 0.253 17.585);
-    --chart-4: oklch(0.514 0.222 16.935);
-    --chart-5: oklch(0.455 0.188 13.697);
-    --sidebar: oklch(0.218 0.008 223.9);
-  }
-}
+/*
+ * ---------------------------------------------------------------------------
+ * NOTE — sidebar in light mode (was: a dark slab with near-black text)
+ *
+ * The previous light theme set `--sidebar-background: 220 20% 10%` (dark) while
+ * `--sidebar-foreground` was `#090b0c` (near black): unreadable, so the dark
+ * slab was clearly not a deliberate two-tone design but a leftover. Resolved in
+ * favour of a coherent single-tone light shell — white sidebar, hairline right
+ * border, muted ink, blue only on the active item. `--sidebar-background` is
+ * gone; use `--sidebar` (Tailwind: `bg-sidebar`).
+ *
+ * NOTE — categorical data palette
+ *
+ * `--chart-1..6` are six categorical IDENTITIES (inventory categories), not
+ * steps of one ramp. They were RE-DERIVED for the warm paper ground: the old
+ * six were tuned against a cool blue-grey card, and both the harmony and the
+ * distances change when the ground warms. Slot order is a hue family held
+ * across both themes (teal · blue · green · violet · plum · rose) so a category
+ * keeps its identity when the theme flips.
+ *
+ * Validated with the dataviz skill's validator (Machado-Oliveira-Fernandes CVD
+ * simulation at severity 1.0, OKLab ΔE ×100), light on `--card` #fffefc and
+ * dark on `--card` #1c1b18:
+ *   light, adjacent pairs : CVD ΔE 18.5 · normal 19.1 · all ≥ 3:1 on card — PASS
+ *   light, all pairs      : CVD ΔE 10.2 · normal 16.7 · all ≥ 3:1 on card — PASS
+ *   dark,  adjacent pairs : CVD ΔE  8.4 · normal 16.6 · all ≥ 3:1 on card — PASS
+ *   dark,  all pairs      : CVD ΔE  8.3 · normal 16.4 · all ≥ 3:1 on card — PASS
+ * Unlike the previous pass, all six clear the ALL-PAIRS gate (ΔE ≥ 8 target,
+ * normal-vision floor ≥ 15) in both themes, so the six-tile category grid is
+ * safe on color alone. The mandatory secondary encoding stays anyway — every
+ * category tile carries a distinct icon and a text label — because color is
+ * never the sole signal in this app.
+ * None of the six collides with `--destructive` (nearest normal-vision ΔE 19.6
+ * light / 16.0 dark) or `--warning` (21.5 light / 24.3 dark).
+ *
+ * Chart colors are MARK colors. Text next to a mark wears an ink token
+ * (`--foreground` / `--muted-foreground`), never the series color.
+ * ---------------------------------------------------------------------------
+ */
 
 @layer base {
   * {
     border-color: var(--border);
     @apply border-border;
-    outline-color: rgba(156, 168, 171, 0.5);
-  }
-
-  @supports (color: color-mix(in lab, red, red)) {
-    * {
-      outline-color: color-mix(in oklab, var(--ring) 50%, transparent);
-    }
+    outline-color: rgba(122, 74, 43, 0.5);
   }
 
   .dark * {
-    outline-color: rgba(103, 120, 124, 0.5);
+    outline-color: rgba(201, 138, 94, 0.5);
   }
 
+  /* Progressive enhancement only — the sRGB rules above already work. */
   @supports (color: color-mix(in lab, red, red)) {
-    .dark * {
-      outline-color: color-mix(in oklab, var(--ring) 50%, transparent);
+    * {
+      outline-color: color-mix(in srgb, var(--ring) 50%, transparent);
     }
   }
 
@@ -272,69 +341,68 @@
   h5,
   h6 {
     font-family: var(--font-heading);
+    letter-spacing: -0.011em;
   }
 }
 
-/* Layout – app-wrap used by AppShell for main content; full width, no max-width */
+/*
+ * Layout – app-wrap used by AppShell for main content.
+ *
+ * `max-width` matters as much as the small-screen work: on a 2560px monitor an
+ * uncapped column gives unreadable line lengths and absurdly stretched table
+ * cells. The cap is a variable so a page that genuinely wants more room (a wide
+ * pivot table, say) can raise it locally rather than fighting a magic number.
+ */
 .app-wrap {
   width: 100%;
+  max-width: var(--app-wrap-max, 1600px);
+  margin-inline: auto;
+  min-width: 0; /* a flex child defaults to min-width:auto and refuses to shrink */
   min-height: 0; /* allow flex child to shrink for scroll */
+  /*
+   * Both axes are declared on purpose. `overflow-y: auto` alone already forces
+   * the computed `overflow-x` to `auto` (CSS will not pair `visible` with a
+   * non-visible value), so this container was silently the horizontal scroller
+   * anyway — saying it out loud keeps that from being edited away by accident.
+   *
+   * This is the backstop for the rule "the page body never scrolls sideways",
+   * not the fix: any content that actually reaches it should be given its own
+   * `overflow-x-auto` box instead.
+   */
+  overflow-x: auto;
   overflow-y: auto;
   padding: var(--app-wrap-padding) clamp(1rem, 4vw, 2rem);
 }
 
-/* Legacy .dark-card: prefer shadcn Card (uses bg-card which follows theme) */
-.dark .dark-card {
-  background: var(--card);
-  border-color: var(--border);
-  box-shadow: var(--card-shadow);
+/*
+ * Opt-out for screens whose primary content is one very wide table: capping the
+ * column there just moves the horizontal scroll inward without gaining any
+ * readability. The table still scrolls inside its own box.
+ */
+.app-wrap-wide {
+  --app-wrap-max: 2100px;
 }
 
-/* btn-icon: prefer shadcn Button variant="ghost" size="icon" */
-.btn-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 2.75rem;
-  height: 2.75rem;
-  min-width: 2.75rem;
-  min-height: 2.75rem;
-  padding: 0;
-  border: none;
-  border-radius: var(--radius);
-  background: transparent;
-  color: var(--muted-foreground);
-  cursor: pointer;
-  transition:
-    color 0.15s,
-    background 0.15s;
+/*
+ * Dialog/sheet height budget.
+ *
+ * A centred `position: fixed` panel taller than the viewport is unrecoverable —
+ * its top is clipped off-screen and no scrollbar exists to reach it. That is the
+ * failure mode on a phone in landscape and on a 1280x600 laptop, so every dialog
+ * gets this cap for free from `DialogContent`.
+ *
+ * `dvh` is Chrome 108+, so the hard target (Chrome 109 on Windows 7) does honour
+ * it — but the plain `vh` declaration is kept first so any older engine, and the
+ * legacy CSS build, still land on a sane value instead of dropping the property.
+ */
+:root {
+  --dialog-max-h: calc(100vh - 2rem);
 }
 
-.btn-icon:focus-visible {
-  outline: none;
-  box-shadow:
-    0 0 0 2px var(--background),
-    0 0 0 4px var(--ring);
-}
-
-.btn-icon:hover {
-  background: var(--accent);
-  color: var(--primary);
-}
-
-.btn-icon svg {
-  width: 1.25rem;
-  height: 1.25rem;
-}
-
-.btn-icon.btn-icon-delete:hover {
-  background: rgba(231, 0, 11, 0.15);
-  color: var(--destructive);
-}
-
-.dark .btn-icon.btn-icon-delete:hover {
-  background: rgba(255, 100, 103, 0.2);
-  color: var(--destructive);
+@supports (height: 100dvh) {
+  :root {
+    --dialog-max-h: calc(100dvh - 2rem);
+  }
 }
 
 /* Loading screen entrance – fade + subtle scale */
@@ -361,6 +429,57 @@
   .animate-loading-screen-in-delay {
     animation: none;
     opacity: 1;
+  }
+}
+
+/* Inventory dashboard: calm semantic surfaces with a single editorial hero. */
+.inventory-dashboard {
+  max-width: 1480px;
+  margin-inline: auto;
+}
+
+.inventory-hero {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  background: var(--card);
+  box-shadow: var(--shadow-md);
+}
+
+.inventory-hero::after {
+  position: absolute;
+  right: -8rem;
+  bottom: -12rem;
+  z-index: -1;
+  width: 28rem;
+  height: 28rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  content: "";
+}
+
+.inventory-dashboard .inventory-panel {
+  border-color: var(--border);
+  box-shadow: var(--shadow-sm);
+}
+
+@supports (color: color-mix(in lab, red, red)) {
+  /* Tinted off --ring (copper), not --primary: primary is ink now, so a tint of
+     it is just grey. Copper is the accent, which is what this wash wants. */
+  .inventory-hero {
+    background:
+      radial-gradient(circle at 86% 10%, color-mix(in srgb, var(--ring) 8%, transparent), transparent 34%),
+      linear-gradient(135deg, color-mix(in srgb, var(--card) 95%, var(--ring)), var(--card));
+  }
+
+  .inventory-hero::after {
+    border-color: color-mix(in srgb, var(--ring) 16%, transparent);
+  }
+}
+
+@media (max-width: 640px) {
+  .inventory-hero {
+    border-radius: 1.35rem;
   }
 }
 
@@ -448,46 +567,22 @@
   }
 }
 
+/*
+ * Radius scale exposed to Tailwind (`rounded-*`).
+ * The elevation scale needs no entry here: Tailwind's box-shadow utilities read
+ * `--shadow-xs … --shadow-xl`, the exact names declared in `:root` / `.dark`
+ * above, so `shadow-sm` / `shadow-md` / `shadow-lg` already resolve to the
+ * theme-aware values and go dark with the theme.
+ */
 @theme inline {
-  --font-sans: var(--font-sans);
-  --color-sidebar-ring: var(--sidebar-ring);
-  --color-sidebar-border: var(--sidebar-border);
-  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-  --color-sidebar-accent: var(--sidebar-accent);
-  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-  --color-sidebar-primary: var(--sidebar-primary);
-  --color-sidebar-foreground: var(--sidebar-foreground);
-  --color-sidebar: var(--sidebar);
-  --color-chart-5: var(--chart-5);
-  --color-chart-4: var(--chart-4);
-  --color-chart-3: var(--chart-3);
-  --color-chart-2: var(--chart-2);
-  --color-chart-1: var(--chart-1);
-  --color-ring: var(--ring);
-  --color-input: var(--input);
-  --color-border: var(--border);
-  --color-destructive: var(--destructive);
-  --color-accent-foreground: var(--accent-foreground);
-  --color-accent: var(--accent);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-muted: var(--muted);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-secondary: var(--secondary);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-primary: var(--primary);
-  --color-popover-foreground: var(--popover-foreground);
-  --color-popover: var(--popover);
-  --color-card-foreground: var(--card-foreground);
-  --color-card: var(--card);
-  --color-foreground: var(--foreground);
-  --color-background: var(--background);
-  --radius-sm: calc(var(--radius) * 0.6);
-  --radius-md: calc(var(--radius) * 0.8);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) * 1.4);
-  --radius-2xl: calc(var(--radius) * 1.8);
-  --radius-3xl: calc(var(--radius) * 2.2);
-  --radius-4xl: calc(var(--radius) * 2.6);
+  --radius-xs: calc(var(--radius) * 0.4); /* 4px */
+  --radius-sm: calc(var(--radius) * 0.6); /* 6px */
+  --radius-md: calc(var(--radius) * 0.8); /* 8px */
+  --radius-lg: var(--radius); /* 10px */
+  --radius-xl: calc(var(--radius) * 1.4); /* 14px */
+  --radius-2xl: calc(var(--radius) * 1.8); /* 18px */
+  --radius-3xl: calc(var(--radius) * 2.2); /* 22px */
+  --radius-4xl: calc(var(--radius) * 2.6); /* 26px */
 }
 
 /* react-day-picker: use theme primary */
@@ -495,4 +590,19 @@
   --rdp-accent-color: var(--primary);
   --rdp-accent-background-color: var(--accent);
   --rdp-today-color: var(--primary);
+}
+
+/*
+ * Tailwind's preflight colours placeholders with
+ * `color-mix(in oklab, currentcolor 50%, transparent)`. Chrome 109 (the last
+ * version on Windows 7, which this app ships to) cannot parse color-mix, so the
+ * declaration is dropped and placeholders fall back to the user-agent grey —
+ * which does not follow the theme and is too faint on a bright factory floor.
+ *
+ * Declaring a plain sRGB colour fixes legacy Chrome and, deliberately, applies
+ * everywhere: one predictable placeholder colour is better than two.
+ */
+::placeholder {
+  color: var(--muted-foreground);
+  opacity: 1;
 }

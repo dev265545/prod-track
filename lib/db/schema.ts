@@ -5,7 +5,7 @@
 
 export const DB_NAME = "prodtrack-db";
 /** Bump when IndexedDB layout or SQLite migrations need to run (keep in sync with Tauri `CURRENT_SCHEMA_VERSION`). */
-export const DB_VERSION = 8;
+export const DB_VERSION = 12;
 
 /** SQLite / IndexedDB table for `_schema`, `_app`, and other internal rows (not part of JSON export stores). */
 export const METADATA_STORE = "_metadata";
@@ -25,6 +25,10 @@ export const STORES = {
   OPERATOR_NATIONAL_HOLIDAYS: "operator_national_holidays",
   MACHINES: "machines",
   ITEM_COMBOS: "item_combos",
+  INVENTORY_ITEMS: "inventory_items",
+  INVENTORY_MOVEMENTS: "inventory_movements",
+  /** Append-only security/audit trail. Never cleared by `clearAllData()`. */
+  AUDIT_LOG: "audit_log",
 } as const;
 
 export type StoreName = (typeof STORES)[keyof typeof STORES];

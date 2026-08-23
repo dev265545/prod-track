@@ -37,27 +37,20 @@ export function getSqlJsModule(): Promise<SqlJsModule> {
   if (!sqlJsPromise) {
     sqlJsPromise = (async () => {
       const initSqlJs = (await import("sql.js")).default;
-      const useLocalWasm =
-        process.env.NEXT_PUBLIC_DB_BACKEND === "sqlite-file";
 
-      if (useLocalWasm) {
-        const wasmName = "sql-wasm.wasm";
-        const wasmUrl = new URL(`/wasm/${wasmName}`, window.location.href).href;
-        const res = await fetch(wasmUrl, { cache: "no-store" });
-        if (!res.ok) {
-          throw new Error(
-            `Could not load ${wasmName} (${res.status}). Ensure web/wasm/${wasmName} exists (run npm run build:web-sqlite and npm run pack-portable).`
-          );
-        }
-        const wasmBinary = await res.arrayBuffer();
-        const SQL = await initSqlJs({ wasmBinary });
-        return SQL as unknown as SqlJsModule;
+      // Always same-origin: the app must work fully offline / air-gapped, so
+      // there is no CDN fallback. `npm run build` copies the wasm into
+      // public/wasm via scripts/copy-sql-wasm.mjs.
+      const wasmName = "sql-wasm.wasm";
+      const wasmUrl = new URL(`/wasm/${wasmName}`, window.location.href).href;
+      const res = await fetch(wasmUrl, { cache: "no-store" });
+      if (!res.ok) {
+        throw new Error(
+          `Could not load ${wasmName} (${res.status}) from ${wasmUrl}. This build is offline-only and has no CDN fallback. Run "npm run copy-sql-wasm" so public/wasm/${wasmName} exists, then rebuild (npm run build / build:web-sqlite and npm run pack-portable).`
+        );
       }
-
-      const SQL = await initSqlJs({
-        locateFile: (file: string) =>
-          `https://sql.js.org/dist/${file}`,
-      });
+      const wasmBinary = await res.arrayBuffer();
+      const SQL = await initSqlJs({ wasmBinary });
       return SQL as unknown as SqlJsModule;
     })();
   }
